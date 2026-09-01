@@ -1,11 +1,11 @@
 # LUT Timetable (Jadwal Kuliah)
 
-Aplikasi jadwal kuliah lintas platform (Windows + Android) untuk mahasiswa LUT/LAB — dibangun dengan React + TypeScript + Vite, dikemas dengan Capacitor (Android) dan Tauri (Windows).
+Aplikasi jadwal kuliah lintas platform (Windows + Android) untuk mahasiswa LUT/LAB — dibangun dengan React + TypeScript + Vite, dikemas dengan Capacitor (Android) dan Electron (Windows).
 
 > **Catatan**: Versi web (GitHub Pages) sudah **tidak digunakan** — SISU ICS tidak
 > mengirim header CORS sehingga sinkronisasi di browser bergantung pada proxy
 > publik yang tidak stabil. Gunakan aplikasi native (Android APK / Windows installer)
-> yang berjalan via `CapacitorHttp` tanpa batasan CORS.
+> yang berjalan via `CapacitorHttp` atau `lut-proxy://` di Electron tanpa batasan CORS.
 
 ## Fitur
 
@@ -33,13 +33,11 @@ npx cap sync android   # wajib agar plugin Local Notifications terpasang
 npx cap open android   # buka di Android Studio → Run
 ```
 
-## Build Windows (Tauri v2)
-
-Konfigurasi sudah siap di `src-tauri/`. Butuh [Rust toolchain](https://rustup.rs):
+## Build Windows (Electron)
 
 ```bash
-npm run tauri:build   # hasilkan .msi/.exe di src-tauri/target/release/bundle/
-npm run tauri:dev     # jalankan versi desktop untuk development
+npm run electron:dev   # jalankan app desktop untuk development
+npm run electron:build # build installer .msi/.exe ke release-electron/
 ```
 
 ## Multi-device

@@ -8,8 +8,7 @@ timetable/android/.gradle/
 timetable/android/build/
 timetable/android/local.properties
 timetable/android/app/src/main/assets/public/
-timetable/src-tauri/target/
-timetable/src-tauri/gen/
+timetable/release-electron/
 
 # Local tooling state
 .freebuff/

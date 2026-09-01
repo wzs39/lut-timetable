@@ -1,5 +1,5 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
-import { isElectron } from './fetchIcs'
+import { fetchViaElectron, isElectron } from './fetchIcs'
 
 const LS_CACHE = 'tt_sisu_course_ids'
 
@@ -20,14 +20,13 @@ export async function sisuGraphql(query: string): Promise<any> {
   }
 
   if (isElectron()) {
-    // Electron: lut-proxy:// lewat main process (Node fetch), bebas CORS.
-    const u = new URL('lut-proxy://sisu.lut.fi/api/')
-    const res = await fetch(u.toString(), {
+    // Electron: rutinitas POST khusus via lut-proxy://, lewat main process.
+    const res = await fetchViaElectron('https://sisu.lut.fi/api/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: query,
     })
-    return await res.json()
+    return JSON.parse(res)
   }
 
   try {

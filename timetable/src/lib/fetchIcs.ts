@@ -12,14 +12,25 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
 /** Apakah berjalan di dalam Electron? */
 export function isElectron(): boolean {
-  return typeof window !== 'undefined' && window.location.protocol.startsWith('lut-proxy')
+  return typeof navigator !== 'undefined' && /Electron\//i.test(navigator.userAgent)
 }
 
 /** Proksi semua request lewat main process (Electron) — bebas CORS. */
-export async function fetchViaElectron(url: string): Promise<string> {
+export async function fetchViaElectron(
+  url: string,
+  init: RequestInit = {},
+): Promise<string> {
   const u = new URL(url)
   const proxied = new URL(`lut-proxy://${u.hostname}${u.pathname}${u.search}`)
-  const res = await fetch(proxied.toString(), { headers: { Accept: 'text/calendar' } })
+  const res = await fetch(proxied.toString(), {
+    ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      ...(u.pathname.endsWith('.ics') || u.pathname.includes('calendar')
+        ? { Accept: 'text/calendar' }
+        : {}),
+    },
+  })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return await res.text()
 }
