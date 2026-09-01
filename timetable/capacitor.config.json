@@ -1,0 +1,17 @@
+{
+  "appId": "dev.lut.timetable",
+  "appName": "LUT Timetable",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

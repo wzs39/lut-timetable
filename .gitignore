@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build output
+timetable/dist/
+timetable/android/app/build/
+timetable/android/.gradle/
+timetable/android/build/
+timetable/android/local.properties
+timetable/android/app/src/main/assets/public/
+timetable/src-tauri/target/
+timetable/src-tauri/gen/
+
+# Local tooling state
+.freebuff/
+*.log
+.DS_Store
+Thumbs.db
