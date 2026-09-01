@@ -1,5 +1,13 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
+export const ICS_CACHE_TTL = 2 * 60 * 60 * 1000
+const ICS_CACHE_PREFIX = 'tt_ics_cache_v1:'
+
+interface IcsCacheEntry {
+  fetchedAt: number
+  text: string
+}
+
 /**
  * Fetch teks ICS dengan strategi:
  * 1. Native Capacitor (Android): langsung via CapacitorHttp, tanpa CORS.
@@ -36,19 +44,35 @@ export async function fetchViaElectron(
 }
 
 export async function fetchIcsText(url: string): Promise<string> {
+  const cached = loadCachedIcs(url)
+
   if (Capacitor.isNativePlatform()) {
-    const res = await CapacitorHttp.get({
-      url,
-      headers: { Accept: 'text/calendar' },
-      readTimeout: 15000,
-      connectTimeout: 10000,
-    })
-    if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
-    return typeof res.data === 'string' ? res.data : String(res.data)
+    try {
+      const res = await CapacitorHttp.get({
+        url,
+        headers: { Accept: 'text/calendar' },
+        readTimeout: 15000,
+        connectTimeout: 10000,
+      })
+      if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
+      const text = typeof res.data === 'string' ? res.data : String(res.data)
+      saveCachedIcs(url, text)
+      return text
+    } catch (error) {
+      if (cached) return cached.text
+      throw error
+    }
   }
 
   if (isElectron()) {
-    return fetchViaElectron(url)
+    try {
+      const text = await fetchViaElectron(url)
+      saveCachedIcs(url, text)
+      return text
+    } catch (error) {
+      if (cached) return cached.text
+      throw error
+    }
   }
 
   const attempted: Promise<string>[] = []
@@ -70,14 +94,51 @@ export async function fetchIcsText(url: string): Promise<string> {
   const errors: unknown[] = []
   for (const p of attempted) {
     try {
-      return await p
+      const text = await p
+      saveCachedIcs(url, text)
+      return text
     } catch (e) {
       errors.push(e)
     }
   }
+  if (cached) return cached.text
   throw new Error(
     `Gagal memuat ICS (CORS/jaringan). Coba lagi atau cek koneksi. ${errors.map((e) => String(e)).join(' | ')}`,
   )
+}
+
+function cacheKey(url: string): string {
+  return ICS_CACHE_PREFIX + encodeURIComponent(url)
+}
+
+function loadCachedIcs(url: string): IcsCacheEntry | null {
+  try {
+    const raw = localStorage.getItem(cacheKey(url))
+    if (!raw) return null
+    const entry = JSON.parse(raw) as Partial<IcsCacheEntry>
+    if (
+      typeof entry.fetchedAt !== 'number' ||
+      typeof entry.text !== 'string' ||
+      Date.now() - entry.fetchedAt > ICS_CACHE_TTL
+    ) {
+      localStorage.removeItem(cacheKey(url))
+      return null
+    }
+    return { fetchedAt: entry.fetchedAt, text: entry.text }
+  } catch {
+    return null
+  }
+}
+
+function saveCachedIcs(url: string, text: string): void {
+  try {
+    localStorage.setItem(
+      cacheKey(url),
+      JSON.stringify({ fetchedAt: Date.now(), text } satisfies IcsCacheEntry),
+    )
+  } catch {
+    // Quota errors must not prevent a successful network sync.
+  }
 }
 
 function fetchText(url: string): Promise<string> {
