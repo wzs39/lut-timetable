@@ -40,7 +40,7 @@ jobs:
           path: timetable/android/app/build/outputs/apk/debug/app-debug.apk
 
   windows:
-    name: Windows (Tauri)
+    name: Windows (Electron)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,13 +49,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: timetable/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
       - name: Install deps & build installer
         working-directory: timetable
         run: |
           npm ci
-          npm run tauri:build
+          npm run build
+          npx electron-builder --win nsis msi
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: timetable/src-tauri/target/release/bundle/
+          path: timetable/release-electron/

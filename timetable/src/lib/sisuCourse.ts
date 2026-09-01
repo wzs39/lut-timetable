@@ -1,5 +1,5 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
-import { isTauri } from './fetchIcs'
+import { isElectron } from './fetchIcs'
 
 const LS_CACHE = 'tt_sisu_course_ids'
 
@@ -8,7 +8,7 @@ const QUERY = (code: string) =>
     query: `{ course_unit_search(codeQuery: "${code}", resultLimit: 1) { id code name { en } } }`,
   })
 
-/** POST GraphQL ke SISU (native/Tauri: langsung; browser: proxy/corsproxy) */
+/** POST GraphQL ke SISU (native/Electron: langsung; browser: proxy/corsproxy) */
 export async function sisuGraphql(query: string): Promise<any> {
   if (Capacitor.isNativePlatform()) {
     const res = await CapacitorHttp.post({
@@ -19,10 +19,10 @@ export async function sisuGraphql(query: string): Promise<any> {
     return JSON.parse(typeof res.data === 'string' ? res.data : JSON.stringify(res.data))
   }
 
-  if (isTauri()) {
-    // Tauri webview: plugin-http (Rust backend), bebas CORS.
-    const { fetch } = await import('@tauri-apps/plugin-http')
-    const res = await fetch('https://sisu.lut.fi/api/', {
+  if (isElectron()) {
+    // Electron: lut-proxy:// lewat main process (Node fetch), bebas CORS.
+    const u = new URL('lut-proxy://sisu.lut.fi/api/')
+    const res = await fetch(u.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: query,
