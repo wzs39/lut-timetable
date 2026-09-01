@@ -1,6 +1,11 @@
 # LUT Timetable (Jadwal Kuliah)
 
-Aplikasi jadwal kuliah lintas platform (Windows + Android) untuk mahasiswa LUT/LAB — dibangun dengan React + TypeScript + Vite, dikemas dengan Capacitor.
+Aplikasi jadwal kuliah lintas platform (Windows + Android) untuk mahasiswa LUT/LAB — dibangun dengan React + TypeScript + Vite, dikemas dengan Capacitor (Android) dan Tauri (Windows).
+
+> **Catatan**: Versi web (GitHub Pages) sudah **tidak digunakan** — SISU ICS tidak
+> mengirim header CORS sehingga sinkronisasi di browser bergantung pada proxy
+> publik yang tidak stabil. Gunakan aplikasi native (Android APK / Windows installer)
+> yang berjalan via `CapacitorHttp` tanpa batasan CORS.
 
 ## Fitur
 
