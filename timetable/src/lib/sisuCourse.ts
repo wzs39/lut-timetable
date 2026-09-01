@@ -1,4 +1,5 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { isTauri } from './fetchIcs'
 
 const LS_CACHE = 'tt_sisu_course_ids'
 
@@ -7,7 +8,7 @@ const QUERY = (code: string) =>
     query: `{ course_unit_search(codeQuery: "${code}", resultLimit: 1) { id code name { en } } }`,
   })
 
-/** POST GraphQL ke SISU (native: langsung; browser: proxy/corsproxy) */
+/** POST GraphQL ke SISU (native/Tauri: langsung; browser: proxy/corsproxy) */
 export async function sisuGraphql(query: string): Promise<any> {
   if (Capacitor.isNativePlatform()) {
     const res = await CapacitorHttp.post({
@@ -16,6 +17,17 @@ export async function sisuGraphql(query: string): Promise<any> {
       data: query,
     })
     return JSON.parse(typeof res.data === 'string' ? res.data : JSON.stringify(res.data))
+  }
+
+  if (isTauri()) {
+    // Tauri webview: plugin-http (Rust backend), bebas CORS.
+    const { fetch } = await import('@tauri-apps/plugin-http')
+    const res = await fetch('https://sisu.lut.fi/api/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: query,
+    })
+    return await res.json()
   }
 
   try {

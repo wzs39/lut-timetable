@@ -2,11 +2,18 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core'
 
 /**
  * Fetch teks ICS dengan strategi:
- * 1. Native (Android/Windows via Capacitor): langsung, tanpa CORS.
- * 2. Browser dev: lewat proxy Vite (/proxy/sisu, /proxy/timeedit).
- * 3. Browser production: langsung dulu (TimeEdit kirim ACAO: *),
+ * 1. Native Capacitor (Android): langsung via CapacitorHttp, tanpa CORS.
+ * 2. Tauri desktop: langsung via plugin-http (Rust backend), tanpa CORS.
+ * 3. Browser dev: lewat proxy Vite (/proxy/sisu, /proxy/timeedit).
+ * 4. Browser production: langsung dulu (TimeEdit kirim ACAO: *),
  *    lalu fallback ke proxy CORS publik (allorigins -> corsproxy).
  */
+
+/** Apakah berjalan di dalam webview Tauri? */
+export function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
 export async function fetchIcsText(url: string): Promise<string> {
   if (Capacitor.isNativePlatform()) {
     const res = await CapacitorHttp.get({
@@ -17,6 +24,14 @@ export async function fetchIcsText(url: string): Promise<string> {
     })
     if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
     return typeof res.data === 'string' ? res.data : String(res.data)
+  }
+
+  if (isTauri()) {
+    // Tauri webview: pakai plugin-http (fetch via Rust, bebas CORS).
+    const { fetch } = await import('@tauri-apps/plugin-http')
+    const res = await fetch(url, { headers: { Accept: 'text/calendar' } })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return await res.text()
   }
 
   const attempted: Promise<string>[] = []
