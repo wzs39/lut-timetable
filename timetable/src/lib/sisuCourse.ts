@@ -19,7 +19,9 @@ export async function sisuGraphql(query: string): Promise<any> {
   }
 
   try {
-    const res = await fetch('/proxy/sisu/api/', {
+    // SISU /api/ mengirim Access-Control-Allow-Origin: * ->
+    // browser production bisa langsung, tanpa proxy.
+    const res = await fetch('https://sisu.lut.fi/api/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: query,

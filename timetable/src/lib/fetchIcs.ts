@@ -4,7 +4,8 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core'
  * Fetch teks ICS dengan strategi:
  * 1. Native (Android/Windows via Capacitor): langsung, tanpa CORS.
  * 2. Browser dev: lewat proxy Vite (/proxy/sisu, /proxy/timeedit).
- * 3. Browser production: fallback ke corsproxy.io.
+ * 3. Browser production: langsung dulu (TimeEdit kirim ACAO: *),
+ *    lalu fallback ke proxy CORS publik (allorigins -> corsproxy).
  */
 export async function fetchIcsText(url: string): Promise<string> {
   if (Capacitor.isNativePlatform()) {
@@ -23,6 +24,13 @@ export async function fetchIcsText(url: string): Promise<string> {
   const proxied = devProxyUrl(url)
   if (proxied) attempted.push(fetchText(proxied))
 
+  // Direct: TimeEdit mengizinkan CORS (Access-Control-Allow-Origin: *).
+  attempted.push(fetchText(url))
+
+  // Fallback proxy publik: allorigins (GET, gratis) lalu corsproxy.io.
+  attempted.push(
+    fetchText(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`),
+  )
   attempted.push(
     fetchText(`https://corsproxy.io/?url=${encodeURIComponent(url)}`),
   )
