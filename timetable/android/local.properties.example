@@ -1,0 +1,6 @@
+# Machine-specific Android SDK location (copy to local.properties and adjust).
+# Gradle needs this to find the Android SDK.
+#   Windows example:
+# sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk
+#   macOS example:
+# sdk.dir=/Users/<you>/Library/Android/sdk
