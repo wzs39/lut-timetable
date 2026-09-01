@@ -68,7 +68,9 @@ export default function LessonDetail({
   }, [lesson])
 
   const startEdit = () => {
-    setTitle(displayTitle(lesson))
+    // Init from the RAW stored title, not the display-cleaned one, so
+    // entering edit mode can never rewrite stored data on save.
+    setTitle(lesson.title)
     setEditing(true)
     setError(null)
   }

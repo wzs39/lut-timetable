@@ -17,10 +17,12 @@ function preference(l: Lesson): number {
   return 2
 }
 
-const SOURCE_LABEL: Record<Lesson['source'], string> = {
+// SISU/TimeEdit are proper nouns (same in both languages); manual must be
+// localized, so it goes through i18n (t('srcManual')) inside the component.
+const SOURCE_NAME: Record<Lesson['source'], string> = {
   sisu: 'SISU',
   timeedit: 'TimeEdit',
-  manual: '手动',
+  manual: '',
 }
 
 export default function DuplicateResolver({
@@ -30,6 +32,8 @@ export default function DuplicateResolver({
 }: Props) {
   const { t, lang } = useI18n()
   const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
+  const sourceLabel = (s: Lesson['source']) =>
+    s === 'manual' ? t('srcManual') : SOURCE_NAME[s]
 
   // pilihan awal: pelajaran dengan preferensi tertinggi per grup
   const initial = useMemo(() => {
@@ -128,7 +132,7 @@ export default function DuplicateResolver({
                         className="accent-emerald-500"
                       />
                       <span className="text-zinc-400">
-                        {SOURCE_LABEL[l.source]}
+                        {sourceLabel(l.source)}
                       </span>
                       <span className="text-zinc-200">
                         {formatTime(l.start, locale)}–{formatTime(l.end, locale)}
