@@ -40,7 +40,8 @@
       {
         "provider": "github",
         "owner": "wzs39",
-        "repo": "lut-timetable"
+        "repo": "lut-timetable",
+        "releaseType": "release"
       }
     ]
   },
