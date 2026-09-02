@@ -10,6 +10,9 @@ timetable/android/local.properties
 timetable/android/app/src/main/assets/public/
 timetable/release-electron/
 
+# Local installer downloads (canonical copies live on GitHub Releases)
+releases/
+
 # Local tooling state
 .freebuff/
 *.log
