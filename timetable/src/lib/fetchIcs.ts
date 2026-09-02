@@ -11,8 +11,8 @@ interface IcsCacheEntry {
 /**
  * Fetch teks ICS dengan strategi:
  * 1. Native Capacitor (Android): langsung via CapacitorHttp, tanpa CORS.
- * 2. Electron desktop: lewat protokol lut-proxy:// (fetch Node di main
- *    process, tanpa CORS — lihat electron/main.cjs).
+ * 2. Electron desktop: lewat bridge preload.cjs -> ipcMain (fetch Node di
+ *    main process, tanpa CORS — lihat electron/main.cjs + preload.cjs).
  * 3. Browser dev: lewat proxy Vite (/proxy/sisu, /proxy/timeedit).
  * 4. Browser production: langsung dulu (TimeEdit kirim ACAO: *),
  *    lalu fallback ke proxy CORS publik (allorigins -> corsproxy).
@@ -28,19 +28,33 @@ export async function fetchViaElectron(
   url: string,
   init: RequestInit = {},
 ): Promise<string> {
+  const w = window as unknown as {
+    lutProxy?: {
+      fetch: (u: string, i: { method?: string; headers?: Record<string, string>; body?: string | null }) => Promise<{
+        ok: boolean
+        status?: number
+        bodyText?: string
+        error?: string
+      }>
+    }
+  }
+  const bridge = w.lutProxy
+  if (!bridge) throw new Error('Electron lutProxy bridge tidak tersedia')
+
   const u = new URL(url)
-  const proxied = new URL(`lut-proxy://${u.hostname}${u.pathname}${u.search}`)
-  const res = await fetch(proxied.toString(), {
-    ...init,
+  const res = await bridge.fetch(url, {
+    method: init.method ?? 'GET',
     headers: {
-      ...(init.headers ?? {}),
+      ...(init.headers as Record<string, string> | undefined),
       ...(u.pathname.endsWith('.ics') || u.pathname.includes('calendar')
         ? { Accept: 'text/calendar' }
         : {}),
     },
+    body: typeof init.body === 'string' ? init.body : null,
   })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return await res.text()
+  if (res.error) throw new Error(res.error)
+  if (!res.ok) throw new Error(`HTTP ${res.status ?? 0}`)
+  return res.bodyText ?? ''
 }
 
 export async function fetchIcsText(url: string): Promise<string> {

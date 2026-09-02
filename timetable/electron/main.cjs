@@ -1,50 +1,29 @@
-const { app, BrowserWindow, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('node:path')
 
 const isDev = !app.isPackaged
 
-// 代理 SISU / TimeEdit 请求: 主进程 Node fetch 无 CORS 限制
+// 代理 SISU / TimeEdit 请求: 主进程 Node fetch 无 CORS 限制。
+// Renderer tidak fetch langsung (terkena CORS), melainkan lewat IPC bridge
+// preload.cjs -> ipcMain.handle di bawah. Ini satu-satunya jalur yang
+// benar-benar lolos CORS di Electron (custom protocol tetap kena CORS).
 const PROXY_HOSTS = ['sisu.lut.fi', 'cloud.timeedit.net']
 
-function handleProxy(req, callback) {
+ipcMain.handle('lut-proxy-fetch', async (_event, { url, method, headers, body }) => {
   try {
-    const url = new URL(req.url)
-    const host = url.hostname
+    const host = new URL(url).hostname
     if (!PROXY_HOSTS.some((h) => host === h || host.endsWith('.' + h))) {
-      callback({ statusCode: 403, headers: { 'content-type': 'text/plain' }, data: 'host not allowed' })
-      return
+      return { ok: false, status: 403, bodyText: 'host not allowed' }
     }
-    const target = new URL(`${url.protocol === 'lut-proxy:' ? 'https:' : 'http:'}//${host}${url.pathname}${url.search}`)
-
-    const headers = { ...req.headers }
-    delete headers.host
-
-    const init = { method: req.method, headers }
-    if (req.method === 'POST' && req.uploadData?.length) {
-      const parts = req.uploadData
-        .filter((d) => d.bytes)
-        .map((d) => Buffer.from(d.bytes))
-      init.body = parts.length === 1 ? parts[0] : Buffer.concat(parts)
-    }
-
-    fetch(target.toString(), init)
-      .then(async (res) => {
-        const buf = Buffer.from(await res.arrayBuffer())
-        const outHeaders = {}
-        for (const [k, v] of res.headers.entries()) {
-          if (/^content-type|^content-length|^cache-control|^etag|^last-modified/i.test(k)) {
-            outHeaders[k] = v
-          }
-        }
-        callback({ statusCode: res.status, headers: outHeaders, data: buf })
-      })
-      .catch((e) => {
-        callback({ statusCode: 502, headers: { 'content-type': 'text/plain' }, data: String(e) })
-      })
+    const init = { method: method ?? 'GET', headers: headers ?? {} }
+    if (body != null) init.body = body
+    const res = await fetch(url, init)
+    const bodyText = await res.text()
+    return { ok: res.ok, status: res.status, bodyText }
   } catch (e) {
-    callback({ statusCode: 400, headers: { 'content-type': 'text/plain' }, data: String(e) })
+    return { ok: false, error: String(e) }
   }
-}
+})
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -57,6 +36,7 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   })
 
