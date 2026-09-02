@@ -55,7 +55,42 @@ jobs:
           npm ci
           npm run build
           npx electron-builder --win nsis msi
+      # Slim artifact: installers only, not the ~300 MB win-unpacked dir.
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: timetable/release-electron/
+          path: |
+            timetable/release-electron/*.exe
+            timetable/release-electron/*.msi
+
+  release:
+    name: Publish installers to GitHub Release
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd artifacts
+          mapfile -t FILES < <(find . -type f \( -name '*.apk' -o -name '*.exe' -o -name '*.msi' \))
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No installer files found in artifacts" >&2
+            find . -type f | head -20
+            exit 1
+          fi
+          gh release delete v0.1.0 --yes --repo "${{ github.repository }}" 2>/dev/null || true
+          gh release create v0.1.0 \
+            "${FILES[@]}" \
+            --repo "${{ github.repository }}" \
+            --title "LUT Timetable v0.1.0" \
+            --notes "Windows desktop app + Android APK build from latest main.
+
+- LUT-Timetable-debug.apk — Android, allow \"unknown sources\" to install
+- *.exe — Windows NSIS installer (double-click)
+- *.msi — Windows MSI (enterprise deployment)"
