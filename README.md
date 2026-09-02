@@ -44,6 +44,7 @@ Sync runs through the native network stack (`CapacitorHttp` on Android, a Node `
 - Conflict highlighting, per-course colors, lesson-type tags (lecture / exercise / tutorial / seminar / exam).
 - Batch filter: search, filter by date/day/source/type, **hide without deleting**, save filter presets, batch delete.
 - Desktop/device notifications 10 minutes before each lesson; today view with next-lesson countdown and building-grouped indoor navigation hints.
+- **Lecture Translator integration** (optional): enable "Auto-switch Lecture Translator course during class" in the sidebar and point it at your Lecture Translator URL (default `http://localhost:8000`). While a lesson is in session, the timetable automatically creates/activates the matching course session in [Lecture Translator](https://github.com/wzs39/lecture-translator) — so live captions, translation, glossary, and notes land in the right course without you touching anything. Sessions are cached per course code and reused across weeks.
 - Backup: sidebar → export/import JSON to move data between devices.
 
 ### Data & privacy
@@ -75,6 +76,7 @@ All data is stored locally on your device (`localStorage`). Nothing is sent to o
 - 冲突高亮、按课程着色、课型标签（讲课 / 辅导 / 研讨 / 习题 / 考试）。
 - 批量筛选：按关键词、日期、星期、来源、课型检索，支持**筛选隐藏（不删除）**、保存筛选预设、批量删除。
 - 每节课前 10 分钟系统通知；今日视图含下节倒计时与按楼栋分组的室内导航提示。
+- **Lecture Translator 联动**（可选）：侧栏勾选「上课时自动切换 Lecture Translator 课程」，填入 Lecture Translator 地址（默认 `http://localhost:8000`）。上课期间，课表会自动在 [Lecture Translator](https://github.com/wzs39/lecture-translator) 中创建/激活对应课程会话——实时字幕、翻译、术语表、笔记自动归入正确的课程，全程无需手动操作。会话按课程代码缓存，每周重复使用。
 - 数据备份：侧栏"数据备份"导出/导入 JSON，轻松迁移到其他设备。
 
 ### 数据与隐私

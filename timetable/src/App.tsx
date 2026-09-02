@@ -7,6 +7,11 @@ import LessonDetail from './components/LessonDetail'
 import DuplicateResolver from './components/DuplicateResolver'
 import BatchFilter from './components/BatchFilter'
 import NotificationManager from './components/NotificationManager'
+import TranslationLinker from './components/TranslationLinker'
+import {
+  loadTranslatorUrl,
+  saveTranslatorUrl,
+} from './lib/translator'
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
@@ -22,6 +27,8 @@ function App() {
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [updateState, setUpdateState] = useState<{ version: string } | null>(null)
+  const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
+  const [translatorOn, setTranslatorOn] = useState(false)
 
   useEffect(() => {
     const bridge = (window as unknown as { lutUpdate?: any }).lutUpdate
@@ -172,6 +179,13 @@ function App() {
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
             onCloseDrawer={() => setMenuOpen(false)}
+            translatorOn={translatorOn}
+            onToggleTranslator={(v) => setTranslatorOn(v)}
+            translatorUrl={translatorUrl}
+            onTranslatorUrl={(u) => {
+              setTranslatorUrl(u)
+              saveTranslatorUrl(u)
+            }}
           />
         </div>
         {/* 桌面端：固定侧栏 */}
@@ -188,6 +202,13 @@ function App() {
             onRemoveSource={tt.removeSource}
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
+            translatorOn={translatorOn}
+            onToggleTranslator={(v) => setTranslatorOn(v)}
+            translatorUrl={translatorUrl}
+            onTranslatorUrl={(u) => {
+              setTranslatorUrl(u)
+              saveTranslatorUrl(u)
+            }}
           />
         </div>
         <main className="flex-1 flex flex-col min-w-0">
@@ -235,6 +256,11 @@ function App() {
         />
       )}
       <NotificationManager enabled={tt.notifEnabled} lessons={tt.lessons} />
+      <TranslationLinker
+        enabled={translatorOn}
+        lessons={tt.visibleLessons}
+        translatorUrl={translatorUrl}
+      />
       {updateState && (
         <div className="fixed bottom-4 inset-x-0 z-50 flex justify-center px-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-emerald-600 text-white text-sm px-4 py-3 shadow-lg max-w-full">

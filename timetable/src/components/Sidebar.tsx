@@ -23,6 +23,10 @@ interface Props {
   onRemoveSource: (id: string) => void
   onSync: (s: SyncSource) => void
   onAddManual: (l: Omit<Lesson, 'id' | 'source'>) => void
+  translatorOn?: boolean
+  onToggleTranslator?: (v: boolean) => void
+  translatorUrl?: string
+  onTranslatorUrl?: (u: string) => void
   onCloseDrawer?: () => void
 }
 
@@ -38,6 +42,10 @@ export default function Sidebar({
   onRemoveSource,
   onSync,
   onAddManual,
+  translatorOn = false,
+  onToggleTranslator,
+  translatorUrl = 'http://localhost:8000',
+  onTranslatorUrl,
   onCloseDrawer,
 }: Props) {
   const { t, lang } = useI18n()
@@ -199,6 +207,26 @@ export default function Sidebar({
             />
             {t('notifHint')}
           </label>
+          <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={translatorOn}
+              onChange={(e) => onToggleTranslator?.(e.target.checked)}
+              className="accent-emerald-500"
+            />
+            {t('translatorHint')}
+          </label>
+          {translatorOn && (
+            <input
+              defaultValue={translatorUrl}
+              placeholder="http://localhost:8000"
+              onBlur={(e) => {
+                const u = e.target.value.trim().replace(/\/+$/, '')
+                if (u && u !== translatorUrl) onTranslatorUrl?.(u)
+              }}
+              className="w-full rounded bg-zinc-900 border border-zinc-700 px-2 py-1 text-[11px]"
+            />
+          )}
           {syncMessage && (
             <p className="text-[11px] text-zinc-400 mt-1">{syncMessage}</p>
           )}
