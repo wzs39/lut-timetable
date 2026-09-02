@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('node:path')
+const { autoUpdater } = require('electron-updater')
 
 const isDev = !app.isPackaged
 
@@ -25,6 +26,8 @@ ipcMain.handle('lut-proxy-fetch', async (_event, { url, method, headers, body })
   }
 })
 
+let mainWindow = null
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -39,6 +42,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
     },
   })
+  mainWindow = win
 
   if (isDev) {
     win.loadURL('http://localhost:5210')
@@ -48,8 +52,40 @@ function createWindow() {
   }
 }
 
+function broadcastUpdate(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('lut-update-event', payload)
+  }
+}
+
+function setupAutoUpdater() {
+  // electron-updater hanya berfungsi di app terpaket (butuh app-update.yml).
+  if (isDev) return
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) =>
+    broadcastUpdate({ type: 'update-available', version: String(info.version) }),
+  )
+  autoUpdater.on('update-downloaded', (info) =>
+    broadcastUpdate({ type: 'update-downloaded', version: String(info.version) }),
+  )
+  autoUpdater.on('error', (err) =>
+    broadcastUpdate({ type: 'update-error', message: String(err) }),
+  )
+
+  ipcMain.handle('lut-update-install', () => {
+    setImmediate(() => autoUpdater.quitAndInstall())
+  })
+
+  const check = () => autoUpdater.checkForUpdates().catch(() => {})
+  setTimeout(check, 10_000)
+  setInterval(check, 6 * 60 * 60 * 1000)
+}
+
 app.whenReady().then(() => {
-  protocol.handle('lut-proxy', handleProxy)
+  setupAutoUpdater()
   createWindow()
 
   app.on('activate', () => {

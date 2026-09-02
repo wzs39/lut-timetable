@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Lesson, SyncSource } from './types'
 import { useTimetable } from './hooks/useTimetable'
 import WeekGrid from './components/WeekGrid'
@@ -21,6 +21,18 @@ function App() {
   const [showDupResolver, setShowDupResolver] = useState(false)
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [updateState, setUpdateState] = useState<{ version: string } | null>(null)
+
+  useEffect(() => {
+    const bridge = (window as unknown as { lutUpdate?: any }).lutUpdate
+    if (!bridge?.onUpdate) return
+    const off = bridge.onUpdate((p: { type?: string; version?: string }) => {
+      if (p?.type === 'update-downloaded') {
+        setUpdateState({ version: String(p.version) })
+      }
+    })
+    return off
+  }, [])
   const selectedLesson: Lesson | null = useMemo(
     () => tt.lessons.find((l) => l.id === selectedId) ?? null,
     [tt.lessons, selectedId],
@@ -223,6 +235,27 @@ function App() {
         />
       )}
       <NotificationManager enabled={tt.notifEnabled} lessons={tt.lessons} />
+      {updateState && (
+        <div className="fixed bottom-4 inset-x-0 z-50 flex justify-center px-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-emerald-600 text-white text-sm px-4 py-3 shadow-lg max-w-full">
+            <span>🔄 {t('updateReady', { v: updateState.version })}</span>
+            <button
+              className="rounded bg-white text-emerald-700 px-3 min-h-9 font-medium"
+              onClick={() =>
+                (window as unknown as { lutUpdate?: any }).lutUpdate?.install()
+              }
+            >
+              {t('updateInstallNow')}
+            </button>
+            <button
+              className="text-white/80 hover:text-white"
+              onClick={() => setUpdateState(null)}
+            >
+              {t('updateLater')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

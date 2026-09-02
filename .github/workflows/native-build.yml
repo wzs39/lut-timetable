@@ -42,6 +42,10 @@ jobs:
   windows:
     name: Windows (Electron)
     runs-on: windows-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,13 +53,18 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: timetable/package-lock.json
-      - name: Install deps & build installer
+      - name: Install deps & build & publish
         working-directory: timetable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm ci
           npm run build
-          npx electron-builder --win nsis msi
-      # Slim artifact: installers only, not the ~300 MB win-unpacked dir.
+          # Auto-increment patch version so electron-updater sees a new version
+          # on every push and prompts users to update.
+          npm version patch --no-git-tag-version
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          npx electron-builder --win nsis msi --publish always
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
@@ -64,7 +73,7 @@ jobs:
             timetable/release-electron/*.msi
 
   release:
-    name: Publish installers to GitHub Release
+    name: Attach APK to GitHub Release
     needs: [android, windows]
     runs-on: ubuntu-latest
     permissions:
@@ -72,28 +81,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-      - name: Publish GitHub Release
+          name: android-apk
+          path: apk
+      - name: Upload APK to release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd artifacts
-          mapfile -t FILES < <(find . -type f \( -name '*.apk' -o -name '*.exe' -o -name '*.msi' \))
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No installer files found in artifacts" >&2
-            find . -type f | head -20
-            exit 1
-          fi
-          cat > notes.md <<'MD'
-          Windows desktop app + Android APK, built from the latest main.
-
-          - LUT-Timetable-debug.apk  ->  Android (allow unknown sources to install)
-          - LUT Timetable Setup *.exe ->  Windows NSIS installer (double-click)
-          - LUT Timetable *.msi        ->  Windows MSI (enterprise deployment)
-          MD
-          gh release delete v0.1.0 --yes --repo "${{ github.repository }}" 2>/dev/null || true
-          gh release create v0.1.0 \
-            "${FILES[@]}" \
-            --repo "${{ github.repository }}" \
-            --title "LUT Timetable v0.1.0" \
-            --notes-file notes.md
+          TAG="v${{ needs.windows.outputs.version }}"
+          gh release upload "$TAG" apk/*.apk --clobber --repo "${{ github.repository }}"
+          echo "APK attached to $TAG"

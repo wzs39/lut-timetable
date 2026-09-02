@@ -1,7 +1,7 @@
 {
   "name": "lut-timetable",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Desktop timetable app for LUT students with SISU and TimeEdit integration",
   "author": "LUT Timetable contributors",
   "type": "module",
@@ -35,7 +35,14 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "wzs39",
+        "repo": "lut-timetable"
+      }
+    ]
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",
@@ -44,6 +51,7 @@
     "@capacitor/ios": "^8.5.1",
     "@capacitor/local-notifications": "^8.3.1",
     "@tailwindcss/vite": "^4.3.3",
+    "electron-updater": "^6.8.9",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3"
