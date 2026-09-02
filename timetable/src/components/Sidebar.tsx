@@ -23,10 +23,10 @@ interface Props {
   onRemoveSource: (id: string) => void
   onSync: (s: SyncSource) => void
   onAddManual: (l: Omit<Lesson, 'id' | 'source'>) => void
-  translatorOn?: boolean
-  onToggleTranslator?: (v: boolean) => void
   translatorUrl?: string
   onTranslatorUrl?: (u: string) => void
+  onLinkTranslator?: () => void
+  translatorMsg?: string | null
   onCloseDrawer?: () => void
 }
 
@@ -42,10 +42,10 @@ export default function Sidebar({
   onRemoveSource,
   onSync,
   onAddManual,
-  translatorOn = false,
-  onToggleTranslator,
   translatorUrl = 'http://localhost:8000',
   onTranslatorUrl,
+  onLinkTranslator,
+  translatorMsg = null,
   onCloseDrawer,
 }: Props) {
   const { t, lang } = useI18n()
@@ -207,16 +207,8 @@ export default function Sidebar({
             />
             {t('notifHint')}
           </label>
-          <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={translatorOn}
-              onChange={(e) => onToggleTranslator?.(e.target.checked)}
-              className="accent-emerald-500"
-            />
-            {t('translatorHint')}
-          </label>
-          {translatorOn && (
+          <div className="mt-2 rounded-md bg-zinc-800/60 border border-zinc-700 p-2">
+            <p className="text-[11px] text-zinc-400 mb-1.5">{t('translatorTitle')}</p>
             <input
               defaultValue={translatorUrl}
               placeholder="http://localhost:8000"
@@ -226,7 +218,16 @@ export default function Sidebar({
               }}
               className="w-full rounded bg-zinc-900 border border-zinc-700 px-2 py-1 text-[11px]"
             />
-          )}
+            <button
+              onClick={onLinkTranslator}
+              className="mt-1.5 w-full rounded bg-emerald-700 hover:bg-emerald-600 px-2 py-1 text-[11px] font-medium"
+            >
+              {t('translatorLinkNow')}
+            </button>
+            {translatorMsg && (
+              <p className="text-[11px] text-zinc-400 mt-1">{translatorMsg}</p>
+            )}
+          </div>
           {syncMessage && (
             <p className="text-[11px] text-zinc-400 mt-1">{syncMessage}</p>
           )}

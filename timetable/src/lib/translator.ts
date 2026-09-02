@@ -13,8 +13,6 @@ import type { Lesson } from '../types'
 const LS_TRANSLATOR_URL = 'tt_translator_url'
 const LS_SESSION_MAP = 'tt_translator_sessions_v1' // lesson code -> session id
 
-const IDLE_GRACE_MIN = 10 // stay "in session" this long after a lesson ends
-
 export function loadTranslatorUrl(): string {
   return localStorage.getItem(LS_TRANSLATOR_URL) ?? 'http://localhost:8000'
 }
@@ -41,17 +39,6 @@ function saveSessionMap(map: Record<string, string>): void {
   } catch {
     // non-fatal: worst case we create a duplicate session next time
   }
-}
-
-/** The lesson currently in session (or within the grace window), if any. */
-export function currentLesson(lessons: Lesson[], now = new Date()): Lesson | null {
-  const t = now.getTime()
-  for (const l of lessons) {
-    const start = new Date(l.start).getTime()
-    const end = new Date(l.end).getTime()
-    if (t >= start - 60_000 && t <= end + IDLE_GRACE_MIN * 60_000) return l
-  }
-  return null
 }
 
 async function postJson(base: string, path: string, body: unknown): Promise<any> {
