@@ -55,6 +55,7 @@ jobs:
           cache-dependency-path: timetable/package-lock.json
       - id: bump
         name: Install deps & build & publish
+        shell: bash
         working-directory: timetable
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
