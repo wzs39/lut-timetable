@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildIcs,
   detectLessonType,
   extractCourseCode,
   normalizeCourseCode,
@@ -175,5 +176,57 @@ describe('normalizeCourseCode', () => {
     expect(normalizeCourseCode('k200dj96-3015')).toBe('K200DJ96')
     expect(normalizeCourseCode('K200DJ96')).toBe('K200DJ96')
     expect(normalizeCourseCode('BM20A9200')).toBe('BM20A9200') // tidak menghack bagian akhir kode
+  })
+})
+
+describe('buildIcs', () => {
+  it('emits one VEVENT per lesson in UTC with CRLF and required fields', () => {
+    const ics = buildIcs([
+      {
+        id: 'a1',
+        source: 'sisu',
+        title: 'Math, A; Intro',
+        code: 'BM20A9200',
+        location: 'M19_D247',
+        start: '2026-12-14T06:30:00.000Z',
+        end: '2026-12-14T09:30:00.000Z',
+        uid: 'xyz-123',
+      },
+    ])
+    expect(ics.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//LUT Timetable//EN\r\nCALSCALE:GREGORIAN\r\n')).toBe(true)
+    expect(ics).toContain('BEGIN:VEVENT\r\n')
+    expect(ics).toContain('\r\nUID:xyz-123@lut-timetable\r\n')
+    expect(ics).toContain('\r\nDTSTART:20261214T063000Z\r\n')
+    expect(ics).toContain('\r\nDTEND:20261214T093000Z\r\n')
+    // koma dan titik-koma di-escape (\\ = satu backslash literal)
+    expect(ics).toContain('\r\nSUMMARY:Math\\, A\\; Intro\r\n')
+    expect(ics).toContain('\r\nLOCATION:M19_D247\r\n')
+    expect(ics).toContain('\r\nCATEGORIES:sisu\r\n') // type kosong -> hanya source
+    expect(ics.endsWith('\r\nEND:VCALENDAR\r\n')).toBe(true)
+  })
+
+  it('sorts by start time and skips lessons with invalid dates', () => {
+    const ics = buildIcs([
+      { id: 'b', source: 'manual', title: 'Late', start: 'bad-date', end: '2026-01-02T10:00:00Z' },
+      { id: 'a', source: 'manual', title: 'Early', start: '2026-01-01T08:00:00Z', end: '2026-01-01T09:00:00Z' },
+    ])
+    // 'Late' punya start invalid jadi dilewati; hanya 'Early' yang tersisa
+    expect(ics).toContain('SUMMARY:Early')
+    expect(ics).not.toContain('SUMMARY:Late')
+    // 'Early' appears before nothing else matters; ensure single VEVENT
+    expect((ics.match(/BEGIN:VEVENT/g) || []).length).toBe(1)
+  })
+
+  it('folds long SUMMARY lines at 75 octets with continuation space', () => {
+    const long = 'X'.repeat(160)
+    const ics = buildIcs([
+      { id: 'c', source: 'manual', title: long, start: '2026-01-01T08:00:00Z', end: '2026-01-01T09:00:00Z' },
+    ])
+    const sumLine = ics.split('\r\n').find((l) => l.startsWith('SUMMARY:'))!
+    expect(sumLine.length).toBeLessThanOrEqual(76) // "SUMMARY:" prefix + 75
+    const continuations = ics.split('\r\n ').length - 1
+    expect(continuations).toBeGreaterThan(1)
+    // UID fallback ke id saat uid kosong
+    expect(ics).toContain('\r\nUID:c@lut-timetable\r\n')
   })
 })

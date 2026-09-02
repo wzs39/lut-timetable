@@ -6,7 +6,7 @@
  * - Tanggal: UTC (Z) atau floating/TZID → dikonversi ke waktu lokal browser
  */
 
-import type { LessonType } from '../types'
+import type { Lesson, LessonType } from '../types'
 
 export interface IcsEvent {
   uid?: string
@@ -161,4 +161,68 @@ export function extractCourseCode(summary?: string): string | undefined {
  */
 export function normalizeCourseCode(code: string): string {
   return code.trim().replace(/-\d{4}$/i, '').toUpperCase()
+}
+
+/* ---------------- Export ICS (untuk Outlook / Google Calendar) ---------------- */
+
+/** ISO string -> UTC 'YYYYMMDDTHHMMSSZ'; null bila tanggal tidak valid. */
+function toIcsDate(iso: string): string | null {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+
+/** Escape karakter khusus ICS di nilai teks. */
+function icsEscape(s: string): string {
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+}
+
+/** Lipat baris > 75 oktet (aturan RFC 5545: lanjutan diawali spasi, CRLF). */
+function foldIcs(line: string): string {
+  if (line.length <= 75) return line
+  const chunks: string[] = []
+  for (let rest = line; rest.length > 0; ) {
+    chunks.push(rest.slice(0, 75))
+    rest = rest.slice(75)
+  }
+  return chunks.join('\r\n ')
+}
+
+/**
+ * Bangun file .ics (iCalendar) dari daftar pelajaran, siap diimpor ke
+ * Outlook / Google Calendar / Apple Calendar. Urut ascending oleh waktu mulai.
+ */
+export function buildIcs(lessons: Lesson[]): string {
+  const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+  const lines: string[] = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//LUT Timetable//EN',
+    'CALSCALE:GREGORIAN',
+  ]
+  const sorted = [...lessons].sort(
+    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+  )
+  for (const l of sorted) {
+    const start = toIcsDate(l.start)
+    const end = toIcsDate(l.end)
+    if (!start || !end) continue
+    const uid = (l.uid || l.id).replace(/[^A-Za-z0-9._@-]/g, '') || 'lesson'
+    lines.push('BEGIN:VEVENT')
+    lines.push(`UID:${uid}@lut-timetable`)
+    lines.push(`DTSTAMP:${now}`)
+    lines.push(`DTSTART:${start}`)
+    lines.push(`DTEND:${end}`)
+    if (l.title) lines.push(foldIcs(`SUMMARY:${icsEscape(l.title)}`))
+    if (l.location) lines.push(foldIcs(`LOCATION:${icsEscape(l.location)}`))
+    const cats = [l.type, l.source, ...(l.mergedSources ?? [])].filter(Boolean).join(',')
+    if (cats) lines.push(foldIcs(`CATEGORIES:${icsEscape(cats)}`))
+    lines.push('END:VEVENT')
+  }
+  lines.push('END:VCALENDAR')
+  return lines.join('\r\n') + '\r\n'
 }

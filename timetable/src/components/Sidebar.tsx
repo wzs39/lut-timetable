@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { Lesson, SyncSource } from '../types'
-import { normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
+import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
+import { buildIcs } from '../lib/ics'
 import { useI18n } from '../i18n'
 import CourseSearch from './CourseSearch'
 import SyncProtection from './SyncProtection'
@@ -64,6 +65,22 @@ export default function Sidebar({
   const [mMessage, setMMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [icsDone, setIcsDone] = useState<string | null>(null)
+
+  const exportIcs = () => {
+    const blob = new Blob([buildIcs(loadLessons())], {
+      type: 'text/calendar;charset=utf-8',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'lut-timetable.ics'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    setIcsDone(t('exportIcsDone'))
+  }
 
   const addSource = () => {
     const raw = url.trim()
@@ -350,6 +367,15 @@ export default function Sidebar({
           </div>
           {importError && (
             <p className="text-[11px] text-rose-400 mt-1">{importError}</p>
+          )}
+          <button
+            onClick={exportIcs}
+            className="w-full rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 py-1.5 text-xs mt-2"
+          >
+            {t('exportIcs')}
+          </button>
+          {icsDone && (
+            <p className="text-[11px] text-emerald-400 mt-1">{icsDone}</p>
           )}
           <p className="text-[10px] text-zinc-600 mt-1">{t('dataHint')}</p>
         </div>
