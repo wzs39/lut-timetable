@@ -7,6 +7,11 @@ import LessonDetail from './components/LessonDetail'
 import DuplicateResolver from './components/DuplicateResolver'
 import BatchFilter from './components/BatchFilter'
 import NotificationManager from './components/NotificationManager'
+import {
+  ensureTranslatorSession,
+  loadTranslatorUrl,
+  saveTranslatorUrl,
+} from './lib/translator'
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
@@ -22,6 +27,31 @@ function App() {
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [updateState, setUpdateState] = useState<{ version: string } | null>(null)
+  const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
+  const [translatorMsg, setTranslatorMsg] = useState<string | null>(null)
+
+  // Manual one-click link: only touches Lecture Translator when the user
+  // presses the sidebar button — never automatic, never in the background.
+  const linkTranslatorNow = useCallback(() => {
+    const lesson = tt.lessons
+      .filter((l) => {
+        const t0 = new Date(l.start).getTime()
+        const t1 = new Date(l.end).getTime()
+        const now = Date.now()
+        return now >= t0 - 60_000 && now <= t1 + 10 * 60_000
+      })
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())[0]
+    if (!lesson) {
+      setTranslatorMsg(t('translatorNoLesson'))
+      return
+    }
+    setTranslatorMsg(t('translatorLinking'))
+    ensureTranslatorSession(translatorUrl, lesson).then((id) => {
+      setTranslatorMsg(
+        id ? t('translatorLinked', { title: lesson.title }) : t('translatorFail'),
+      )
+    })
+  }, [tt.lessons, translatorUrl, t])
 
   useEffect(() => {
     const bridge = (window as unknown as { lutUpdate?: any }).lutUpdate
@@ -172,6 +202,13 @@ function App() {
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
             onCloseDrawer={() => setMenuOpen(false)}
+            translatorUrl={translatorUrl}
+            onTranslatorUrl={(u) => {
+              setTranslatorUrl(u)
+              saveTranslatorUrl(u)
+            }}
+            onLinkTranslator={linkTranslatorNow}
+            translatorMsg={translatorMsg}
           />
         </div>
         {/* 桌面端：固定侧栏 */}
@@ -188,6 +225,13 @@ function App() {
             onRemoveSource={tt.removeSource}
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
+            translatorUrl={translatorUrl}
+            onTranslatorUrl={(u) => {
+              setTranslatorUrl(u)
+              saveTranslatorUrl(u)
+            }}
+            onLinkTranslator={linkTranslatorNow}
+            translatorMsg={translatorMsg}
           />
         </div>
         <main className="flex-1 flex flex-col min-w-0">
