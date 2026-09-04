@@ -6,10 +6,14 @@ import { formatTime, sameDay } from '../lib/date'
 import { TYPE_META } from '../lib/lessonTypes'
 import { SOURCE_ICON } from '../lib/sources'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
+import { noteForLesson, type NotesMap } from '../lib/notes'
+import LessonNote from './LessonNote'
 
 interface Props {
   lessons: Lesson[]
   onSelect: (id: string) => void
+  /** Catatan kursus: kode+jenis -> teks */
+  notes?: NotesMap
 }
 
 
@@ -23,7 +27,7 @@ function fmtDuration(min: number, t: (k: string, p?: any) => string): string {
  * 今日视图: 按时间聚合今天的课程 + "下一节课"倒计时。
  * 每 30 秒刷新状态（即将上课 / 正在进行 / 已结束）。
  */
-export default function TodayView({ lessons, onSelect }: Props) {
+export default function TodayView({ lessons, onSelect, notes = {} }: Props) {
   const { t, lang } = useI18n()
   const [now, setNow] = useState(() => Date.now())
 
@@ -159,6 +163,7 @@ export default function TodayView({ lessons, onSelect }: Props) {
               const past = e <= now
               const live = s <= now && now < e
               const c = courseColor(l)
+              const note = noteForLesson(notes, l)
               return (
                 <li key={l.id}>
                   <button
@@ -186,6 +191,7 @@ export default function TodayView({ lessons, onSelect }: Props) {
                             ? ' · 🔵+🟣'
                             : ''}
                         </div>
+                        <LessonNote note={note} />
                       </div>
                       <div className="shrink-0 text-right">
                         <div className="font-mono text-zinc-300">

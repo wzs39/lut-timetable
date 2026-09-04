@@ -5,6 +5,8 @@ import { resolveSisuCourseUrl } from '../lib/sisuCourse'
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
 import { formatDay, formatTime } from '../lib/date'
+import { normalizeCourseCode } from '../lib/ics'
+import { scopeText } from '../lib/notes'
 
 interface Props {
   lesson: Lesson
@@ -15,6 +17,10 @@ interface Props {
   /** Sembunyikan tanpa menghapus (tanpa tombstone) */
   onHide: (id: string) => void
   onClose: () => void
+  /** Catatan kursus (berlaku untuk semua pelajaran dengan kode+jenis yang sama) */
+  note?: string
+  onSaveNote?: (text: string) => void
+  onRemoveNote?: () => void
 }
 
 function toTimeInput(iso: string): string {
@@ -32,6 +38,9 @@ export default function LessonDetail({
   timeEditUrl,
   onHide,
   onClose,
+  note,
+  onSaveNote,
+  onRemoveNote,
 }: Props) {
   const { t, lang } = useI18n()
   const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
@@ -44,6 +53,8 @@ export default function LessonDetail({
   const [end, setEnd] = useState(toTimeInput(lesson.end))
   const [error, setError] = useState<string | null>(null)
   const [sisuState, setSisuState] = useState<'idle' | 'loading' | 'notfound'>('idle')
+  const [noteEdit, setNoteEdit] = useState(false)
+  const [noteText, setNoteText] = useState('')
 
   const isMerged = (lesson.mergedSources?.length ?? 0) > 1
   const sourceNote = isMerged
@@ -65,7 +76,9 @@ export default function LessonDetail({
     setEnd(toTimeInput(lesson.end))
     setError(null)
     setSisuState('idle')
-  }, [lesson])
+    setNoteEdit(false)
+    setNoteText(note || '')
+  }, [lesson, note])
 
   const startEdit = () => {
     // Init from the RAW stored title, not the display-cleaned one, so
@@ -129,6 +142,14 @@ export default function LessonDetail({
     durMin < 60
       ? t('durationM', { m: durMin })
       : t('durationHM', { h: Math.floor(durMin / 60), m: durMin % 60 })
+
+  // Ruang lingkup catatan: kode kursus (ternormalisasi) + jenis sesi
+  const noteScope = scopeText(
+    lesson.code ? normalizeCourseCode(lesson.code) : displayTitle(lesson),
+    lesson.type && TYPE_META[lesson.type]
+      ? t(TYPE_META[lesson.type].key)
+      : t('noteScopeAny'),
+  )
 
   return (
     <div
@@ -317,6 +338,82 @@ export default function LessonDetail({
                 >
                   {t('viewTimeEdit')}
                 </a>
+              )}
+
+              {/* Catatan kursus: berlaku untuk semua pelajaran dengan kode+jenis sama */}
+              {onSaveNote && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
+                  {noteEdit ? (
+                    <>
+                      <div className="text-[10px] font-medium text-amber-300/80">
+                        📝 {t('noteTitle')} · {noteScope}
+                      </div>
+                      <textarea
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        placeholder={t('notePlaceholder')}
+                        rows={2}
+                        autoFocus
+                        className="mt-1 w-full resize-none rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none"
+                      />
+                      <div className="mt-1.5 flex gap-2">
+                        <button
+                          onClick={() => setNoteEdit(false)}
+                          className="flex-1 rounded-md bg-zinc-700 px-2 py-1 text-[11px] font-medium hover:bg-zinc-600"
+                        >
+                          {t('cancel')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            onSaveNote(noteText)
+                            setNoteEdit(false)
+                          }}
+                          className="flex-[2] rounded-md bg-amber-600 px-2 py-1 text-[11px] font-medium hover:bg-amber-500"
+                        >
+                          {t('noteSave')}
+                        </button>
+                      </div>
+                    </>
+                  ) : note ? (
+                    <>
+                      <div className="text-[10px] font-medium text-amber-300/80">
+                        📝 {t('noteTitle')} · {noteScope}
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap text-[11px] leading-snug text-amber-100">
+                        {note}
+                      </p>
+                      <div className="mt-1.5 flex gap-2">
+                        <button
+                          onClick={() => {
+                            setNoteText(note)
+                            setNoteEdit(true)
+                          }}
+                          className="rounded bg-amber-600/30 px-2 py-0.5 text-[10px] text-amber-200 hover:bg-amber-600/50"
+                        >
+                          {t('noteEdit')}
+                        </button>
+                        <button
+                          onClick={onRemoveNote}
+                          className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-700"
+                        >
+                          {t('noteRemove')}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-[10px] text-amber-200/70">
+                        {t('noteApplies', { scope: noteScope })}
+                      </div>
+                      <button
+                        onClick={() => setNoteEdit(true)}
+                        className="mt-1 rounded bg-amber-600/30 px-2 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-600/50"
+                      >
+                        {t('noteAdd')}
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
             </div>
 

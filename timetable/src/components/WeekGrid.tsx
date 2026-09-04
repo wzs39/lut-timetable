@@ -11,6 +11,8 @@ import {
 } from '../lib/layout'
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle } from '../lib/display'
+import { noteForLesson, type NotesMap } from '../lib/notes'
+import LessonNote from './LessonNote'
 
 const START_HOUR = 8
 const END_HOUR = 20
@@ -22,6 +24,8 @@ interface Props {
   lessons: Lesson[]
   weekStart: Date
   onSelect: (id: string) => void
+  /** Catatan kursus: kode+jenis -> teks */
+  notes?: NotesMap
 }
 
 const LS_DISMISS = 'tt_conflict_dismissed'
@@ -40,7 +44,7 @@ function useIsWideScreen(): boolean {
   return wide
 }
 
-export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
+export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: Props) {
   const { lang, t } = useI18n()
   const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
   const isWide = useIsWideScreen()
@@ -196,6 +200,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
 
   const lessonCard = (l: Lesson) => {
     const cc = courseColor(l)
+    const note = noteForLesson(notes, l)
     return (
       <button
         key={l.id}
@@ -227,6 +232,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
             📍 {l.location}
           </div>
         )}
+        <LessonNote note={note} />
       </button>
     )
   }
@@ -408,6 +414,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
                     const height = Math.min(durH, END_HOUR - START_HOUR) * HOUR_PX
                     const widthPct = 100 / cols
                     const cc = courseColor(l)
+                    const note = noteForLesson(notes, l)
                     const titleText = displayTitle(l)
                     const compact = height < 50
                     const showTitle =
@@ -508,6 +515,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
                                 📍 {l.location}
                               </div>
                             )}
+                            <LessonNote note={note} />
                           </>
                         )}
                       </button>

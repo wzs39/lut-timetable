@@ -8,6 +8,7 @@ const BACKUP_KEYS = [
   'tt_overrides',
   'tt_sisu_course_ids',
   'tt_conflict_dismissed',
+  'tt_course_notes',
   'tt_lang',
   'tt_autosync',
   'tt_notif',

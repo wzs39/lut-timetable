@@ -8,6 +8,7 @@ import DuplicateResolver from './components/DuplicateResolver'
 import BatchFilter from './components/BatchFilter'
 import ConflictCheck from './components/ConflictCheck'
 import NotificationManager from './components/NotificationManager'
+import Settings from './components/Settings'
 import {
   ensureTranslatorSession,
   loadTranslatorUrl,
@@ -17,6 +18,14 @@ import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
 import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber } from './lib/date'
+import {
+  loadNotes,
+  noteForLesson,
+  noteKeyOf,
+  removeNote,
+  saveNote,
+  type NotesMap,
+} from './lib/notes'
 
 function App() {
   const tt = useTimetable()
@@ -27,7 +36,9 @@ function App() {
   const [showDupResolver, setShowDupResolver] = useState(false)
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [showConflicts, setShowConflicts] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [notes, setNotes] = useState<NotesMap>(() => loadNotes())
   const [updateState, setUpdateState] = useState<{ version: string } | null>(null)
   const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
   const [translatorMsg, setTranslatorMsg] = useState<string | null>(null)
@@ -87,6 +98,14 @@ function App() {
   const onNextWeek = useCallback(() => setWeekStart(addDays(weekStart, 7)), [weekStart])
   const onThisWeek = useCallback(() => setWeekStart(startOfWeek(new Date())), [])
 
+  // Catatan kursus: kunci = kode kursus ternormalisasi + jenis sesi.
+  const saveNoteForLesson = useCallback((lesson: Lesson, text: string) => {
+    setNotes((prev) => saveNote(prev, lesson, text))
+  }, [])
+  const removeNoteByKey = useCallback((key: string) => {
+    setNotes((prev) => removeNote(prev, key))
+  }, [])
+
   return (
     <div className="h-screen flex flex-col bg-zinc-900 text-zinc-100">
       <header className="safe-top flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-zinc-800">
@@ -130,42 +149,42 @@ function App() {
             </button>
           </div>
           {view === 'week' && (
-            <>
-          <button
-            onClick={onPrevWeek}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
-          >
-            ←
-          </button>
-                    <span
-            className={
-              'rounded-md border px-2.5 py-1.5 text-[11px] sm:text-xs tabular-nums ' +
-              (isCurrentWeek
-                ? 'bg-sky-600/15 border-sky-600/50 text-sky-300'
-                : 'bg-amber-500/15 border-amber-500/60 text-amber-300')
-            }
-            title={t('thisWeek')}
-          >
-            {t('weekRange', { w: weekNum, range: weekRangeText })}
-          </span>
-          <button
-            onClick={onNextWeek}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
-          >
-            →
-          </button>
-          <button
-            onClick={onThisWeek}
-            className={
-              'rounded-md px-2.5 min-h-9 ' +
-              (isCurrentWeek
-                ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                : 'bg-amber-600/90 hover:bg-amber-500 font-medium text-white')
-            }
-          >
-            {t('thisWeek')}
-          </button>
-            </>
+            <div className="hidden sm:flex items-center gap-1.5">
+              <button
+                onClick={onPrevWeek}
+                className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+              >
+                ←
+              </button>
+              <span
+                className={
+                  'inline-block max-w-[24vw] truncate align-middle rounded-md border px-2 py-1.5 text-[11px] sm:max-w-none sm:text-xs tabular-nums ' +
+                  (isCurrentWeek
+                    ? 'bg-sky-600/15 border-sky-600/50 text-sky-300'
+                    : 'bg-amber-500/15 border-amber-500/60 text-amber-300')
+                }
+                title={t('weekRange', { w: weekNum, range: weekRangeText })}
+              >
+                {t('weekRange', { w: weekNum, range: weekRangeText })}
+              </span>
+              <button
+                onClick={onNextWeek}
+                className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+              >
+                →
+              </button>
+              <button
+                onClick={onThisWeek}
+                className={
+                  'rounded-md px-2.5 min-h-9 ' +
+                  (isCurrentWeek
+                    ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                    : 'bg-amber-600/90 hover:bg-amber-500 font-medium text-white')
+                }
+              >
+                {t('thisWeek')}
+              </button>
+            </div>
           )}
           <button
             onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
@@ -173,6 +192,13 @@ function App() {
             title="切换语言 / Switch language"
           >
             {lang === 'zh' ? 'EN' : '中文'}
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+            title={t('settingsTitle')}
+          >
+            ⚙ <span className="hidden sm:inline">{t('settingsTitle')}</span>
           </button>
           {dupCount > 0 && (
             <button
@@ -185,29 +211,72 @@ function App() {
           )}
           <button
             onClick={() => setShowBatchFilter(true)}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 sm:px-2.5 min-h-9"
             title={t('batchTitle')}
           >
-            🔍 {t('batchButton')}
+            🔍<span className="hidden sm:inline"> {t('batchButton')}</span>
           </button>
           <button
             onClick={() => setShowConflicts(true)}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 sm:px-2.5 min-h-9"
             title={t('conflictsTitle')}
           >
-            ⚔ {t('conflictsButton')}
+            ⚔<span className="hidden sm:inline"> {t('conflictsButton')}</span>
           </button>
 
           {tt.hiddenKeys.size > 0 && (
             <button
               onClick={tt.unhideAll}
-              className="rounded-md bg-zinc-700 hover:bg-zinc-600 px-2.5 min-h-9 text-zinc-300"
+              className="rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 sm:px-2.5 min-h-9 text-zinc-300"
               title={t('unhideAll')}
             >
-              🙈 {t('hiddenN', { n: tt.hiddenKeys.size })} · {t('unhideAll')}
+              🙈<span className="hidden sm:inline">
+                {' '}
+                {t('hiddenN', { n: tt.hiddenKeys.size })} · {t('unhideAll')}
+              </span>
             </button>
           )}
         </div>
+        {/* Baris navigasi minggu khusus ponsel: teks rentang utuh, tidak terpotong */}
+        {view === 'week' && (
+          <div className="sm:hidden flex w-full items-center gap-1 pb-0.5">
+            <button
+              onClick={onPrevWeek}
+              className="shrink-0 rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 min-h-9"
+              title={t('prevWeek')}
+            >
+              ←
+            </button>
+            <span
+              className={
+                'min-w-0 flex-1 rounded-md border px-2 py-1 text-center text-[11px] leading-snug tabular-nums ' +
+                (isCurrentWeek
+                  ? 'bg-sky-600/15 border-sky-600/50 text-sky-300'
+                  : 'bg-amber-500/15 border-amber-500/60 text-amber-300')
+              }
+            >
+              {t('weekRange', { w: weekNum, range: weekRangeText })}
+            </span>
+            <button
+              onClick={onNextWeek}
+              className="shrink-0 rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 min-h-9"
+              title={t('nextWeek')}
+            >
+              →
+            </button>
+            <button
+              onClick={onThisWeek}
+              className={
+                'shrink-0 rounded-md px-2 min-h-9 ' +
+                (isCurrentWeek
+                  ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                  : 'bg-amber-600/90 hover:bg-amber-500 font-medium text-white')
+              }
+            >
+              {t('thisWeek')}
+            </button>
+          </div>
+        )}
       </header>
       <div className="flex flex-1 min-h-0">
         {/* 移动端：侧栏变成抽屉（<md） */}
@@ -230,13 +299,6 @@ function App() {
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
             onCloseDrawer={() => setMenuOpen(false)}
-            translatorUrl={translatorUrl}
-            onTranslatorUrl={(u) => {
-              setTranslatorUrl(u)
-              saveTranslatorUrl(u)
-            }}
-            onLinkTranslator={linkTranslatorNow}
-            translatorMsg={translatorMsg}
           />
         </div>
         {/* 桌面端：固定侧栏 */}
@@ -253,23 +315,21 @@ function App() {
             onRemoveSource={tt.removeSource}
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
-            translatorUrl={translatorUrl}
-            onTranslatorUrl={(u) => {
-              setTranslatorUrl(u)
-              saveTranslatorUrl(u)
-            }}
-            onLinkTranslator={linkTranslatorNow}
-            translatorMsg={translatorMsg}
           />
         </div>
         <main className="flex-1 flex flex-col min-w-0">
           {view === 'today' ? (
-            <TodayView lessons={tt.visibleLessons} onSelect={setSelectedId} />
+            <TodayView
+              lessons={tt.visibleLessons}
+              onSelect={setSelectedId}
+              notes={notes}
+            />
           ) : (
             <WeekGrid
               lessons={weekVisibleLessons}
               weekStart={weekStart}
               onSelect={setSelectedId}
+              notes={notes}
             />
           )}
         </main>
@@ -289,6 +349,11 @@ function App() {
             )?.url
           }
           onClose={() => setSelectedId(null)}
+          note={
+            selectedLesson ? noteForLesson(notes, selectedLesson) : undefined
+          }
+          onSaveNote={(text) => saveNoteForLesson(selectedLesson, text)}
+          onRemoveNote={() => removeNoteByKey(noteKeyOf(selectedLesson))}
         />
       )}
       {showDupResolver && (
@@ -304,6 +369,20 @@ function App() {
           onRemoveMany={tt.removeMany}
           onHideMany={tt.hideLessons}
           onClose={() => setShowBatchFilter(false)}
+        />
+      )}
+      {showSettings && (
+        <Settings
+          translatorUrl={translatorUrl}
+          onTranslatorUrl={(u) => {
+            setTranslatorUrl(u)
+            saveTranslatorUrl(u)
+          }}
+          onLinkTranslator={linkTranslatorNow}
+          translatorMsg={translatorMsg}
+          notes={notes}
+          onRemoveNote={removeNoteByKey}
+          onClose={() => setShowSettings(false)}
         />
       )}
       {showConflicts && (
