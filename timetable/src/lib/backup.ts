@@ -1,3 +1,5 @@
+import { downloadBlob } from './download'
+
 /** Semua key localStorage milik aplikasi */
 const BACKUP_KEYS = [
   'tt_lessons_v1',
@@ -18,7 +20,7 @@ export interface BackupFile {
   data: Partial<Record<(typeof BACKUP_KEYS)[number], string>>
 }
 
-export function exportBackup(): void {
+export async function exportBackup(): Promise<void> {
   const data: BackupFile['data'] = {}
   for (const k of BACKUP_KEYS) {
     const v = localStorage.getItem(k)
@@ -33,12 +35,10 @@ export function exportBackup(): void {
   const blob = new Blob([JSON.stringify(file, null, 2)], {
     type: 'application/json',
   })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `lut-timetable-backup-${new Date().toISOString().slice(0, 10)}.json`
-  a.click()
-  URL.revokeObjectURL(url)
+  await downloadBlob(
+    `lut-timetable-backup-${new Date().toISOString().slice(0, 10)}.json`,
+    blob,
+  )
 }
 
 /** Terapkan file backup; return jumlah key yang ditulis */

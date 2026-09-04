@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import type { Lesson, SyncSource } from '../types'
 import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
 import { buildIcs } from '../lib/ics'
+import { downloadBlob } from '../lib/download'
 import { useI18n } from '../i18n'
 import CourseSearch from './CourseSearch'
 import SyncProtection from './SyncProtection'
@@ -75,18 +76,11 @@ export default function Sidebar({
   const [importError, setImportError] = useState<string | null>(null)
   const [icsDone, setIcsDone] = useState<string | null>(null)
 
-  const exportIcs = () => {
+  const exportIcs = async () => {
     const blob = new Blob([buildIcs(loadLessons())], {
       type: 'text/calendar;charset=utf-8',
     })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'lut-timetable.ics'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    await downloadBlob('lut-timetable.ics', blob)
     setIcsDone(t('exportIcsDone'))
   }
 
@@ -365,7 +359,7 @@ export default function Sidebar({
           </h2>
           <div className="flex gap-1.5">
             <button
-              onClick={() => exportBackup()}
+              onClick={() => void exportBackup()}
               className="flex-1 rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 py-1.5 text-xs"
             >
               {t('exportData')}
