@@ -18,9 +18,13 @@ interface IcsCacheEntry {
  *    lalu fallback ke proxy CORS publik (allorigins -> corsproxy).
  */
 
-/** Apakah berjalan di dalam Electron? */
-export function isElectron(): boolean {
-  return typeof navigator !== 'undefined' && /Electron\//i.test(navigator.userAgent)
+/** Apakah preload bridge Electron (window.lutProxy) tersedia?
+ *  Jangan menebak dari user-agent: jendela browser lain (mis. preview Freebuff
+ *  yang memakai Chromium/Electron UA) TIDAK punya bridge ini dan harus tetap
+ *  memakai jalur HTTP browser biasa. */
+export function hasLutBridge(): boolean {
+  return typeof window !== 'undefined' &&
+    !!(window as unknown as { lutProxy?: unknown }).lutProxy
 }
 
 /** Proksi semua request lewat main process (Electron) — bebas CORS. */
@@ -78,7 +82,7 @@ export async function fetchIcsText(url: string): Promise<string> {
     }
   }
 
-  if (isElectron()) {
+  if (hasLutBridge()) {
     try {
       const text = await fetchViaElectron(url)
       saveCachedIcs(url, text)
