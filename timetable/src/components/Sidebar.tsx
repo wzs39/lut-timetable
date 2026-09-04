@@ -1,12 +1,9 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import type { Lesson, SyncSource } from '../types'
-import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
-import { buildIcs } from '../lib/ics'
-import { downloadBlob } from '../lib/download'
+import { normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
 import { useI18n } from '../i18n'
 import CourseSearch from './CourseSearch'
 import SyncProtection from './SyncProtection'
-import { exportBackup, importBackup } from '../lib/backup'
 
 /** Label hari, index 0 = Senin */
 const DAY_LABELS_ZH = ['一', '二', '三', '四', '五', '六', '日']
@@ -24,10 +21,6 @@ interface Props {
   onRemoveSource: (id: string) => void
   onSync: (s: SyncSource) => void
   onAddManual: (l: Omit<Lesson, 'id' | 'source'>) => void
-  translatorUrl?: string
-  onTranslatorUrl?: (u: string) => void
-  onLinkTranslator?: () => void
-  translatorMsg?: string | null
   onCloseDrawer?: () => void
 }
 
@@ -43,10 +36,6 @@ export default function Sidebar({
   onRemoveSource,
   onSync,
   onAddManual,
-  translatorUrl = 'http://localhost:8000',
-  onTranslatorUrl,
-  onLinkTranslator,
-  translatorMsg = null,
   onCloseDrawer,
 }: Props) {
   const { t, lang } = useI18n()
@@ -72,18 +61,6 @@ export default function Sidebar({
     return d.toISOString().slice(0, 10)
   })
   const [mMessage, setMMessage] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [importError, setImportError] = useState<string | null>(null)
-  const [icsDone, setIcsDone] = useState<string | null>(null)
-
-  const exportIcs = async () => {
-    const blob = new Blob([buildIcs(loadLessons())], {
-      type: 'text/calendar;charset=utf-8',
-    })
-    await downloadBlob('lut-timetable.ics', blob)
-    setIcsDone(t('exportIcsDone'))
-  }
-
   const addSource = () => {
     const raw = url.trim()
     if (!raw) return
@@ -201,27 +178,6 @@ export default function Sidebar({
             />
             {t('notifHint')}
           </label>
-          <div className="mt-2 rounded-md bg-zinc-800/60 border border-zinc-700 p-2">
-            <p className="text-[11px] text-zinc-400 mb-1.5">{t('translatorTitle')}</p>
-            <input
-              defaultValue={translatorUrl}
-              placeholder="http://localhost:8000"
-              onBlur={(e) => {
-                const u = e.target.value.trim().replace(/\/+$/, '')
-                if (u && u !== translatorUrl) onTranslatorUrl?.(u)
-              }}
-              className="w-full rounded bg-zinc-900 border border-zinc-700 px-2 py-1 text-[11px]"
-            />
-            <button
-              onClick={onLinkTranslator}
-              className="mt-1.5 w-full rounded bg-emerald-700 hover:bg-emerald-600 px-2 py-1 text-[11px] font-medium"
-            >
-              {t('translatorLinkNow')}
-            </button>
-            {translatorMsg && (
-              <p className="text-[11px] text-zinc-400 mt-1">{translatorMsg}</p>
-            )}
-          </div>
           {syncMessage && (
             <p className="text-[11px] text-zinc-400 mt-1">{syncMessage}</p>
           )}
@@ -352,56 +308,6 @@ export default function Sidebar({
         </div>
 
         <CourseSearch />
-
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
-            {t('dataTitle')}
-          </h2>
-          <div className="flex gap-1.5">
-            <button
-              onClick={() => void exportBackup()}
-              className="flex-1 rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 py-1.5 text-xs"
-            >
-              {t('exportData')}
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex-1 rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 py-1.5 text-xs"
-            >
-              {t('importData')}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={async (e) => {
-                const file = e.target.files?.[0]
-                if (!file) return
-                try {
-                  importBackup(await file.text())
-                  location.reload()
-                } catch {
-                  setImportError(t('importFail'))
-                }
-                e.target.value = ''
-              }}
-            />
-          </div>
-          {importError && (
-            <p className="text-[11px] text-rose-400 mt-1">{importError}</p>
-          )}
-          <button
-            onClick={exportIcs}
-            className="w-full rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 py-1.5 text-xs mt-2"
-          >
-            {t('exportIcs')}
-          </button>
-          {icsDone && (
-            <p className="text-[11px] text-emerald-400 mt-1">{icsDone}</p>
-          )}
-          <p className="text-[10px] text-zinc-600 mt-1">{t('dataHint')}</p>
-        </div>
 
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
