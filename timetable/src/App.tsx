@@ -6,6 +6,7 @@ import TodayView from './components/TodayView'
 import LessonDetail from './components/LessonDetail'
 import DuplicateResolver from './components/DuplicateResolver'
 import BatchFilter from './components/BatchFilter'
+import ConflictCheck from './components/ConflictCheck'
 import NotificationManager from './components/NotificationManager'
 import {
   ensureTranslatorSession,
@@ -15,7 +16,7 @@ import {
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
-import { startOfWeek, addDays, lessonsInRange, formatDay } from './lib/date'
+import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber } from './lib/date'
 
 function App() {
   const tt = useTimetable()
@@ -25,6 +26,7 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDupResolver, setShowDupResolver] = useState(false)
   const [showBatchFilter, setShowBatchFilter] = useState(false)
+  const [showConflicts, setShowConflicts] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [updateState, setUpdateState] = useState<{ version: string } | null>(null)
   const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
@@ -71,6 +73,12 @@ function App() {
   const dupCount = removableCount(dupGroups)
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
+  const isCurrentWeek = useMemo(
+    () => sameDay(startOfWeek(new Date()), weekStart),
+    [weekStart],
+  )
+  const weekNum = isoWeekNumber(weekStart)
+  const weekRangeText = formatWeekRange(weekStart, lang === 'zh' ? 'zh-CN' : 'en-US')
   const weekVisibleLessons = useMemo(
     () => lessonsInRange(tt.visibleLessons, weekStart, weekEnd),
     [tt.visibleLessons, weekStart, weekEnd],
@@ -129,9 +137,16 @@ function App() {
           >
             ←
           </button>
-          <span className="hidden md:inline-block text-zinc-400 md:min-w-40 text-center">
-            {formatDay(weekStart, lang === 'zh' ? 'zh-CN' : 'en-US')} —{' '}
-            {formatDay(addDays(weekStart, 6), lang === 'zh' ? 'zh-CN' : 'en-US')}
+                    <span
+            className={
+              'rounded-md border px-2.5 py-1.5 text-[11px] sm:text-xs tabular-nums ' +
+              (isCurrentWeek
+                ? 'bg-sky-600/15 border-sky-600/50 text-sky-300'
+                : 'bg-amber-500/15 border-amber-500/60 text-amber-300')
+            }
+            title={t('thisWeek')}
+          >
+            {t('weekRange', { w: weekNum, range: weekRangeText })}
           </span>
           <button
             onClick={onNextWeek}
@@ -141,7 +156,12 @@ function App() {
           </button>
           <button
             onClick={onThisWeek}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+            className={
+              'rounded-md px-2.5 min-h-9 ' +
+              (isCurrentWeek
+                ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                : 'bg-amber-600/90 hover:bg-amber-500 font-medium text-white')
+            }
           >
             {t('thisWeek')}
           </button>
@@ -170,6 +190,14 @@ function App() {
           >
             🔍 {t('batchButton')}
           </button>
+          <button
+            onClick={() => setShowConflicts(true)}
+            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+            title={t('conflictsTitle')}
+          >
+            ⚔ {t('conflictsButton')}
+          </button>
+
           {tt.hiddenKeys.size > 0 && (
             <button
               onClick={tt.unhideAll}
@@ -278,6 +306,21 @@ function App() {
           onClose={() => setShowBatchFilter(false)}
         />
       )}
+      {showConflicts && (
+        <ConflictCheck
+          lessons={tt.lessons}
+          onOpenLesson={(id) => {
+            const l = tt.lessons.find((x) => x.id === id)
+            if (l) {
+              setWeekStart(startOfWeek(new Date(l.start)))
+              setView('week')
+            }
+            setSelectedId(id)
+          }}
+          onClose={() => setShowConflicts(false)}
+        />
+      )}
+
       <NotificationManager enabled={tt.notifEnabled} lessons={tt.lessons} />
       {updateState && (
         <div className="fixed bottom-4 inset-x-0 z-50 flex justify-center px-4">

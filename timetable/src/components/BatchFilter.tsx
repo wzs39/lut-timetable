@@ -10,6 +10,7 @@ import {
   type FilterPreset,
 } from '../lib/filterPresets'
 import { TYPE_META } from '../lib/lessonTypes'
+import { SOURCE_ICON } from '../lib/sources'
 import { displayTitle } from '../lib/display'
 
 interface Props {
@@ -33,11 +34,6 @@ const ALL_TYPES: NonNullable<Lesson['type']>[] = [
 const DAY_ZH = ['一', '二', '三', '四', '五', '六', '日']
 const DAY_EN = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 
-const SOURCE_ICON: Record<Lesson['source'], string> = {
-  sisu: '🔵',
-  timeedit: '🟣',
-  manual: '🟢',
-}
 
 /**
  * 批量筛选 + 删除：按文本 / 日期范围 / 星期 / 来源过滤课程，
