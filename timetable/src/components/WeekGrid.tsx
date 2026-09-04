@@ -3,7 +3,12 @@ import type { Lesson } from '../types'
 import { addDays, sameDay, startOfWeek, formatTime, formatDay } from '../lib/date'
 import { useI18n } from '../i18n'
 import { courseColor } from '../lib/colors'
-import { layoutDay, type PlacedLesson } from '../lib/layout'
+import {
+  layoutDay,
+  conflictGroupsOf,
+  type PlacedLesson,
+  type ConflictGroup,
+} from '../lib/layout'
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle } from '../lib/display'
 
@@ -76,7 +81,8 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
   const showNowLine = isCurrentWeek && nowH >= START_HOUR && nowH <= END_HOUR
   const todayIndex = (now.getDay() + 6) % 7
 
-  // Konflik yang diabaikan pengguna (per-cluster, kembali jika konflik berubah)
+  // Konflik yang diabaikan pengguna (per collision group; muncul lagi jika
+  // data berubah sehingga clusterKey-nya baru)
   const [dismissed, setDismissed] = useState<Set<string>>(
     () => new Set(JSON.parse(localStorage.getItem(LS_DISMISS) || '[]')),
   )
@@ -84,40 +90,177 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
     localStorage.setItem(LS_DISMISS, JSON.stringify([...dismissed]))
   }, [dismissed])
 
-  const dismissDayConflicts = (placed: PlacedLesson[]) => {
-    const keys = [...new Set(placed.filter((p) => p.conflict).map((p) => p.clusterKey))]
-    setDismissed((prev) => new Set([...prev, ...keys]))
-  }
+  /** Abaikan SATU collision group (semua permukaan memakai ini) */
+  const dismissKey = (key: string) =>
+    setDismissed((prev) => new Set([...prev, key]))
 
+  const dateKeyOf = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+  // Satu-satunya pemanggil layoutDay: hasil per hari dipakai grid desktop DAN
+  // daftar mobile (tidak ada perhitungan duplikat), lengkap dengan aggregasi
+  // collision group dari lib/layout.
   const byDay = useMemo(() => {
-    const map = new Map<number, PlacedLesson[]>()
+    const map = new Map<
+      number,
+      { placed: PlacedLesson[]; groups: ConflictGroup[] }
+    >()
     weekDays.forEach((d, i) => {
-      const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      map.set(
-        i,
-        layoutDay(lessons.filter((l) => sameDay(new Date(l.start), d)), dateKey),
+      const placed = layoutDay(
+        lessons.filter((l) => sameDay(new Date(l.start), d)),
+        dateKeyOf(d),
       )
+      map.set(i, { placed, groups: conflictGroupsOf(placed) })
     })
     return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lessons, weekDays])
+
+  const shownGroupsOf = (i: number) =>
+    (byDay.get(i)?.groups || []).filter((g) => !dismissed.has(g.key))
+  const hiddenGroupsOf = (i: number) =>
+    (byDay.get(i)?.groups || []).filter((g) => dismissed.has(g.key))
+
+  /** Pulihkan semua group yang diabaikan pada satu hari */
+  const restoreDay = (i: number) => {
+    const keys = hiddenGroupsOf(i).map((g) => g.key)
+    if (keys.length === 0) return
+    setDismissed((prev) => {
+      const next = new Set(prev)
+      keys.forEach((k) => next.delete(k))
+      return next
+    })
+  }
+
+  /** Single owner of "this cluster is still shown as a conflict" */
+  const shownConflict = (p: PlacedLesson) =>
+    p.conflict && !dismissed.has(p.clusterKey)
 
   // ---- Tampilan mobile (<768px): satu hari penuh, tab pilih hari ----
   const [mobileDay, setMobileDay] = useState(() =>
     sameDay(startOfWeek(now), weekStart) ? (now.getDay() + 6) % 7 : 0,
   )
   useEffect(() => {
-    setMobileDay(sameDay(startOfWeek(new Date()), weekStart) ? (new Date().getDay() + 6) % 7 : 0)
+    setMobileDay(
+      sameDay(startOfWeek(new Date()), weekStart)
+        ? (new Date().getDay() + 6) % 7
+        : 0,
+    )
   }, [weekStart])
 
-  if (!isWide) {
-    const day = weekDays[mobileDay]
-    const dateKey = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
-    const placed = layoutDay(
-      lessons.filter((l) => sameDay(new Date(l.start), day)),
-      dateKey,
+  // Urutan visual hari mobile: group yang masih tampil menjadi satu kontainer;
+  // pelajaran biasa / group yang sudah diabaikan menjadi kartu tunggal.
+  const mobileSegments = useMemo(() => {
+    const info = byDay.get(mobileDay)
+    if (!info) return []
+    const { placed, groups } = info
+    const shownKeys = new Set(
+      groups.filter((g) => !dismissed.has(g.key)).map((g) => g.key),
     )
+    const byKey = new Map(groups.map((g) => [g.key, g]))
+    const out: { key: string; g?: ConflictGroup; p?: PlacedLesson }[] = []
+    const emitted = new Set<string>()
+    for (const p of placed) {
+      if (p.conflict && shownKeys.has(p.clusterKey)) {
+        if (!emitted.has(p.clusterKey)) {
+          emitted.add(p.clusterKey)
+          out.push({ key: p.clusterKey, g: byKey.get(p.clusterKey) })
+        }
+      } else {
+        out.push({ key: p.lesson.id, p })
+      }
+    }
+    return out
+  }, [byDay, mobileDay, dismissed])
+
+  // Baris info minggu ("本周 N 处冲突 · 周二 周四") — display only
+  const weekStrip = useMemo(() => {
+    let n = 0
+    const days: string[] = []
+    weekDays.forEach((d, i) => {
+      const shown = shownGroupsOf(i)
+      if (shown.length > 0) {
+        n += shown.length
+        days.push(d.toLocaleDateString(locale, { weekday: 'short' }))
+      }
+    })
+    return n > 0
+      ? t('weekStrip', {
+          tag: isCurrentWeek ? t('thisWeek') : t('thatWeek'),
+          n,
+          days: days.join(' '),
+        })
+      : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byDay, weekDays, dismissed, lang, isCurrentWeek])
+
+  const lessonCard = (l: Lesson) => {
+    const cc = courseColor(l)
+    return (
+      <button
+        key={l.id}
+        onClick={() => onSelect(l.id)}
+        className="w-full rounded-lg border px-3 py-2 text-left text-xs"
+        style={{ background: cc.bg, borderColor: cc.border }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate font-semibold" style={{ color: cc.text }}>
+            {l.code || displayTitle(l)}
+            {l.type && TYPE_META[l.type] && (
+              <span
+                className="ml-1 opacity-90"
+                title={t(TYPE_META[l.type].key)}
+              >
+                {TYPE_META[l.type].icon}
+              </span>
+            )}
+          </span>
+          <span className="shrink-0 font-mono text-[10px] text-zinc-300">
+            {formatTime(l.start, locale)}–{formatTime(l.end, locale)}
+          </span>
+        </div>
+        <div className="mt-0.5 truncate text-[11px] text-zinc-400">
+          {displayTitle(l)}
+        </div>
+        {l.location && (
+          <div className="mt-0.5 truncate text-[10px] text-zinc-500">
+            📍 {l.location}
+          </div>
+        )}
+      </button>
+    )
+  }
+
+  const groupBox = (g: ConflictGroup) => (
+    <div
+      key={g.key}
+      className="rounded-lg border border-amber-400/70 bg-amber-400/10 px-2 py-2"
+    >
+      <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-medium text-amber-300">
+        <span>⚠ {t('conflictSameTimeN', { n: g.lessons.length })}</span>
+        <button
+          className="shrink-0 underline decoration-dotted opacity-80"
+          onClick={() => dismissKey(g.key)}
+        >
+          {t('dismissHint')}
+        </button>
+      </div>
+      <div className="space-y-2">
+        {g.lessons.map((pl) => lessonCard(pl.lesson))}
+      </div>
+    </div>
+  )
+
+  if (!isWide) {
+    const placed = byDay.get(mobileDay)?.placed || []
+    const hiddenToday = hiddenGroupsOf(mobileDay)
     return (
       <div className="flex-1 flex flex-col min-h-0">
+        {weekStrip && (
+          <div className="px-3 pt-2 pb-0 text-[11px] text-amber-300/90">
+            {weekStrip}
+          </div>
+        )}
         <div className="flex gap-1 px-3 pt-2 pb-1">
           {weekDays.map((d, i) => (
             <button
@@ -134,55 +277,32 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
               <div className="font-medium">
                 {d.toLocaleDateString(locale, { weekday: 'narrow' })}
               </div>
-              <div>{d.getDate()}</div>
+              <div className="tabular-nums">
+                {d.getMonth() + 1}/{d.getDate()}
+              </div>
             </button>
           ))}
         </div>
         <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-4 safe-bottom">
+          {hiddenToday.length > 0 && (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-[11px] text-violet-300">
+              <span>{t('hiddenClashN', { n: hiddenToday.length })}</span>
+              <button
+                className="shrink-0 underline decoration-dotted"
+                onClick={() => restoreDay(mobileDay)}
+              >
+                {t('restoreBtn')}
+              </button>
+            </div>
+          )}
           {placed.length === 0 ? (
             <p className="py-10 text-center text-xs text-zinc-600">
               {t('noLessonsToday')}
             </p>
           ) : (
-            placed.map(({ lesson: l, conflict }) => {
-              const cc = courseColor(l)
-              return (
-                <button
-                  key={l.id}
-                  onClick={() => onSelect(l.id)}
-                  className={
-                    'w-full rounded-lg border px-3 py-2 text-left text-xs ' +
-                    (conflict
-                      ? 'outline outline-1 outline-amber-400/90'
-                      : '')
-                  }
-                  style={{ background: cc.bg, borderColor: cc.border }}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-semibold" style={{ color: cc.text }}>
-                      {conflict && <span className="text-amber-400 mr-0.5">⚠</span>}
-                      {l.code || displayTitle(l)}
-                      {l.type && TYPE_META[l.type] && (
-                        <span className="ml-1 opacity-90" title={t(TYPE_META[l.type].key)}>
-                          {TYPE_META[l.type].icon}
-                        </span>
-                      )}
-                    </span>
-                    <span className="shrink-0 font-mono text-[10px] text-zinc-300">
-                      {formatTime(l.start, locale)}–{formatTime(l.end, locale)}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 truncate text-[11px] text-zinc-400">
-                    {displayTitle(l)}
-                  </div>
-                  {l.location && (
-                    <div className="mt-0.5 truncate text-[10px] text-zinc-500">
-                      📍 {l.location}
-                    </div>
-                  )}
-                </button>
-              )
-            })
+            mobileSegments.map((seg) =>
+              seg.g ? groupBox(seg.g) : seg.p ? lessonCard(seg.p.lesson) : null,
+            )
           )}
         </div>
       </div>
@@ -191,6 +311,11 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
+      {weekStrip && (
+        <div className="px-4 pt-2 pb-0 text-[11px] text-amber-300/90">
+          {weekStrip}
+        </div>
+      )}
       <div ref={scrollRef} className="flex-1 overflow-auto px-4 pb-4">
         <div className="flex min-w-[720px]">
           {/* Jam */}
@@ -220,19 +345,30 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
                 >
                   {formatDay(day, locale)}
                   {(() => {
-                    const placed = byDay.get(i) || []
-                    const activeKeys = [
-                      ...new Set(placed.filter((p) => p.conflict).map((p) => p.clusterKey)),
-                    ].filter((k) => !dismissed.has(k))
-                    if (activeKeys.length === 0) return null
+                    const shown = shownGroupsOf(i)
+                    const hidden = hiddenGroupsOf(i)
                     return (
-                      <button
-                        className="ml-1 text-amber-400 hover:text-amber-300"
-                        title={t('dismissHint')}
-                        onClick={() => dismissDayConflicts(placed)}
-                      >
-                        ⚠
-                      </button>
+                      <>
+                        {shown.length > 0 && (
+                          <span
+                            role="img"
+                            aria-label={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
+                            title={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
+                            className="ml-1 rounded bg-amber-500/15 px-1 text-[10px] font-semibold text-amber-400 align-middle"
+                          >
+                            ⚠{shown.length}
+                          </span>
+                        )}
+                        {hidden.length > 0 && (
+                          <button
+                            className="ml-1 rounded bg-violet-500/15 px-1 text-[10px] font-semibold text-violet-300 align-middle hover:bg-violet-500/25"
+                            title={t('dayHiddenRestore', { n: hidden.length })}
+                            onClick={() => restoreDay(i)}
+                          >
+                            ↩{hidden.length}
+                          </button>
+                        )}
+                      </>
                     )
                   })()}
                 </div>
@@ -248,8 +384,18 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
                       style={{ top: idx * HOUR_PX }}
                     />
                   ))}
-                  {(byDay.get(i) || []).map(({ lesson: l, col, cols, conflict, clusterKey }) => {
-                    const visibleConflict = conflict && !dismissed.has(clusterKey)
+                  {(byDay.get(i)?.placed || []).map((p) => {
+                    const { lesson: l, col, cols } = p
+                    const visibleConflict = shownConflict(p)
+                    const conflictTip = visibleConflict
+                      ? (byDay.get(i)?.placed || [])
+                          .filter((x) => x.clusterKey === p.clusterKey)
+                          .map(
+                            (x) =>
+                              `${x.lesson.code || displayTitle(x.lesson)} ${formatTime(x.lesson.start, locale)}–${formatTime(x.lesson.end, locale)}`,
+                          )
+                          .join('\n')
+                      : ''
                     const start = new Date(l.start)
                     const end = new Date(l.end)
                     const startH =
@@ -264,14 +410,16 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
                     const cc = courseColor(l)
                     const titleText = displayTitle(l)
                     const compact = height < 50
-                    const showTitle = height >= 68 &&
+                    const showTitle =
+                      height >= 68 &&
                       titleText.toLowerCase() !== (l.code || '').toLowerCase()
                     const showLocation = height >= 84 && !!l.location
                     return (
                       <button
                         key={l.id}
                         onClick={() => onSelect(l.id)}
-                        title={`${l.title}\n${formatTime(l.start, locale)}–${formatTime(l.end, locale)}\n${l.location || ''}\n${t('clickForDetail')}`}                        className={
+                        title={`${visibleConflict ? `⚠ ${t('conflictSameTime')}\n${conflictTip}\n\n` : ''}${l.title}\n${formatTime(l.start, locale)}–${formatTime(l.end, locale)}\n${l.location || ''}\n${t('clickForDetail')}`}
+                        className={
                           'absolute rounded-md px-1.5 py-1 text-left overflow-hidden border ' +
                           (visibleConflict
                             ? 'outline outline-1 outline-amber-400/90 shadow-[0_0_6px_rgba(251,191,36,0.35)]'
@@ -291,7 +439,16 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
                           /* Blok pendek (<50min): satu baris kode + waktu */
                           <div className="text-[10px] leading-tight truncate">
                             {visibleConflict && (
-                              <span className="text-amber-400 mr-0.5">⚠</span>
+                              <span
+                                className="text-amber-400 mr-0.5 cursor-pointer"
+                                title={t('blockDismissHint')}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  dismissKey(p.clusterKey)
+                                }}
+                              >
+                                ⚠
+                              </span>
                             )}
                             <span className="font-semibold">
                               {l.code || titleText}
@@ -306,7 +463,16 @@ export default function WeekGrid({ lessons, weekStart, onSelect }: Props) {
                             {/* Baris 1: kode (tebal) + ikon jenis */}
                             <div className="flex items-center gap-1 text-[11px] font-semibold leading-tight">
                               {visibleConflict && (
-                                <span className="text-amber-400 shrink-0">⚠</span>
+                                <span
+                                  className="text-amber-400 shrink-0 cursor-pointer"
+                                  title={t('blockDismissHint')}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    dismissKey(p.clusterKey)
+                                  }}
+                                >
+                                  ⚠
+                                </span>
                               )}
                               <span className="truncate">
                                 {l.code || titleText}

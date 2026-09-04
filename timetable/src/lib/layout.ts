@@ -1,14 +1,22 @@
 import type { Lesson } from '../types'
+import { courseKeyOf } from './conflicts'
 
 /** Hasil layout satu pelajaran dalam sehari */
 export interface PlacedLesson {
   lesson: Lesson
   col: number
   cols: number
-  /** bentrok dengan pelajaran lain */
+  /** Bentrok dengan pelajaran dari kursus LAIN (grup paralel kursus sama tidak dihitung) */
   conflict: boolean
-  /** kunci stabil untuk mengidentifikasi cluster konflik ini */
+  /** Kunci stabil untuk mengidentifikasi cluster konflik ini */
   clusterKey: string
+}
+
+/** Satu "collision group": semua pelajaran yang bertabrakan pada satu slot waktu */
+export interface ConflictGroup {
+  /** = clusterKey (stabil: date|uids), kompatibel dengan tt_conflict_dismissed */
+  key: string
+  lessons: PlacedLesson[]
 }
 
 export function conflictFingerprint(cluster: Lesson[]): string {
@@ -18,10 +26,24 @@ export function conflictFingerprint(cluster: Lesson[]): string {
     .join('~')
 }
 
+/** overlap waktu (> 0 detik) antara dua pelajaran */
+function timeOverlap(a: Lesson, b: Lesson): boolean {
+  const as = new Date(a.start).getTime()
+  const ae = new Date(a.end).getTime()
+  const bs = new Date(b.start).getTime()
+  const be = new Date(b.end).getTime()
+  return as < be && bs < ae
+}
+
 /**
  * Kelompokkan pelajaran yang saling tumpang tindih menjadi cluster,
  * lalu bagikan setiap cluster ke beberapa kolom (greedy interval graph
  * coloring). Pelajaran yang tidak bentrok tetap lebar penuh.
+ *
+ * `conflict` diberi makna "berbenturan dengan kursus LAIN": dua pelajaran
+ * dari kursus yang sama (mis. grup paralel K200DJ96-3015 vs -3016) tetap
+ * dibagi kolom agar terbaca, tapi TIDAK dianggap konflik — konsisten dengan
+ * pemeriksaan konflik (courseKeyOf ternormalisasi di lib/conflicts).
  */
 export function layoutDay(lessons: Lesson[], dateKey: string): PlacedLesson[] {
   const sorted = [...lessons].sort(
@@ -60,15 +82,45 @@ export function layoutDay(lessons: Lesson[], dateKey: string): PlacedLesson[] {
     }
     const fp = conflictFingerprint(cluster)
     cluster.forEach((l, idx) => {
+      const clash = cluster.some(
+        (m) => m !== l && timeOverlap(l, m) && courseKeyOf(m) !== courseKeyOf(l),
+      )
       placed.push({
         lesson: l,
         col: assignment[idx],
         cols: colEnds.length,
-        conflict: colEnds.length > 1,
+        conflict: clash,
         clusterKey: `${dateKey}|${fp}`,
       })
     })
   }
 
   return placed
+}
+
+/**
+ * Aggregasi tunggal konflik per hari: pelajaran yang `conflict` dikelompokkan
+ * menurut clusterKey-nya, diurutkan dari slot paling pagi. Konsumen (chip hari,
+ * blok desktop, kontainer mobile, strip mingguan) semuanya memakai ini.
+ */
+export function conflictGroupsOf(placed: PlacedLesson[]): ConflictGroup[] {
+  const byKey = new Map<string, PlacedLesson[]>()
+  for (const p of placed) {
+    if (!p.conflict) continue
+    const arr = byKey.get(p.clusterKey)
+    if (arr) arr.push(p)
+    else byKey.set(p.clusterKey, [p])
+  }
+  return [...byKey.entries()]
+    .map(([key, items]) => ({
+      key,
+      lessons: items.sort(
+        (a, b) =>
+          a.lesson.start.localeCompare(b.lesson.start) ||
+          a.lesson.end.localeCompare(b.lesson.end),
+      ),
+    }))
+    .sort((a, b) =>
+      a.lessons[0]!.lesson.start.localeCompare(b.lessons[0]!.lesson.start),
+    )
 }

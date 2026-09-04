@@ -4,6 +4,7 @@ import { useI18n } from '../i18n'
 import { courseColor } from '../lib/colors'
 import { formatTime, sameDay } from '../lib/date'
 import { TYPE_META } from '../lib/lessonTypes'
+import { SOURCE_ICON } from '../lib/sources'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
 
 interface Props {
@@ -11,11 +12,6 @@ interface Props {
   onSelect: (id: string) => void
 }
 
-const SOURCE_ICON: Record<Lesson['source'], string> = {
-  sisu: '🔵',
-  timeedit: '🟣',
-  manual: '🟢',
-}
 
 /** "1 小时 25 分" / "45 分钟" */
 function fmtDuration(min: number, t: (k: string, p?: any) => string): string {
