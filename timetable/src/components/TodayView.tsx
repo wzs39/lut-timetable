@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import { courseColor } from '../lib/colors'
-import { formatTime, sameDay } from '../lib/date'
+import { formatTime, nextLessonDay, sameDay } from '../lib/date'
 import { TYPE_META } from '../lib/lessonTypes'
 import { SOURCE_ICON } from '../lib/sources'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
@@ -49,6 +49,18 @@ export default function TodayView({ lessons, onSelect, notes = {} }: Props) {
   )
   const next = today.find((l) => new Date(l.start).getTime() > now)
   const ended = today.length > 0 && !ongoing && !next
+  const nextDay = useMemo(
+    () => nextLessonDay(lessons, new Date(now)),
+    [lessons, now],
+  )
+  const nextDayLessons = useMemo(
+    () => nextDay
+      ? lessons
+          .filter((lesson) => sameDay(new Date(lesson.start), nextDay))
+          .sort((a, b) => a.start.localeCompare(b.start))
+      : [],
+    [lessons, nextDay],
+  )
 
   const banner = (() => {
     if (ongoing) {
@@ -155,6 +167,59 @@ export default function TodayView({ lessons, onSelect, notes = {} }: Props) {
           <p className="py-10 text-center text-xs text-zinc-600">
             {t('noLessonsToday')}
           </p>
+        ) : ended && nextDayLessons.length > 0 ? (
+          <section className="animate-modal-in rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-semibold text-sky-200">{t('nextDayPreview')}</h3>
+                <p className="mt-0.5 text-[11px] text-sky-300/70">
+                  {nextDay?.toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+                    weekday: 'long', day: 'numeric', month: 'long',
+                  })}
+                </p>
+              </div>
+              <span className="rounded-full bg-sky-500/15 px-2 py-1 text-[10px] text-sky-300">
+                {t('nextDayLessonsN', { n: nextDayLessons.length })}
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {nextDayLessons.map((l) => {
+                const c = courseColor(l)
+                const note = noteForLesson(notes, l)
+                return (
+                  <li key={l.id}>
+                    <button
+                      onClick={() => onSelect(l.id)}
+                      className="w-full rounded-lg border px-3 py-2 text-left text-xs transition hover:-translate-y-0.5 hover:brightness-125"
+                      style={{ background: c.bg, borderColor: c.border }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium" style={{ color: c.text }}>
+                            {SOURCE_ICON[l.source]} {l.code ? `${l.code} · ` : ''}{displayTitle(l)}
+                          </div>
+                          <div className="mt-0.5 truncate text-[11px] text-zinc-400">
+                            {l.location || '—'}
+                          </div>
+                          <LessonNote note={note} />
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="font-mono text-zinc-300">
+                            {formatTime(l.start, lang === 'zh' ? 'zh-CN' : 'en-US')} – {formatTime(l.end, lang === 'zh' ? 'zh-CN' : 'en-US')}
+                          </div>
+                          {l.type && TYPE_META[l.type] && (
+                            <span className="mt-0.5 inline-block rounded-full border border-zinc-600 bg-zinc-900/50 px-1.5 py-px text-[10px] text-zinc-300">
+                              {TYPE_META[l.type].icon} {t(TYPE_META[l.type].key)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
         ) : (
           <ul className="space-y-2">
             {today.map((l) => {

@@ -19,6 +19,78 @@ body,
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+.app-header-btn,
+.app-menu-item {
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease,
+    transform 160ms ease, box-shadow 160ms ease;
+}
+
+.app-header-btn:hover,
+.app-menu-item:hover {
+  transform: translateY(-1px);
+}
+
+.app-header-btn:active,
+.app-menu-item:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.task-row {
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.task-row:hover {
+  transform: translateY(-1px);
+  border-color: rgb(82 82 91);
+}
+
+.app-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.7rem;
+  color: rgb(212 212 216);
+  text-align: left;
+  font-size: 0.75rem;
+}
+
+.app-menu-item:hover {
+  background: rgb(63 63 70 / 0.8);
+  color: white;
+}
+
+.animate-pop-in {
+  animation: pop-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transform-origin: top right;
+}
+
+.animate-modal-in {
+  animation: modal-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-5px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-header-btn,
+  .app-menu-item,
+  .animate-pop-in,
+  .animate-modal-in {
+    animation: none;
+    transition: none;
+  }
+}
+
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

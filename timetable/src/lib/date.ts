@@ -32,6 +32,20 @@ export function lessonsInRange(lessons: Lesson[], from: Date, to: Date): Lesson[
   })
 }
 
+/** Find the next calendar day after `from` that has at least one lesson. */
+export function nextLessonDay(lessons: Lesson[], from: Date): Date | null {
+  const dayStart = new Date(from)
+  dayStart.setHours(0, 0, 0, 0)
+  const nextDayStart = addDays(dayStart, 1)
+  const next = lessons
+    .map((lesson) => new Date(lesson.start))
+    .filter((date) => date.getTime() >= nextDayStart.getTime())
+    .sort((a, b) => a.getTime() - b.getTime())[0]
+  if (!next) return null
+  next.setHours(0, 0, 0, 0)
+  return next
+}
+
 export function formatTime(iso: string, locale?: string): string {
   const d = new Date(iso)
   return d.toLocaleTimeString(locale ?? undefined, {

@@ -48,7 +48,7 @@ export default function Settings({
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
       tabIndex={-1}
     >
-      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+      <div className="animate-modal-in w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold">⚙ {t('settingsTitle')}</h3>
           <button

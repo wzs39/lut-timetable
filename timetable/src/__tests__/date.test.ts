@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isoWeekNumber, formatWeekRange, startOfWeek } from '../lib/date'
+import { isoWeekNumber, formatWeekRange, nextLessonDay, startOfWeek } from '../lib/date'
+import type { Lesson } from '../types'
 
 describe('isoWeekNumber', () => {
   it('returns ISO-8601 week numbers', () => {
@@ -16,6 +17,32 @@ describe('isoWeekNumber', () => {
   it('is stable across any day of the same week', () => {
     const thu = new Date(2026, 8, 10)
     expect(isoWeekNumber(startOfWeek(thu))).toBe(isoWeekNumber(thu))
+  })
+})
+
+describe('nextLessonDay', () => {
+  const lesson = (start: string): Lesson => ({
+    id: start,
+    source: 'sisu',
+    title: 'Test',
+    start,
+    end: start,
+  })
+
+  it('finds the first day after today that has lessons, skipping empty days', () => {
+    const lessons = [
+      lesson('2026-09-12T09:00:00.000Z'),
+      lesson('2026-09-15T10:00:00.000Z'),
+    ]
+    const day = nextLessonDay(lessons, new Date('2026-09-10T20:00:00.000Z'))
+    // Compare LOCAL calendar date: toISOString() would shift back a day in UTC+ timezones
+    expect(day?.getFullYear()).toBe(2026)
+    expect(day?.getMonth()).toBe(8)
+    expect(day?.getDate()).toBe(12)
+  })
+
+  it('returns null when no later lesson exists', () => {
+    expect(nextLessonDay([lesson('2026-09-10T09:00:00.000Z')], new Date('2026-09-10T20:00:00.000Z'))).toBeNull()
   })
 })
 

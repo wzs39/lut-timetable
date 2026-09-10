@@ -9,6 +9,7 @@ import BatchFilter from './components/BatchFilter'
 import ConflictCheck from './components/ConflictCheck'
 import NotificationManager from './components/NotificationManager'
 import Settings from './components/Settings'
+import TasksPanel from './components/TasksPanel'
 import {
   ensureTranslatorSession,
   loadTranslatorUrl,
@@ -16,6 +17,7 @@ import {
 } from './lib/translator'
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
+import { loadTasks, pendingTasks, saveTasks, type Task } from './lib/tasks'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
 import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber } from './lib/date'
 import {
@@ -37,6 +39,9 @@ function App() {
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [showConflicts, setShowConflicts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showTasks, setShowTasks] = useState(false)
+  const [showMoreActions, setShowMoreActions] = useState(false)
+  const [tasks, setTasks] = useState<Task[]>(() => loadTasks())
   const [menuOpen, setMenuOpen] = useState(false)
   const [notes, setNotes] = useState<NotesMap>(() => loadNotes())
   const [updateState, setUpdateState] = useState<{ version: string } | null>(null)
@@ -82,6 +87,7 @@ function App() {
   )
   const dupGroups = useMemo(() => findDuplicateGroups(tt.lessons), [tt.lessons])
   const dupCount = removableCount(dupGroups)
+  const pendingTaskCount = pendingTasks(tasks).length
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
   const isCurrentWeek = useMemo(
@@ -107,8 +113,8 @@ function App() {
   }, [])
 
   return (
-    <div className="h-screen flex flex-col bg-zinc-900 text-zinc-100">
-      <header className="safe-top flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-zinc-800">
+    <div className="app-shell h-screen flex flex-col bg-zinc-950 text-zinc-100">
+      <header className="app-header safe-top flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-zinc-800/80">
         <div className="flex items-center gap-3">
           <button
             className="md:hidden rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
@@ -122,7 +128,7 @@ function App() {
             {t('lessonsSources', { n: tt.lessons.length, m: tt.sources.length })}
           </span>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 text-xs ml-auto">
+        <div className="app-actions flex flex-wrap items-center justify-end gap-1.5 text-xs ml-auto">
           {/* 视图切换：今日 / 周 */}
           <div className="flex rounded-md overflow-hidden border border-zinc-700">
             <button
@@ -152,7 +158,7 @@ function App() {
             <div className="hidden sm:flex items-center gap-1.5">
               <button
                 onClick={onPrevWeek}
-                className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+                className="app-header-btn rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
               >
                 ←
               </button>
@@ -169,7 +175,7 @@ function App() {
               </span>
               <button
                 onClick={onNextWeek}
-                className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+                className="app-header-btn rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
               >
                 →
               </button>
@@ -188,54 +194,66 @@ function App() {
           )}
           <button
             onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-            className="rounded-md bg-sky-600/80 hover:bg-sky-600 px-2.5 min-h-9 font-medium"
+            className="app-header-btn rounded-md bg-sky-600/80 hover:bg-sky-600 px-2.5 min-h-9 font-medium"
             title="切换语言 / Switch language"
           >
             {lang === 'zh' ? 'EN' : '中文'}
           </button>
           <button
-            onClick={() => setShowSettings(true)}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
-            title={t('settingsTitle')}
+            onClick={() => setShowTasks(true)}
+            className="app-header-btn rounded-md bg-emerald-700/80 hover:bg-emerald-700 px-2 sm:px-2.5 min-h-9"
+            title={t('tasksTitle')}
           >
-            ⚙ <span className="hidden sm:inline">{t('settingsTitle')}</span>
+            ✅<span className="hidden sm:inline"> {t('tasksTitle')}</span>{pendingTaskCount > 0 ? ` ${pendingTaskCount}` : ''}
           </button>
-          {dupCount > 0 && (
+          <div className="relative">
             <button
-              onClick={() => setShowDupResolver(true)}
-              className="rounded-md bg-amber-600/80 hover:bg-amber-600 px-2.5 min-h-9 font-medium"
-              title={t('dupIntro')}
+              onClick={() => setShowMoreActions((open) => !open)}
+              className="app-header-btn rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 sm:px-2.5 min-h-9"
+              title={t('moreActions')}
+              aria-expanded={showMoreActions}
             >
-              {t('dupButton', { n: dupCount })}
+              <span aria-hidden="true">⋯</span><span className="hidden sm:inline"> {t('moreActions')}</span>
             </button>
-          )}
-          <button
-            onClick={() => setShowBatchFilter(true)}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 sm:px-2.5 min-h-9"
-            title={t('batchTitle')}
-          >
-            🔍<span className="hidden sm:inline"> {t('batchButton')}</span>
-          </button>
-          <button
-            onClick={() => setShowConflicts(true)}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 sm:px-2.5 min-h-9"
-            title={t('conflictsTitle')}
-          >
-            ⚔<span className="hidden sm:inline"> {t('conflictsButton')}</span>
-          </button>
-
-          {tt.hiddenKeys.size > 0 && (
-            <button
-              onClick={tt.unhideAll}
-              className="rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 sm:px-2.5 min-h-9 text-zinc-300"
-              title={t('unhideAll')}
-            >
-              🙈<span className="hidden sm:inline">
-                {' '}
-                {t('hiddenN', { n: tt.hiddenKeys.size })} · {t('unhideAll')}
-              </span>
-            </button>
-          )}
+            {showMoreActions && (
+              <div className="animate-pop-in absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-1.5 shadow-2xl shadow-black/40 backdrop-blur-xl">
+                <button
+                  onClick={() => { setShowSettings(true); setShowMoreActions(false) }}
+                  className="app-menu-item"
+                >
+                  <span>⚙ {t('settingsTitle')}</span><span>›</span>
+                </button>
+                <button
+                  onClick={() => { setShowBatchFilter(true); setShowMoreActions(false) }}
+                  className="app-menu-item"
+                >
+                  <span>🔍 {t('batchButton')}</span><span>›</span>
+                </button>
+                <button
+                  onClick={() => { setShowConflicts(true); setShowMoreActions(false) }}
+                  className="app-menu-item"
+                >
+                  <span>⚔ {t('conflictsButton')}</span><span>›</span>
+                </button>
+                {dupCount > 0 && (
+                  <button
+                    onClick={() => { setShowDupResolver(true); setShowMoreActions(false) }}
+                    className="app-menu-item text-amber-300"
+                  >
+                    <span>🧩 {t('dupButton', { n: dupCount })}</span><span>›</span>
+                  </button>
+                )}
+                {tt.hiddenKeys.size > 0 && (
+                  <button
+                    onClick={() => { tt.unhideAll(); setShowMoreActions(false) }}
+                    className="app-menu-item text-zinc-300"
+                  >
+                    <span>🙈 {t('hiddenN', { n: tt.hiddenKeys.size })}</span><span>↩</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         {/* Baris navigasi minggu khusus ponsel: teks rentang utuh, tidak terpotong */}
         {view === 'week' && (
@@ -369,6 +387,16 @@ function App() {
           onRemoveMany={tt.removeMany}
           onHideMany={tt.hideLessons}
           onClose={() => setShowBatchFilter(false)}
+        />
+      )}
+      {showTasks && (
+        <TasksPanel
+          tasks={tasks}
+          lessons={tt.lessons}
+          onChange={(next) => {
+            setTasks(saveTasks(next))
+          }}
+          onClose={() => setShowTasks(false)}
         />
       )}
       {showSettings && (
