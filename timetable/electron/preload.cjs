@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('lutUpdate', {
     return () => ipcRenderer.removeListener('lut-update-event', listener)
   },
   install: () => ipcRenderer.invoke('lut-update-install'),
+  check: () => ipcRenderer.invoke('lut-update-check'),
 })

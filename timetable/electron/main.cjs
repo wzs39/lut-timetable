@@ -71,12 +71,32 @@ function setupAutoUpdater() {
   autoUpdater.on('update-downloaded', (info) =>
     broadcastUpdate({ type: 'update-downloaded', version: String(info.version) }),
   )
+  autoUpdater.on('download-progress', (p) =>
+    broadcastUpdate({
+      type: 'download-progress',
+      percent: Math.round(p.percent ?? 0),
+    }),
+  )
+  autoUpdater.on('update-not-available', () =>
+    broadcastUpdate({ type: 'update-not-available' }),
+  )
   autoUpdater.on('error', (err) =>
     broadcastUpdate({ type: 'update-error', message: String(err) }),
   )
 
   ipcMain.handle('lut-update-install', () => {
     setImmediate(() => autoUpdater.quitAndInstall())
+  })
+
+  // 手动检查更新：结果通过 update-status 事件回传给渲染层。
+  ipcMain.handle('lut-update-check', async () => {
+    try {
+      const r = await autoUpdater.checkForUpdates()
+      const v = r?.updateInfo?.version ? String(r.updateInfo.version) : null
+      return { ok: true, version: v }
+    } catch (e) {
+      return { ok: false, error: String(e) }
+    }
   })
 
   const check = () => autoUpdater.checkForUpdates().catch(() => {})
