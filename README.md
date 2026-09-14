@@ -1,8 +1,8 @@
 # LUT Timetable / LUT 课表
 
-A clean-slate timetable app for LUT / LAB students (Windows + Android), with automatic sync from **SISU** and **TimeEdit**, conflict handling, per-course coloring, filters, and lesson reminders. Built with React + TypeScript + Vite, packaged with **Electron** (Windows) and **Capacitor** (Android).
+A clean-slate timetable app for LUT / LAB students (Windows + Android + iOS), with automatic sync from **SISU** and **TimeEdit**, conflict handling, per-course coloring, filters, and lesson reminders. Built with React + TypeScript + Vite, packaged with **Electron** (Windows) and **Capacitor** (Android / iOS).
 
-一个面向 LUT / LAB 学生的简约课表软件（Windows + Android），支持 **SISU** 与 **TimeEdit** 自动同步、冲突处理、按课程着色、筛选与上课提醒。前端为 React + TypeScript + Vite，Windows 版用 **Electron** 打包，Android 版用 **Capacitor**。
+一个面向 LUT / LAB 学生的简约课表软件（Windows + Android + iOS），支持 **SISU** 与 **TimeEdit** 自动同步、冲突处理、按课程着色、筛选与上课提醒。前端为 React + TypeScript + Vite，Windows 版用 **Electron** 打包，Android / iOS 版用 **Capacitor**。
 
 ---
 
@@ -14,7 +14,7 @@ A clean-slate timetable app for LUT / LAB students (Windows + Android), with aut
 | **Windows** (Electron) | `LUT.Timetable-<version>.msi` | ✅ Released 已发布 | MSI for enterprise deployment 企业批量部署用. **No auto-update** 无自动更新。 |
 | **Android** | `app-debug.apk` | ✅ Released 已发布 | Debug-signed APK — install with "allow unknown sources". 调试签名安装包，需允许"未知来源"。Cannot be published to Google Play. 不能上架。 |
 | **Web 网页版** | — | ❌ Deprecated 已废弃 | Removed: SISU ICS has no CORS headers, so browser sync depended on flaky public proxies. 已废弃：浏览器同步依赖不稳定的公共代理。 |
-| **iOS / macOS** | — | ❌ **No iOS version 无 iOS 版本** | **Not available and not planned.** Building iOS requires macOS + an Apple Developer certificate, and no iOS project/CI is configured. If you need it, this is a large separate effort. **没有 iOS 版本，目前也无计划。** 构建 iOS 需要 macOS 与 Apple 开发者证书，仓库未配置 iOS 工程与 CI；如需支持将是独立的大工程。 |
+| **iOS / macOS** | 源码构建 | 🔧 **Build from source 从源码构建** | **No signed release / no App Store version.** The Xcode project (`timetable/ios/`) is committed and **CI compile-checks it on every push** (simulator build, unsigned). To run it you need a Mac with Xcode: `npm ci && npm run build && npx cap sync ios`, open `timetable/ios/App/App.xcodeproj`, press Run. sideload to a device requires your own free Apple ID (7-day validity) or a paid Developer account. **无签名发布版、不上架 App Store。** Xcode 工程已提交，CI 每次推送都会编译验证（模拟器、无签名）。自建需 Mac + Xcode：`npm ci && npm run build && npx cap sync ios`，打开 `timetable/ios/App/App.xcodeproj` 点 Run；装真机需用自己的免费 Apple ID（7 天有效）或付费开发者账号。 |
 
 Latest installers are always at: 最新安装包始终发布在：
 **https://github.com/wzs39/lut-timetable/releases/latest**

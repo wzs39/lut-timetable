@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   addTask,
   createTask,
+  dueOn,
+  dueWithin,
   isOverdue,
   pendingTasks,
   sortTasks,
@@ -51,6 +53,27 @@ describe('task ordering and status', () => {
     expect(isOverdue(task({ dueAt: '2026-09-03T11:59:00.000Z' }), now)).toBe(true)
     expect(isOverdue(task({ dueAt: '2026-09-03T11:59:00.000Z', completed: true }), now)).toBe(false)
     expect(isOverdue(task({ dueAt: '2026-09-03T13:00:00.000Z' }), now)).toBe(false)
+  })
+
+  it('dueOn returns only still-pending deadlines of that day (not overdue)', () => {
+    const now = new Date(2026, 8, 3, 12, 0) // local 9/3 12:00 (= 09:00Z in UTC+3)
+    const tasks = [
+      task({ id: 'past-today', dueAt: '2026-09-03T07:00:00.000Z' }), // 10:00 local — already past
+      task({ id: 'later-today', dueAt: '2026-09-03T15:00:00.000Z' }), // 18:00 local — still ahead
+      task({ id: 'completed-today', dueAt: '2026-09-03T17:00:00.000Z', completed: true }),
+      task({ id: 'tomorrow', dueAt: '2026-09-04T09:00:00.000Z' }),
+    ]
+    expect(dueOn(tasks, now).map((t) => t.id)).toEqual(['later-today'])
+  })
+
+  it('dueWithin counts down the coming window only', () => {
+    const now = new Date('2026-09-03T12:00:00.000Z')
+    const tasks = [
+      task({ id: 'in2h', dueAt: '2026-09-03T14:00:00.000Z' }),
+      task({ id: 'in30h', dueAt: '2026-09-04T18:00:00.000Z' }),
+      task({ id: 'past', dueAt: '2026-09-03T10:00:00.000Z' }),
+    ]
+    expect(dueWithin(tasks, 24, now).map((t) => t.id)).toEqual(['in2h'])
   })
 })
 

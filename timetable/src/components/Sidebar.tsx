@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Lesson, SyncSource } from '../types'
 import { normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
+import { QUICK_LINKS } from '../lib/quickLinks'
 import { useI18n } from '../i18n'
 import CourseSearch from './CourseSearch'
 import SyncProtection from './SyncProtection'
@@ -311,16 +312,22 @@ export default function Sidebar({
 
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
-            TimeEdit
+            {t('quickLinks')}
           </h2>
-          <a
-            href="https://cloud.timeedit.net/lut-saimia/web/lutpublic/ri1Y8X1QQ7wZ16QfQ5079675yYY95Z7.html"
-            target="_blank"
-            rel="noreferrer"
-            className="block rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-1.5 text-[11px] text-zinc-300"
-          >
-            {t('openTimeEdit')}
-          </a>
+          <div className="grid grid-cols-2 gap-1.5">
+            {QUICK_LINKS.map((l) => (
+              <a
+                key={l.key}
+                href={l.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-1.5 text-[11px] text-zinc-300 truncate"
+                title={l.url}
+              >
+                {l.icon} {l.name}
+              </a>
+            ))}
+          </div>
         </div>
       </div>
     </aside>

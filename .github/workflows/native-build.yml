@@ -61,11 +61,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm ci
-          npm run build
           # Auto-increment patch version so electron-updater sees a new version
           # on every push and prompts users to update.
           npm version patch --no-git-tag-version
           echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          # Build AFTER the bump so VITE_APP_VERSION in the web bundle matches
+          # the packaged installer version ("已是最新版本" banner must show the
+          # real running version).
+          npm run build
           npx electron-builder --win nsis msi --publish always
       - uses: actions/upload-artifact@v4
         with:
@@ -73,6 +76,35 @@ jobs:
           path: |
             timetable/release-electron/*.exe
             timetable/release-electron/*.msi
+
+  ios:
+    name: iOS (compile check, simulator, unsigned)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: timetable/package-lock.json
+      - name: Install deps & build web assets
+        working-directory: timetable
+        run: |
+          npm ci
+          npm run build
+      - name: Sync Capacitor
+        working-directory: timetable
+        run: npx cap sync ios
+      # Xcode 生成工程已提交；SPM 插件解析在 build 期间自动完成（无需 CocoaPods）。
+      - name: Build iOS (simulator, unsigned)
+        working-directory: timetable/ios/App
+        run: |
+          xcodebuild -scheme App -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
+            | tail -30
+      - name: Verify .app product exists
+        run: test -d timetable/ios/App/build/Build/Products/Debug-iphonesimulator/App.app && echo "App.app built"
 
   release:
     name: Attach APK to GitHub Release

@@ -175,6 +175,9 @@ function devProxyUrl(url: string): string | null {
     if (u.hostname.includes('timeedit.net')) {
       return '/proxy/timeedit' + u.pathname + u.search
     }
+    if (u.hostname.endsWith('moodle.lut.fi')) {
+      return '/proxy/moodle' + u.pathname + u.search
+    }
     return null
   } catch {
     return null

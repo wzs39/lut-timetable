@@ -7,6 +7,7 @@ import { displayTitle, buildingOf, roomOf } from '../lib/display'
 import { formatDay, formatTime } from '../lib/date'
 import { normalizeCourseCode } from '../lib/ics'
 import { scopeText } from '../lib/notes'
+import { isOverdue, pendingTasks, type Task } from '../lib/tasks'
 
 interface Props {
   lesson: Lesson
@@ -21,6 +22,10 @@ interface Props {
   note?: string
   onSaveNote?: (text: string) => void
   onRemoveNote?: () => void
+  /** Semua tugas/assignment — untuk menampilkan yang terkait kode kursus ini */
+  assignments?: Task[]
+  /** Buka panel Tugas (from lesson detail) */
+  onOpenAssignments?: () => void
 }
 
 function toTimeInput(iso: string): string {
@@ -41,6 +46,8 @@ export default function LessonDetail({
   note,
   onSaveNote,
   onRemoveNote,
+  assignments,
+  onOpenAssignments,
 }: Props) {
   const { t, lang } = useI18n()
   const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
@@ -339,6 +346,44 @@ export default function LessonDetail({
                   {t('viewTimeEdit')}
                 </a>
               )}
+
+              {/* Tugas/assignment milik kode kursus ini */}
+              {assignments && onOpenAssignments && (() => {
+                const code = lesson.code ? normalizeCourseCode(lesson.code) : null
+                const related = code
+                  ? pendingTasks(assignments).filter(
+                      (task) =>
+                        task.course &&
+                        (task.course.toUpperCase().includes(code) ||
+                          normalizeCourseCode(task.course) === code),
+                    )
+                  : []
+                return (
+                  <button
+                    onClick={onOpenAssignments}
+                    className="block w-full rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-left hover:bg-emerald-500/20"
+                  >
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300/80">
+                      🎓 {related.length > 0
+                        ? t('lessonAssignments', { n: related.length })
+                        : t('lessonAssignmentsEmpty')}
+                    </div>
+                    {related.length > 0 && (
+                      <ul className="mt-1 space-y-0.5">
+                        {related.slice(0, 3).map((task) => (
+                          <li key={task.id} className="truncate text-[11px] text-emerald-100">
+                            · {task.title}
+                            {isOverdue(task) && <span className="ml-1 text-rose-300">· {t('taskOverdue')}</span>}
+                          </li>
+                        ))}
+                        {related.length > 3 && (
+                          <li className="text-[10px] text-emerald-300/70">…</li>
+                        )}
+                      </ul>
+                    )}
+                  </button>
+                )
+              })()}
 
               {/* Catatan kursus: berlaku untuk semua pelajaran dengan kode+jenis sama */}
               {onSaveNote && (
