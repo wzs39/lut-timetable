@@ -31,6 +31,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/proxy\/timeedit/, ''),
       },
+      '/proxy/moodle': {
+        target: 'https://moodle.lut.fi',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/proxy\/moodle/, ''),
+      },
     },
   },
 })

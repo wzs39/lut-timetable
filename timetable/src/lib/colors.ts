@@ -37,12 +37,19 @@ function hashString(s: string): number {
 }
 
 /**
+ * Warna konsisten per kunci mata kuliah (kode ternormalisasi). Dipakai
+ * langsung oleh UI non-lesson (mis. tugas per kursus) agar warnanya
+ * identik dengan blok kursus di kalender.
+ */
+export function courseColorByKey(code: string): CourseColor {
+  return PALETTE[hashString(normalizeCourseCode(code)) % PALETTE.length]
+}
+
+/**
  * Warna konsisten per mata kuliah: kunci = kode kursus ternormalisasi
  * (nomor grup 4 digit dibuang — grup paralel = warna sama).
  * Tanpa kode, coba ekstrak dari judul; fallback terakhir: judul utuh.
  */
 export function courseColor(l: Lesson): CourseColor {
-  const raw = l.code || extractCourseCode(l.title) || l.title
-  const key = normalizeCourseCode(raw)
-  return PALETTE[hashString(key) % PALETTE.length]
+  return courseColorByKey(l.code || extractCourseCode(l.title) || l.title)
 }

@@ -10,6 +10,7 @@ const BACKUP_KEYS = [
   'tt_conflict_dismissed',
   'tt_course_notes',
   'tt_tasks_v1',
+  'tt_moodle_source_v1',
   'tt_lang',
   'tt_autosync',
   'tt_notif',

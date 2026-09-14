@@ -1,19 +1,33 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
-import { courseColor } from '../lib/colors'
+import { courseColor, courseColorByKey } from '../lib/colors'
 import { formatTime, nextLessonDay, sameDay } from '../lib/date'
 import { TYPE_META } from '../lib/lessonTypes'
 import { SOURCE_ICON } from '../lib/sources'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
 import { noteForLesson, type NotesMap } from '../lib/notes'
+import {
+  dueOn,
+  isOverdue,
+  msUntilDue,
+  type Task,
+} from '../lib/tasks'
+import { normalizeCourseCode } from '../lib/ics'
 import LessonNote from './LessonNote'
+import TruncatedNote from './TruncatedNote'
 
 interface Props {
   lessons: Lesson[]
   onSelect: (id: string) => void
   /** Catatan kursus: kode+jenis -> teks */
   notes?: NotesMap
+  /** Semua tugas/assignment — 今日截止 + 逾期 显示 */
+  tasks?: Task[]
+  /** 跳转到该课程的日历位置 */
+  onJumpToCourse?: (code: string) => void
+  /** 打开作业页面 */
+  onOpenAssignments?: () => void
 }
 
 
@@ -27,7 +41,7 @@ function fmtDuration(min: number, t: (k: string, p?: any) => string): string {
  * 今日视图: 按时间聚合今天的课程 + "下一节课"倒计时。
  * 每 30 秒刷新状态（即将上课 / 正在进行 / 已结束）。
  */
-export default function TodayView({ lessons, onSelect, notes = {} }: Props) {
+export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onOpenAssignments }: Props) {
   const { t, lang } = useI18n()
   const [now, setNow] = useState(() => Date.now())
 
@@ -91,6 +105,16 @@ export default function TodayView({ lessons, onSelect, notes = {} }: Props) {
   const todayLabel = new Date(now).toLocaleDateString(
     lang === 'zh' ? 'zh-CN' : 'en-US',
     { weekday: 'long', day: 'numeric', month: 'long' },
+  )
+
+  // ---- 截止任务：今日截止 + 逾期汇总 ----
+  const overdueTasks = useMemo(
+    () => tasks.filter((task) => isOverdue(task, new Date(now))),
+    [tasks, now],
+  )
+  const dueToday = useMemo(
+    () => dueOn(tasks, new Date(now)),
+    [tasks, now],
   )
 
   // Navigazione interna: raggruppa le lezioni di oggi per edificio
@@ -161,6 +185,126 @@ export default function TodayView({ lessons, onSelect, notes = {} }: Props) {
               ))}
             </div>
           </div>
+        )}
+
+        {/* ---- 逾期任务红色横幅 ---- */}
+        {overdueTasks.length > 0 && (
+          <button
+            onClick={onOpenAssignments}
+            className="animate-modal-in w-full rounded-lg border border-rose-500/60 bg-rose-500/10 px-3 py-2.5 text-left transition hover:bg-rose-500/20"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-rose-300">
+                ⚠ {t('dueOverdueBanner', { n: overdueTasks.length })}
+              </span>
+              <span className="shrink-0 text-[11px] text-rose-300/80">{t('dueGoAssign')} ›</span>
+            </div>
+            <div className="mt-1 space-y-0.5">
+              {overdueTasks.slice(0, 3).map((task) => (
+                <div key={task.id} className="truncate text-[11px] text-rose-200/90">
+                  · {task.title}
+                  {task.dueAt && ` · ${formatDueShort(task.dueAt, lang)}`}
+                </div>
+              ))}
+              {overdueTasks.length > 3 && (
+                <div className="text-[10px] text-rose-300/70">{t('dueMoreN', { n: overdueTasks.length - 3 })}</div>
+              )}
+            </div>
+          </button>
+        )}
+
+        {/* ---- 今日截止任务 ---- */}
+        {dueToday.length > 0 && (
+          <section className="animate-modal-in rounded-xl border border-amber-500/40 bg-amber-500/5 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold text-amber-200">
+                ⏰ {t('dueTodayTitle', { n: dueToday.length })}
+              </h3>
+              <button
+                onClick={onOpenAssignments}
+                className="shrink-0 text-[11px] text-amber-300/80 hover:text-amber-200"
+              >
+                {t('dueGoAssign')} ›
+              </button>
+            </div>
+            <ul className="space-y-2">
+              {dueToday.map((task) => {
+                const cc = task.course
+                  ? (() => {
+                      const code = normalizeCourseCode(task.course)
+                      return lessons.some((l) => l.code && normalizeCourseCode(l.code) === code)
+                        ? code
+                        : null
+                    })()
+                  : null
+                const c = cc ? courseColorByKey(cc) : null
+                const leftMs = msUntilDue(task, new Date(now))
+                const leftMin = leftMs != null ? Math.round(leftMs / 60000) : null
+                return (
+                  <li
+                    key={task.id}
+                    className="rounded-lg border px-3 py-2"
+                    style={
+                      c
+                        ? { background: c.bg, borderColor: c.border }
+                        : { background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.35)' }
+                    }
+                  >
+                    <div>
+                      {/* 标题行：标题 + 倒计时徽章 */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 truncate text-xs font-medium" style={{ color: c?.text ?? '#fde68a' }}>
+                          {task.id.startsWith('moodle:') && <span className="mr-1" title="Moodle">🟠</span>}
+                          {task.title}
+                        </div>
+                        {leftMin != null && (
+                          <span className="shrink-0 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-medium text-amber-200 whitespace-nowrap">
+                            ⏳ {leftMin >= 60 ? t('durationHM', { h: Math.floor(leftMin / 60), m: leftMin % 60 }) : t('durationM', { m: leftMin })}
+                          </span>
+                        )}
+                      </div>
+                      {/* 信息行：占满整卡宽度，按钮行尾对齐 */}
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-zinc-300/90">
+                        {task.course && <span>📚 {task.course}</span>}
+                        {task.startAt && (
+                          <span className="whitespace-nowrap">▶ {formatDueFull(task.startAt, lang)}</span>
+                        )}
+                        {task.dueAt && (
+                          <span className="whitespace-nowrap font-medium text-amber-200">
+                            ⏰ {formatDueFull(task.dueAt, lang)}
+                          </span>
+                        )}
+                        <span className="ml-auto flex items-center gap-1">
+                          {task.url && (
+                            <a
+                              href={task.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="rounded bg-orange-600/80 px-1.5 py-1 text-[10px] leading-none text-white hover:bg-orange-500"
+                              title={t('dueOpenActivity')}
+                            >
+                              ↗
+                            </a>
+                          )}
+                          {cc && onJumpToCourse && (
+                            <button
+                              onClick={() => onJumpToCourse(cc)}
+                              className="rounded bg-zinc-700 px-1.5 py-1 text-[10px] leading-none hover:bg-zinc-600"
+                              title={t('jumpToCourse')}
+                            >
+                              ↦
+                            </button>
+                          )}
+                        </span>
+                      </div>
+                      {task.note && <TruncatedNote note={task.note} />}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
         )}
 
         {today.length === 0 ? (
@@ -290,4 +434,18 @@ export default function TodayView({ lessons, onSelect, notes = {} }: Props) {
       </div>
     </div>
   )
+}
+
+/** "9月16日周三 16:00" / "Wed, Sep 16 4:00 PM" */
+function formatDueFull(iso: string, lang: 'zh' | 'en'): string {
+  return new Date(iso).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+/** 紧凑版（横幅用）: "9/13 16:00" */
+function formatDueShort(iso: string, lang: 'zh' | 'en'): string {
+  return new Date(iso).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
 }

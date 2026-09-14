@@ -9,7 +9,7 @@ import BatchFilter from './components/BatchFilter'
 import ConflictCheck from './components/ConflictCheck'
 import NotificationManager from './components/NotificationManager'
 import Settings from './components/Settings'
-import TasksPanel from './components/TasksPanel'
+import AssignmentsView from './components/AssignmentsView'
 import {
   ensureTranslatorSession,
   loadTranslatorUrl,
@@ -33,13 +33,12 @@ function App() {
   const tt = useTimetable()
   const { lang, setLang, t } = useI18n()
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
-  const [view, setView] = useState<'today' | 'week'>('today')
+  const [view, setView] = useState<'today' | 'week' | 'assign'>('today')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDupResolver, setShowDupResolver] = useState(false)
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [showConflicts, setShowConflicts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [showTasks, setShowTasks] = useState(false)
   const [showMoreActions, setShowMoreActions] = useState(false)
   const [tasks, setTasks] = useState<Task[]>(() => loadTasks())
   const [menuOpen, setMenuOpen] = useState(false)
@@ -128,6 +127,8 @@ function App() {
   const dupGroups = useMemo(() => findDuplicateGroups(tt.lessons), [tt.lessons])
   const dupCount = removableCount(dupGroups)
   const pendingTaskCount = pendingTasks(tasks).length
+  const viewBtn = (v: 'today' | 'week' | 'assign') =>
+    'px-2.5 min-h-9 ' + (view === v ? 'bg-sky-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300')
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
   const isCurrentWeek = useMemo(
@@ -169,29 +170,23 @@ function App() {
           </span>
         </div>
         <div className="app-actions flex flex-wrap items-center justify-end gap-1.5 text-xs ml-auto">
-          {/* 视图切换：今日 / 周 */}
+          {/* 视图切换：今日 / 周 / 作业 */}
           <div className="flex rounded-md overflow-hidden border border-zinc-700">
-            <button
-              onClick={() => setView('today')}
-              className={
-                'px-2.5 min-h-9 ' +
-                (view === 'today'
-                  ? 'bg-sky-600 text-white'
-                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300')
-              }
-            >
+            <button onClick={() => setView('today')} className={viewBtn('today')}>
               {t('viewToday')}
             </button>
-            <button
-              onClick={() => setView('week')}
-              className={
-                'px-2.5 min-h-9 ' +
-                (view === 'week'
-                  ? 'bg-sky-600 text-white'
-                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300')
-              }
-            >
+            <button onClick={() => setView('week')} className={viewBtn('week')}>
               {t('viewWeek')}
+            </button>
+            <button
+              onClick={() => setView('assign')}
+              className={viewBtn('assign')}
+              title={t('assignTitle')}
+            >
+              🎓<span className="hidden sm:inline"> {t('assignNav')}</span>
+              {pendingTaskCount > 0 && (
+                <span className="ml-1 rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white">{pendingTaskCount}</span>
+              )}
             </button>
           </div>
           {view === 'week' && (
@@ -238,13 +233,6 @@ function App() {
             title="切换语言 / Switch language"
           >
             {lang === 'zh' ? 'EN' : '中文'}
-          </button>
-          <button
-            onClick={() => setShowTasks(true)}
-            className="app-header-btn rounded-md bg-emerald-700/80 hover:bg-emerald-700 px-2 sm:px-2.5 min-h-9"
-            title={t('tasksTitle')}
-          >
-            ✅<span className="hidden sm:inline"> {t('tasksTitle')}</span>{pendingTaskCount > 0 ? ` ${pendingTaskCount}` : ''}
           </button>
           <div className="relative">
             <button
@@ -385,18 +373,57 @@ function App() {
           />
         </div>
         <main className="flex-1 flex flex-col min-w-0">
-          {view === 'today' ? (
+          {view === 'today' && (
             <TodayView
               lessons={tt.visibleLessons}
               onSelect={setSelectedId}
               notes={notes}
+              tasks={tasks}
+              onJumpToCourse={(code) => {
+                const target = tt.visibleLessons
+                  .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
+                  .sort((a, b) => a.start.localeCompare(b.start))
+                  .find((l) => new Date(l.end).getTime() >= Date.now()) ??
+                  tt.visibleLessons
+                    .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
+                    .sort((a, b) => b.start.localeCompare(a.start))[0]
+                if (target) {
+                  setWeekStart(startOfWeek(new Date(target.start)))
+                  setView('week')
+                  setSelectedId(target.id)
+                }
+              }}
+              onOpenAssignments={() => setView('assign')}
             />
-          ) : (
+          )}
+          {view === 'week' && (
             <WeekGrid
               lessons={weekVisibleLessons}
               weekStart={weekStart}
               onSelect={setSelectedId}
               notes={notes}
+            />
+          )}
+          {view === 'assign' && (
+            <AssignmentsView
+              tasks={tasks}
+              lessons={tt.lessons}
+              onChange={(next) => setTasks(saveTasks(next))}
+              onJumpToCourse={(code) => {
+                // 跳到该课程下一次出现的周视图，并选中那节课
+                const target = tt.visibleLessons
+                  .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
+                  .sort((a, b) => a.start.localeCompare(b.start))
+                  .find((l) => new Date(l.end).getTime() >= Date.now()) ??
+                  tt.visibleLessons
+                    .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
+                    .sort((a, b) => b.start.localeCompare(a.start))[0]
+                if (target) {
+                  setWeekStart(startOfWeek(new Date(target.start)))
+                  setView('week')
+                  setSelectedId(target.id)
+                }
+              }}
             />
           )}
         </main>
@@ -421,6 +448,11 @@ function App() {
           }
           onSaveNote={(text) => saveNoteForLesson(selectedLesson, text)}
           onRemoveNote={() => removeNoteByKey(noteKeyOf(selectedLesson))}
+          assignments={tasks}
+          onOpenAssignments={() => {
+            setSelectedId(null)
+            setView('assign')
+          }}
         />
       )}
       {showDupResolver && (
@@ -436,16 +468,6 @@ function App() {
           onRemoveMany={tt.removeMany}
           onHideMany={tt.hideLessons}
           onClose={() => setShowBatchFilter(false)}
-        />
-      )}
-      {showTasks && (
-        <TasksPanel
-          tasks={tasks}
-          lessons={tt.lessons}
-          onChange={(next) => {
-            setTasks(saveTasks(next))
-          }}
-          onClose={() => setShowTasks(false)}
         />
       )}
       {showSettings && (
@@ -477,7 +499,7 @@ function App() {
         />
       )}
 
-      <NotificationManager enabled={tt.notifEnabled} lessons={tt.lessons} />
+      <NotificationManager enabled={tt.notifEnabled} lessons={tt.lessons} tasks={tasks} />
       {updateState && (
         <div className="fixed bottom-4 inset-x-0 z-50 flex justify-center px-4 animate-modal-in">
           <div

@@ -12,6 +12,12 @@ export interface IcsEvent {
   uid?: string
   summary?: string
   location?: string
+  /** Deskripsi event (Moodle: nama kursus + tautan tugas) */
+  description?: string
+  /** Properti URL (Moodle: link ke halaman tugas) */
+  url?: string
+  /** CATEGORIES (Moodle: nama mata kuliah) */
+  categories?: string
   start: Date
   end: Date
 }
@@ -108,6 +114,11 @@ export function parseIcs(raw: string): IcsEvent[] {
             uid: cur.UID?.value,
             summary: cur.SUMMARY ? unescapeText(cur.SUMMARY.value) : undefined,
             location: cur.LOCATION ? unescapeText(cur.LOCATION.value) : undefined,
+            description: cur.DESCRIPTION
+              ? unescapeText(cur.DESCRIPTION.value)
+              : undefined,
+            url: cur.URL?.value,
+            categories: cur.CATEGORIES ? unescapeText(cur.CATEGORIES.value) : undefined,
             start,
             end,
           })
@@ -130,6 +141,9 @@ export function parseIcs(raw: string): IcsEvent[] {
         'UID',
         'SUMMARY',
         'LOCATION',
+        'DESCRIPTION',
+        'URL',
+        'CATEGORIES',
         'DTSTART',
         'DTEND',
         'DURATION',
