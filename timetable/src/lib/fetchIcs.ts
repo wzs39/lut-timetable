@@ -1,7 +1,8 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
+import { TRANSIENT_KEYS } from './storage'
 
 export const ICS_CACHE_TTL = 2 * 60 * 60 * 1000
-const ICS_CACHE_PREFIX = 'tt_ics_cache_v1:'
+const ICS_CACHE_PREFIX = TRANSIENT_KEYS.icsCachePrefix
 
 interface IcsCacheEntry {
   fetchedAt: number
@@ -159,7 +160,7 @@ function saveCachedIcs(url: string, text: string): void {
   }
 }
 
-function fetchText(url: string): Promise<string> {
+export function fetchText(url: string): Promise<string> {
   return fetch(url).then((res) => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return res.text()

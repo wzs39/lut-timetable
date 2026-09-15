@@ -18,8 +18,7 @@ interface Props {
  * dengan daftar pelajaran (saat data berubah + tiap 10 menit).
  */
 export default function NotificationManager({ enabled, lessons, tasks = [] }: Props) {
-  const { t, lang } = useI18n()
-  const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
+  const { t, lang, locale } = useI18n()
 
   useEffect(() => {
     if (!enabled) {

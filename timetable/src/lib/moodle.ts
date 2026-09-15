@@ -2,6 +2,7 @@ import type { Lesson } from '../types'
 import type { Task } from './tasks'
 import { parseIcs, normalizeCourseCode } from './ics'
 import { fetchIcsText } from './fetchIcs'
+import { KEYS, readJson, writeJson, removeKey } from './storage'
 
 /**
  * Moodle calendar (moodle.lut.fi) → assignments.
@@ -15,8 +16,6 @@ import { fetchIcsText } from './fetchIcs'
  * Vite proxy; production browser falls back to public CORS proxies.
  */
 
-const LS_MOODLE = 'tt_moodle_source_v1'
-
 export interface MoodleSource {
   url: string
   lastSync?: string
@@ -24,20 +23,14 @@ export interface MoodleSource {
 }
 
 export function loadMoodleSource(): MoodleSource | null {
-  try {
-    const raw = JSON.parse(localStorage.getItem(LS_MOODLE) || 'null') as
-      | Partial<MoodleSource>
-      | null
-    if (!raw || typeof raw.url !== 'string') return null
-    return { url: raw.url, lastSync: raw.lastSync, count: raw.count ?? 0 }
-  } catch {
-    return null
-  }
+  const raw = readJson<Partial<MoodleSource> | null>(KEYS.moodleSource, null)
+  if (!raw || typeof raw.url !== 'string') return null
+  return { url: raw.url, lastSync: raw.lastSync, count: raw.count ?? 0 }
 }
 
 export function saveMoodleSource(src: MoodleSource | null): void {
-  if (src) localStorage.setItem(LS_MOODLE, JSON.stringify(src))
-  else localStorage.removeItem(LS_MOODLE)
+  if (src) writeJson(KEYS.moodleSource, src)
+  else removeKey(KEYS.moodleSource)
 }
 
 /**

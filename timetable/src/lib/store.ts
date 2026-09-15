@@ -6,32 +6,22 @@ import {
   normalizeCourseCode,
 } from './ics'
 import { fetchIcsText } from './fetchIcs'
-
-const LS_LESSONS = 'tt_lessons_v1'
-const LS_SOURCES = 'tt_sources_v1'
+import { KEYS, readJson, writeJson } from './storage'
 
 export function loadLessons(): Lesson[] {
-  try {
-    return JSON.parse(localStorage.getItem(LS_LESSONS) || '[]')
-  } catch {
-    return []
-  }
+  return readJson<Lesson[]>(KEYS.lessons, [])
 }
 
 export function saveLessons(l: Lesson[]) {
-  localStorage.setItem(LS_LESSONS, JSON.stringify(l))
+  writeJson(KEYS.lessons, l)
 }
 
 export function loadSources(): SyncSource[] {
-  try {
-    return JSON.parse(localStorage.getItem(LS_SOURCES) || '[]')
-  } catch {
-    return []
-  }
+  return readJson<SyncSource[]>(KEYS.sources, [])
 }
 
 export function saveSources(s: SyncSource[]) {
-  localStorage.setItem(LS_SOURCES, JSON.stringify(s))
+  writeJson(KEYS.sources, s)
 }
 
 export function uid(): string {
@@ -83,9 +73,6 @@ export interface SyncResult {
   skipped: number
 }
 
-const LS_TOMB = 'tt_tombstones'
-const LS_OVERRIDE = 'tt_overrides'
-
 /** Kunci identitas pelajaran lintas sync: kode+waktu, fallback uid */
 export function lessonKey(l: Lesson): string {
   return dedupeKeyOf(l) ?? (l.uid ? `uid:${l.uid}` : `id:${l.id}`)
@@ -93,40 +80,30 @@ export function lessonKey(l: Lesson): string {
 
 /** Semua tombstone yang tersimpan (untuk panel manajemen di sidebar) */
 export function loadTombstones(): Set<string> {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(LS_TOMB) || '[]'))
-  } catch {
-    return new Set()
-  }
+  return new Set(readJson<string[]>(KEYS.tombstones, []))
 }
 
 /** Cabut satu tombstone — pelajaran akan diimpor ulang pada sync berikutnya */
 export function removeTombstone(key: string) {
   const set = loadTombstones()
   if (set.delete(key)) {
-    localStorage.setItem(LS_TOMB, JSON.stringify([...set]))
+    writeJson(KEYS.tombstones, [...set])
   }
 }
 
 /** Hapus semua tombstone */
 export function clearTombstones() {
-  localStorage.setItem(LS_TOMB, '[]')
+  writeJson(KEYS.tombstones, [])
 }
-
-const LS_HIDDEN = 'tt_hidden'
 
 /** Kunci lesson yang disembunyikan sementara (tampilan saja, tanpa hapus).
  *  Pakai lessonKey agar tetap tersembunyi walau re-sync memberi id baru. */
 export function loadHiddenKeys(): Set<string> {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(LS_HIDDEN) || '[]'))
-  } catch {
-    return new Set()
-  }
+  return new Set(readJson<string[]>(KEYS.hidden, []))
 }
 
 function saveHiddenKeys(keys: Set<string>) {
-  localStorage.setItem(LS_HIDDEN, JSON.stringify([...keys]))
+  writeJson(KEYS.hidden, [...keys])
 }
 
 /** Sembunyikan lesson (berdasarkan id) dari kalender — bisa dibuka lagi */
@@ -145,7 +122,7 @@ export function addHiddenKeys(lessons: Lesson[]) {
 
 /** Tampilkan lagi semua lesson yang disembunyikan */
 export function clearHiddenKeys() {
-  localStorage.setItem(LS_HIDDEN, '[]')
+  writeJson(KEYS.hidden, [])
 }
 
 /** Ingat pelajaran yang dihapus pengguna — tidak akan diimpor ulang saat sync */
@@ -159,16 +136,12 @@ export function addTombstones(lessons: Lesson[]) {
       changed = true
     }
   }
-  if (changed) localStorage.setItem(LS_TOMB, JSON.stringify([...set]))
+  if (changed) writeJson(KEYS.tombstones, [...set])
 }
 
 /** Semua override yang tersimpan: key -> patch (untuk panel manajemen) */
 export function loadOverrides(): Record<string, Partial<Lesson>> {
-  try {
-    return JSON.parse(localStorage.getItem(LS_OVERRIDE) || '{}')
-  } catch {
-    return {}
-  }
+  return readJson<Record<string, Partial<Lesson>>>(KEYS.overrides, {})
 }
 
 const CONTENT_FIELDS = ['title', 'code', 'location', 'start', 'end'] as const
@@ -181,19 +154,19 @@ export function saveOverride(key: string, patch: Partial<Lesson>) {
     if (patch[f] !== undefined) (prev as any)[f] = patch[f]
   }
   all[key] = prev
-  localStorage.setItem(LS_OVERRIDE, JSON.stringify(all))
+  writeJson(KEYS.overrides, all)
 }
 
 /** Hapus semua override */
 export function clearOverrides() {
-  localStorage.setItem(LS_OVERRIDE, '{}')
+  writeJson(KEYS.overrides, {})
 }
 
 export function deleteOverride(key: string) {
   const all = loadOverrides()
   if (all[key]) {
     delete all[key]
-    localStorage.setItem(LS_OVERRIDE, JSON.stringify(all))
+    writeJson(KEYS.overrides, all)
   }
 }
 

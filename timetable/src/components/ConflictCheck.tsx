@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
+import Icon from './Icon'
 import { formatTime } from '../lib/date'
-import { courseColor } from '../lib/colors'
+import type { CSSProperties } from 'react'
+import { courseColor, courseStyle, courseTextStyle } from '../lib/colors'
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle } from '../lib/display'
 import { SOURCE_ICON } from '../lib/sources'
@@ -28,8 +30,7 @@ interface Props {
  * Parallel groups of the same course are not counted as clashes.
  */
 export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props) {
-  const { t, lang } = useI18n()
-  const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
+  const { t, locale } = useI18n()
   const [q, setQ] = useState('')
   const [selected, setSelected] = useState<CourseCandidate | null>(null)
 
@@ -47,7 +48,7 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
   )
 
   const inputCls =
-    'rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1.5 text-xs focus:outline-none focus:border-sky-500'
+    'rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--info)]'
 
   const jump = (l: Lesson) => {
     if (!onOpenLesson) return
@@ -67,10 +68,10 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
   const typeTag = (l: Lesson) =>
     l.type && TYPE_META[l.type] ? (
       <span
-        className="shrink-0 rounded bg-zinc-700/60 px-1 py-px text-[10px] text-zinc-300"
+        className="shrink-0 rounded bg-[var(--surface-2)] px-1 py-px text-[10px] text-[var(--text-2)]"
         title={t(TYPE_META[l.type].key)}
       >
-        {TYPE_META[l.type].icon} {TYPE_META[l.type].short}
+        {<Icon name={TYPE_META[l.type].icon} size={11} />} {TYPE_META[l.type].short}
       </span>
     ) : null
 
@@ -81,15 +82,15 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">⚔ {t('conflictsTitle')}</h3>
+          <h3 className="inline-flex items-center gap-2 text-sm font-semibold"><Icon name="warn" size={15} /> {t('conflictsTitle')}</h3>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200"
+            className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
-            ✕
+            <Icon name="close" size={13} />
           </button>
         </div>
 
@@ -106,9 +107,9 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
           {selected && (
             <button
               onClick={() => setSelected(null)}
-              className="rounded-md bg-zinc-700 px-2.5 text-[11px] text-zinc-300 hover:bg-zinc-600"
+              className="rounded-md bg-[var(--surface-2)] px-2.5 text-[11px] text-[var(--text-2)] hover:bg-[var(--hover-1)]"
             >
-              ← {t('conflictsBack')}
+              <span className="inline-flex items-center gap-1.5"><Icon name="arrow-left" size={13} /> {t('conflictsBack')}</span>
             </button>
           )}
         </div>
@@ -117,11 +118,11 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
           /* --- Matching courses --- */
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
             {q.trim() === '' ? (
-              <p className="py-10 text-center text-xs text-zinc-600">
+              <p className="py-10 text-center text-xs text-[var(--text-3)]">
                 {t('conflictsSearchHint')}
               </p>
             ) : candidates.length === 0 ? (
-              <p className="py-8 text-center text-xs text-zinc-600">
+              <p className="py-8 text-center text-xs text-[var(--text-3)]">
                 {t('conflictsNoMatch')}
               </p>
             ) : (
@@ -135,20 +136,20 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
                       setSelected(c)
                       setQ((c.code || c.title).trim())
                     }}
-                    className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs hover:border-sky-500"
+                    className="flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs hover:border-[var(--info)]"
                     style={
                       col
-                        ? { background: col.bg, borderColor: col.border }
+                        ? courseStyle(col)
                         : undefined
                     }
                   >
                     <span
                       className="shrink-0 font-mono font-semibold"
-                      style={col ? { color: col.text } : undefined}
+                      style={col ? courseTextStyle(col) : undefined}
                     >
                       {c.code || '—'}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-zinc-300">
+                    <span className="min-w-0 flex-1 truncate text-[var(--text-2)]">
                       {lessonTitle({
                         id: c.key,
                         source: 'manual',
@@ -158,8 +159,8 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
                         end: '',
                       })}
                     </span>
-                    <span className="shrink-0 text-[10px] text-zinc-500">
-                      {t('lessonsN', { n: c.count })} →
+                    <span className="shrink-0 text-[10px] text-[var(--text-3)]">
+                      <span className="inline-flex items-center gap-1">{t('lessonsN', { n: c.count })} <Icon name="chevron-right" size={11} /></span>
                     </span>
                   </button>
                 )
@@ -172,11 +173,11 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
             {report && (
               <>
                 {/* Summary bar */}
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-zinc-800 bg-zinc-800/40 px-3 py-2 text-xs">
-                  <span className="font-mono font-semibold text-sky-300">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-xs">
+                  <span className="font-mono font-semibold text-[var(--info)]">
                     {selected.code || '—'}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-zinc-300">
+                  <span className="min-w-0 flex-1 truncate text-[var(--text-2)]">
                     {lessonTitle({
                       id: selected.key,
                       source: 'manual',
@@ -186,61 +187,61 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
                       end: '',
                     })}
                   </span>
-                  <span className="shrink-0 text-zinc-500">
+                  <span className="shrink-0 text-[var(--text-3)]">
                     {t('lessonsN', { n: report.occurrences })}
                   </span>
                   {report.slots > 0 ? (
-                    <span className="shrink-0 rounded bg-amber-500/20 px-1.5 py-0.5 font-medium text-amber-300">
-                      ⚠ {t('conflictsClashN', { n: report.slots })}
+                    <span className="shrink-0 rounded bg-[var(--tint-due)] px-1.5 py-0.5 font-medium text-[var(--due)]">
+                      <span className="inline-flex items-center gap-1.5"><Icon name="warn" size={13} /> {t('conflictsClashN', { n: report.slots })}</span>
                     </span>
                   ) : (
-                    <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 font-medium text-emerald-300">
-                      ✓ {t('conflictsNone')}
+                    <span className="shrink-0 rounded bg-[var(--tint-ok)] px-1.5 py-0.5 font-medium text-[var(--ok)]">
+                      <span className="inline-flex items-center gap-1.5"><Icon name="check" size={13} /> {t('conflictsNone')}</span>
                     </span>
                   )}
                   {report.otherCourses > 0 && (
-                    <span className="shrink-0 text-[10px] text-zinc-500">
+                    <span className="shrink-0 text-[10px] text-[var(--text-3)]">
                       {t('conflictsOtherCourses', { n: report.otherCourses })}
                     </span>
                   )}
                 </div>
 
                 {report.slots === 0 ? (
-                  <p className="py-8 text-center text-xs text-emerald-300/80">
-                    ✓ {t('conflictsCleanAll')}
+                  <p className="py-8 text-center text-xs text-[var(--ok)]">
+                    <span className="inline-flex items-center gap-1.5"><Icon name="check" size={13} /> {t('conflictsCleanAll')}</span>
                   </p>
                 ) : (
                   <div className="space-y-2">
                     {report.details.map((d) => (
                       <div
                         key={d.mine.id}
-                        className="rounded-lg border border-amber-400/50 bg-amber-400/5 px-3 py-2"
+                        className="rounded-lg border border-[var(--line-due)] bg-[var(--tint-due)] px-3 py-2"
                       >
                         {/* The searched course's slot */}
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                          <span className="font-medium text-amber-200">
-                            ⚠ {fmtDate(d.mine.start)}
+                          <span className="font-medium text-[var(--due)]">
+                            <span className="inline-flex items-center gap-1.5"><Icon name="warn" size={12} /> {fmtDate(d.mine.start)}</span>
                           </span>
-                          <span className="font-mono font-semibold text-zinc-200">
+                          <span className="font-mono font-semibold text-[var(--text-1)]">
                             {courseCodeOf(d.mine) || '—'}
                           </span>
-                          <span className="min-w-0 flex-1 truncate text-zinc-300">
+                          <span className="min-w-0 flex-1 truncate text-[var(--text-2)]">
                             {lessonTitle(d.mine)}
                           </span>
-                          <span className="shrink-0 tabular-nums text-zinc-400">
+                          <span className="shrink-0 tabular-nums text-[var(--text-2)]">
                             {timeRange(d.mine)}
                           </span>
                           {d.mine.location && (
-                            <span className="shrink-0 text-[10px] text-zinc-500">
-                              📍 {d.mine.location}
+                            <span className="shrink-0 text-[10px] text-[var(--text-3)]">
+                              <span className="inline-flex items-center gap-1"><Icon name="pin" size={11} /> {d.mine.location}</span>
                             </span>
                           )}
                           {typeTag(d.mine)}
                         </div>
 
                         {/* Other courses clashing in this slot */}
-                        <div className="mt-1.5 space-y-1 border-t border-amber-400/20 pt-1.5">
-                          <div className="text-[10px] uppercase tracking-wide text-amber-200/60">
+                        <div className="mt-1.5 space-y-1 border-t border-[var(--line-due)] pt-1.5">
+                          <div className="text-[10px] uppercase tracking-wide text-[var(--due)]">
                             {t('conflictsWith')}
                           </div>
                           {d.others.map((o) => {
@@ -250,7 +251,7 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
                                 key={o.id}
                                 onClick={() => jump(o)}
                                 disabled={!onOpenLesson}
-                                className="flex w-full items-center gap-2 rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-left text-[11px] hover:border-sky-500 disabled:cursor-default"
+                                className="flex w-full items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1 text-left text-[11px] hover:border-[var(--info)] disabled:cursor-default"
                                 title={
                                   onOpenLesson
                                     ? t('conflictsJumpHint')
@@ -259,32 +260,32 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
                               >
                                 <span
                                   className="h-2 w-2 shrink-0 rounded-full"
-                                  style={{ background: col.text }}
+                                  style={{ background: col.text, '--ch': col.ch } as CSSProperties}
                                 />
                                 <span
                                   className="shrink-0 font-mono font-semibold"
-                                  style={{ color: col.text }}
+                                  style={courseTextStyle(col)}
                                 >
                                   {courseCodeOf(o) || '—'}
                                 </span>
-                                <span className="min-w-0 flex-1 truncate text-zinc-200">
+                                <span className="min-w-0 flex-1 truncate text-[var(--text-1)]">
                                   {lessonTitle(o)}
                                 </span>
-                                <span className="shrink-0 tabular-nums text-zinc-400">
+                                <span className="shrink-0 tabular-nums text-[var(--text-2)]">
                                   {timeRange(o)}
                                 </span>
                                 {o.location && (
-                                  <span className="hidden shrink-0 text-[10px] text-zinc-500 sm:inline">
-                                    📍 {o.location}
+                                  <span className="hidden shrink-0 text-[10px] text-[var(--text-3)] sm:inline">
+                                    <span className="inline-flex items-center gap-1"><Icon name="pin" size={11} /> {o.location}</span>
                                   </span>
                                 )}
                                 {typeTag(o)}
-                                <span className="shrink-0 text-zinc-500">
+                                <span className="shrink-0 text-[var(--text-3)]">
                                   {SOURCE_ICON[o.source]}
                                 </span>
                                 {onOpenLesson && (
-                                  <span className="shrink-0 text-zinc-600">
-                                    →
+                                  <span className="shrink-0 text-[var(--text-3)]">
+                                    <span className="inline-flex text-[var(--text-3)]"><Icon name="arrow-right" size={12} /></span>
                                   </span>
                                 )}
                               </button>
@@ -297,7 +298,7 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
                 )}
 
                 {/* Legend */}
-                <p className="pt-1 text-[10px] leading-relaxed text-zinc-600">
+                <p className="pt-1 text-[10px] leading-relaxed text-[var(--text-3)]">
                   • {t('conflictsSameCourseHint')}
                   {onOpenLesson && (
                     <>

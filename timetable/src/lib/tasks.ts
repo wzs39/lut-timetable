@@ -1,4 +1,5 @@
 import type { Lesson } from '../types'
+import { KEYS, readJson, writeJson } from './storage'
 
 export interface Task {
   id: string
@@ -17,8 +18,6 @@ export interface Task {
   updatedAt: string
 }
 
-const LS_TASKS = 'tt_tasks_v1'
-
 function makeId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -26,17 +25,12 @@ function makeId(): string {
 }
 
 export function loadTasks(): Task[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(LS_TASKS) || '[]') as unknown
-    if (!Array.isArray(raw)) return []
-    return raw.filter(isTask)
-  } catch {
-    return []
-  }
+  const raw = readJson<unknown>(KEYS.tasks, [])
+  return Array.isArray(raw) ? raw.filter(isTask) : []
 }
 
 export function saveTasks(tasks: Task[]): Task[] {
-  localStorage.setItem(LS_TASKS, JSON.stringify(tasks))
+  writeJson(KEYS.tasks, tasks)
   return tasks
 }
 

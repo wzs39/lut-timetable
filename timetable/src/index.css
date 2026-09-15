@@ -19,6 +19,329 @@ body,
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* ============================================================
+   Design tokens — restrained "plain & refined" dark theme.
+   One neutral surface system; accent used sparingly.
+   ============================================================ */
+:root {
+  --surface-0: #101012; /* page background            */
+  --surface-1: #17171a; /* cards / panels             */
+  --surface-2: #1e1e22; /* raised: inputs, hover      */
+  --line: #2a2a2f; /* hairline borders           */
+  --text-1: #e4e4e7; /* primary text               */
+  --text-2: #a1a1aa; /* secondary text             */
+  --text-3: #71717a; /* muted labels               */
+  --accent: #e7e5e4; /* primary button: warm white */
+  --accent-text: #18181b; /* text on accent             */
+
+  /* interactive neutrals */
+  --hover-1: #26262b; /* raised hover fill          */
+  --hover-line: #35353b; /* hover border               */
+  --focus-line: #52525b; /* input focus border         */
+
+  /* semantic status — text on a surface */
+  --ok: #6ee7b7;
+  --due: #fcd34d;
+  --danger: #fda4af;
+  --info: #7dd3fc;
+  --violet: #d8b4fe;
+  --danger-hover: #fecdd3;
+  --due-hover: #fde68a;
+
+  /* status tints (fills) + hairlines */
+  --tint-ok: rgba(16, 185, 129, 0.18);
+  --tint-due: rgba(245, 158, 11, 0.16);
+  --tint-danger: rgba(244, 63, 94, 0.16);
+  --tint-info: rgba(14, 165, 233, 0.16);
+  --line-ok: rgba(16, 185, 129, 0.32);
+  --line-due: rgba(245, 158, 11, 0.32);
+  --line-info: rgba(14, 165, 233, 0.32);
+
+  /* filled action buttons */
+  --btn-ok: #047857;
+  --btn-ok-hover: #065f46;
+  --btn-danger: #be123c;
+  --btn-danger-hover: #9f1239;
+  --btn-info: #0369a1;
+  --btn-info-hover: #075985;
+  --btn-due: #b45309;
+  --btn-due-hover: #92400e;
+  --btn-violet: #6d28d9;
+  --btn-violet-hover: #5b21b6;
+
+  /* Foreground paired with EVERY saturated fill. A filled button must never
+     inherit body text: that is how light-theme actions became unreadable. */
+  --btn-fg: #ffffff;
+
+  /* course palette: only `--ch` (hue + sat) is written inline per course */
+  --cc-l: 58%;
+  --cc-text-l: 84%;
+  --cc-text-a: 1;
+  --cc-bg-a: 0.22;
+  --cc-border-a: 0.55;
+
+  /* Text INSIDE a course-tinted card. The tint lifts the ground far above the
+     card surface, so the shared muted tokens drop to ~2.2:1 there; tinted
+     cards carry their own, slightly brighter pair instead. */
+  --card-text-2: #d4d4dc;
+  --card-text-3: #b8b8c2;
+
+  /* hover response of lesson cards (brighten on dark, darken on light) */
+  --card-hover-filter: brightness(1.25);
+}
+
+/* Light theme: same tokens, different values — every surface, status and
+   lesson colour follows automatically, including the per-course palette. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --surface-0: #f7f7f8;
+  --surface-1: #ffffff;
+  --surface-2: #f1f1f3;
+  --line: #e4e4e7;
+  --text-1: #1c1c1f;
+  --text-2: #52525b;
+  --text-3: #8b8b94;
+  --accent: #1c1c1f;
+  --accent-text: #fafafa;
+  --hover-1: #ececef;
+  --hover-line: #d4d4d8;
+  --focus-line: #a1a1aa;
+  --ok: #047857;
+  --due: #854d0e;
+  --danger: #be123c;
+  --info: #0369a1;
+  --violet: #6d28d9;
+  --danger-hover: #9f1239;
+  --due-hover: #78350f;
+  --tint-ok: rgba(5, 150, 105, 0.1);
+  --tint-due: rgba(217, 119, 6, 0.1);
+  --tint-danger: rgba(225, 29, 72, 0.09);
+  --tint-info: rgba(2, 132, 199, 0.09);
+  --line-ok: rgba(5, 150, 105, 0.35);
+  --line-due: rgba(217, 119, 6, 0.35);
+  --line-info: rgba(2, 132, 199, 0.35);
+  --btn-ok: #047857;
+  --btn-ok-hover: #065f46;
+  --btn-danger: #be123c;
+  --btn-danger-hover: #9f1239;
+  --btn-info: #0369a1;
+  --btn-info-hover: #075985;
+  --btn-due: #b45309;
+  --btn-due-hover: #92400e;
+  --btn-violet: #6d28d9;
+  --btn-violet-hover: #5b21b6;
+
+  /* Foreground paired with EVERY saturated fill. A filled button must never
+     inherit body text: that is how light-theme actions became unreadable. */
+  --btn-fg: #ffffff;
+  --cc-l: 45%;
+  --cc-text-l: 24%;
+  --cc-text-a: 1;
+  --cc-bg-a: 0.12;
+  --cc-border-a: 0.36;
+  --card-text-2: #3f3f46;
+  --card-text-3: #52525b;
+  --card-hover-filter: brightness(0.97);
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-1);
+}
+
+.app-shell {
+  background: var(--surface-0);
+  color: var(--text-1);
+}
+
+/* Card: the single panel container used across all views */
+.app-card {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: var(--surface-1);
+}
+
+/* Panel header label (uppercased micro-label inside cards) */
+.app-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* Inputs share one look */
+.app-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+  padding: 0.5rem 0.625rem;
+  font-size: 0.75rem;
+  color: var(--text-1);
+  outline: none;
+  transition: border-color 140ms ease;
+}
+.app-input::placeholder {
+  color: var(--text-3);
+}
+.app-input:focus {
+  border-color: var(--focus-line);
+}
+
+/* Primary button: solid warm-white, the only loud element */
+.app-btn-primary {
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 500;
+  transition: opacity 140ms ease;
+}
+.app-btn-primary:hover {
+  opacity: 0.9;
+}
+.app-btn-primary:active {
+  opacity: 0.8;
+}
+
+/* Secondary button: quiet gray */
+.app-btn {
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+  color: var(--text-1);
+  border: 1px solid var(--line);
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.app-btn:hover {
+  background: var(--hover-1);
+  border-color: var(--hover-line);
+}
+
+/* Filled action buttons.
+
+   Every saturated fill ships its OWN foreground (`--btn-fg`) and its own
+   deeper hover, declared once here. Components use one of these classes and
+   no longer write `bg-[var(--btn-*)]` themselves, so a filled button can
+   never again inherit body text (which is light in dark theme and near-black
+   in light theme, i.e. legible in one theme and not the other). */
+.app-fill-ok,
+.app-fill-info,
+.app-fill-danger,
+.app-fill-due,
+.app-fill-violet {
+  color: var(--btn-fg);
+  font-weight: 500;
+  transition: background-color 140ms ease;
+}
+.app-fill-ok {
+  background: var(--btn-ok);
+}
+.app-fill-ok:hover:not(:disabled) {
+  background: var(--btn-ok-hover);
+}
+.app-fill-info {
+  background: var(--btn-info);
+}
+.app-fill-info:hover:not(:disabled) {
+  background: var(--btn-info-hover);
+}
+.app-fill-danger {
+  background: var(--btn-danger);
+}
+.app-fill-danger:hover:not(:disabled) {
+  background: var(--btn-danger-hover);
+}
+.app-fill-due {
+  background: var(--btn-due);
+}
+.app-fill-due:hover:not(:disabled) {
+  background: var(--btn-due-hover);
+}
+.app-fill-violet {
+  background: var(--btn-violet);
+}
+.app-fill-violet:hover:not(:disabled) {
+  background: var(--btn-violet-hover);
+}
+
+/* Ghost icon button (↗ ↦ ✕ small square buttons) */
+.app-btn-ghost {
+  border-radius: 0.375rem;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--line);
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.app-btn-ghost:hover {
+  color: var(--text-1);
+  border-color: var(--hover-line);
+}
+
+/* Segmented control container (view tabs) */
+.app-seg {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--surface-1);
+}
+.app-seg > button {
+  min-height: 2.25rem;
+  padding: 0 0.625rem;
+  font-size: 0.75rem;
+  color: var(--text-2);
+  background: transparent;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.app-seg > button:hover {
+  color: var(--text-1);
+  background: var(--surface-2);
+}
+.app-seg > button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+
+/* Status badge: neutral pill; semantic variants add only text color */
+.app-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 9999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  padding: 0.125rem 0.5rem;
+  font-size: 10px;
+  line-height: 1.1rem;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.app-badge-live {
+  color: var(--ok);
+}
+.app-badge-due {
+  color: var(--due);
+}
+.app-badge-overdue {
+  color: var(--danger);
+}
+
+/* Link accents for panel headers (查看作业 ›) */
+.app-btn-overdue {
+  color: var(--danger);
+}
+.app-btn-overdue:hover {
+  color: var(--danger-hover);
+}
+.app-btn-due {
+  color: var(--due);
+}
+.app-btn-due:hover {
+  color: var(--due-hover);
+}
+
+/* Header buttons */
 .app-header-btn,
 .app-menu-item {
   transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease,
@@ -41,7 +364,7 @@ body,
 
 .task-row:hover {
   transform: translateY(-1px);
-  border-color: rgb(82 82 91);
+  border-color: var(--hover-line);
 }
 
 .app-menu-item {
@@ -52,14 +375,26 @@ body,
   gap: 0.75rem;
   border-radius: 0.6rem;
   padding: 0.6rem 0.7rem;
-  color: rgb(212 212 216);
+  color: var(--text-1);
   text-align: left;
   font-size: 0.75rem;
 }
 
 .app-menu-item:hover {
-  background: rgb(63 63 70 / 0.8);
-  color: white;
+  background: var(--surface-2);
+}
+
+/* Lesson card (per-course tint): the single card surface used by today + week.
+   It rebinds the two muted text tokens to the card-scoped pair, so every
+   `text-[var(--text-2|3)]` inside a tinted card stays legible in both themes. */
+.lesson-card {
+  --text-2: var(--card-text-2);
+  --text-3: var(--card-text-3);
+}
+
+/* Hover response adapts to the theme (brighten on dark, darken on light) */
+.lesson-card:hover {
+  filter: var(--card-hover-filter);
 }
 
 .animate-pop-in {

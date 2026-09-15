@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Lesson } from '../types'
 
@@ -12,6 +13,21 @@ export async function ensurePermission(): Promise<boolean> {
   if (cur.display === 'denied') return false
   const req = await LocalNotifications.requestPermissions()
   return req.display === 'granted'
+}
+
+/**
+ * Android 14+ gates SCHEDULE_EXACT_ALARM behind a settings toggle. If the
+ * user has revoked it, fall back to inexact scheduling so reminders still
+ * fire (possibly a few minutes late) instead of erroring.
+ */
+export async function exactAlarmsEnabled(): Promise<boolean> {
+  if (Capacitor.getPlatform() !== 'android') return true
+  try {
+    const s = await LocalNotifications.checkExactNotificationSetting()
+    return s.exact_alarm === 'granted'
+  } catch {
+    return true
+  }
 }
 
 /** Lesson.id (uuid) -> stable positive int32 for notification id */
@@ -66,13 +82,15 @@ export async function refreshNotifications(
 
   // Jadwalkan yang belum terjadwal
   const scheduledIds = new Set(pending.notifications.map((n) => n.id))
+  const exact = await exactAlarmsEnabled()
+
   const toSchedule = [...wanted.entries()]
     .filter(([id]) => !scheduledIds.has(id))
     .map(([id, { at, lesson }]) => ({
       id,
       title: texts.title,
       body: texts.body(lesson, formatTime(lesson.start, locale)),
-      schedule: { at, allowWhileIdle: true },
+      schedule: { at, allowWhileIdle: true, exact },
       smallIcon: undefined,
     }))
 

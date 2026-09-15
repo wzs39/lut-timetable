@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { DupGroup } from '../lib/dedupe'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
+import Icon from './Icon'
 import { formatDay, formatTime } from '../lib/date'
 
 interface Props {
@@ -30,8 +31,7 @@ export default function DuplicateResolver({
   onRemoveMany,
   onClose,
 }: Props) {
-  const { t, lang } = useI18n()
-  const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
+  const { t, locale } = useI18n()
   const sourceLabel = (s: Lesson['source']) =>
     s === 'manual' ? t('srcManual') : SOURCE_NAME[s]
 
@@ -79,18 +79,18 @@ export default function DuplicateResolver({
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >
-      <div className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+      <div className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold">{t('dupTitle')}</h3>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200"
+            className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
-            ✕
+            <Icon name="close" size={13} />
           </button>
         </div>
-        <p className="mb-3 text-[11px] leading-relaxed text-zinc-500">
+        <p className="mb-3 text-[11px] leading-relaxed text-[var(--text-3)]">
           {t('dupIntro')}
         </p>
 
@@ -98,14 +98,14 @@ export default function DuplicateResolver({
           {groups.map((g) => (
             <div
               key={g.key}
-              className="rounded-md border border-zinc-700 bg-zinc-800/50 p-2"
+              className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2"
             >
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-xs font-medium">
                   {g.code ? `${g.code} ` : ''}
                   {g.title.length > 40 ? `${g.title.slice(0, 40)}…` : g.title}
                 </span>
-                <span className="text-[10px] text-zinc-500">
+                <span className="text-[10px] text-[var(--text-3)]">
                   {formatDay(new Date(g.date), locale)}
                 </span>
               </div>
@@ -118,7 +118,7 @@ export default function DuplicateResolver({
                       key={l.id}
                       className={
                         'flex items-center gap-2 rounded px-1.5 py-1 text-[11px] ' +
-                        (disabled ? 'opacity-50 ' : 'cursor-pointer hover:bg-zinc-700/50 ')
+                        (disabled ? 'opacity-50 ' : 'cursor-pointer hover:bg-[var(--surface-2)] ')
                       }
                     >
                       <input
@@ -131,20 +131,20 @@ export default function DuplicateResolver({
                         }
                         className="accent-emerald-500"
                       />
-                      <span className="text-zinc-400">
+                      <span className="text-[var(--text-2)]">
                         {sourceLabel(l.source)}
                       </span>
-                      <span className="text-zinc-200">
+                      <span className="text-[var(--text-1)]">
                         {formatTime(l.start, locale)}–{formatTime(l.end, locale)}
                       </span>
                       {l.location && (
-                        <span className="truncate text-zinc-500">{l.location}</span>
+                        <span className="truncate text-[var(--text-3)]">{l.location}</span>
                       )}
                     </label>
                   )
                 })}
               </div>
-              <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-[10px] text-zinc-500">
+              <label className="mt-1 flex cursor-pointer items-center gap-1.5 text-[10px] text-[var(--text-3)]">
                 <input
                   type="checkbox"
                   checked={keepAll.has(g.key)}
@@ -167,14 +167,14 @@ export default function DuplicateResolver({
         <div className="mt-3 flex gap-2">
           <button
             onClick={onClose}
-            className="flex-1 rounded-md bg-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-600"
+            className="flex-1 rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover-1)]"
           >
             {t('cancel')}
           </button>
           <button
             onClick={apply}
             disabled={removable === 0}
-            className="flex-[2] rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium hover:bg-rose-500 disabled:opacity-50"
+            className="app-fill-danger flex-[2] rounded-md px-3 py-1.5 text-xs disabled:opacity-50"
           >
             {t('applyRemove', { n: removable })}
           </button>

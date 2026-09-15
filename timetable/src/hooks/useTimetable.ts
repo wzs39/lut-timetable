@@ -17,13 +17,14 @@ import {
   addHiddenKeys,
   clearHiddenKeys,
 } from '../lib/store'
+import { KEYS } from '../lib/storage'
 import { useI18n } from '../i18n'
 import { ensurePermission } from '../lib/notifications'
 
 const AUTO_SYNC_INTERVAL = 15 * 60 * 1000 // 15 menit
 const MIN_SYNC_GAP = 5 * 60 * 1000 // lewati sumber yang baru saja disinkron
-const LS_AUTOSYNC = 'tt_autosync'
-const LS_NOTIF = 'tt_notif'
+const LS_AUTOSYNC = KEYS.autosync
+const LS_NOTIF = KEYS.notif
 
 function loadAutoSync(): boolean {
   return localStorage.getItem(LS_AUTOSYNC) !== 'false'
