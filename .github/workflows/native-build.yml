@@ -27,10 +27,14 @@ jobs:
           # run with: Warning: Failed to find package 'tools'. platform-tools is
           # all we need here; Gradle auto-downloads the platform and build-tools.
           packages: platform-tools
-      - name: Install deps & build web assets
+      - name: Install deps, bump & build web assets
         working-directory: timetable
         run: |
           npm ci
+          # Bump before building for the same reason as the Windows job: the APK's
+          # in-app version (VITE_APP_VERSION) must match the release tag, otherwise
+          # the Android update check keeps offering an update the user already has.
+          npm version patch --no-git-tag-version
           npm run build
       - name: Sync Capacitor
         working-directory: timetable
