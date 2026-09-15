@@ -20,6 +20,19 @@ globalThis.localStorage = {
 
 beforeEach(() => store.clear())
 
+/**
+ * FIXTUR SINTETIS — pengganti placeholder, BUKAN link langganan asli.
+ * Bentuknya sengaja dibuat identik dengan nilai asli (UUID 36 karakter,
+ * id TimeEdit 32 karakter) supaya parser URL di bawah diuji dengan cara
+ * yang sama persis.
+ */
+const FAKE_SISU_ID = 'deadbeef-dead-4dea-8dbe-deadbeefdead'
+const FAKE_TIMEEDIT_ID = 'riEXAMPLESYNTHETIC00000000000000'
+const FAKE_SISU_URL = `https://sisu.lut.fi/ilmo/api/calendar-share/${FAKE_SISU_ID}`
+const TIMEEDIT_BASE = 'https://cloud.timeedit.net/lut-saimia/web/lutpublic'
+const FAKE_TIMEEDIT_HTML = `${TIMEEDIT_BASE}/${FAKE_TIMEEDIT_ID}.html`
+const FAKE_TIMEEDIT_ICS = `${TIMEEDIT_BASE}/${FAKE_TIMEEDIT_ID}.ics`
+
 /** Pelajaran SISU dasar (dipakai beberapa describe) */
 const sisu: Lesson = {
   id: 's1', source: 'sisu', title: 'CT60A4050 · SWE', code: 'CT60A4050',
@@ -33,17 +46,18 @@ const timeedit: Lesson = {
 
 describe('normalizeSisuUrl', () => {
   it('accepts a calendar-share API URL as-is', () => {
-    const url = 'https://sisu.lut.fi/ilmo/api/calendar-share/2729035f-30c8-4947-870c-ec6230de5ed1'
-    expect(normalizeSisuUrl(url)).toBe(url)
+    expect(normalizeSisuUrl(FAKE_SISU_URL)).toBe(FAKE_SISU_URL)
   })
 
   it('accepts a URL with query string intact', () => {
-    const url = 'https://sisu.lut.fi/ilmo/api/calendar-share/2729035f-30c8-4947-870c-ec6230de5ed1?x=1'
+    const url = `${FAKE_SISU_URL}?x=1`
     expect(normalizeSisuUrl(url)).toBe(url)
   })
 
   it('rejects other hosts', () => {
-    expect(normalizeSisuUrl('https://evil.example.com/ilmo/api/calendar-share/2729035f-30c8-4947-870c-ec6230de5ed1')).toBeNull()
+    expect(
+      normalizeSisuUrl(`https://evil.example.com/ilmo/api/calendar-share/${FAKE_SISU_ID}`),
+    ).toBeNull()
   })
 
   it('rejects sisu pages without calendar-share', () => {
@@ -58,23 +72,16 @@ describe('normalizeSisuUrl', () => {
 
 describe('normalizeTimeEditUrl', () => {
   it('converts a .html viewer page to an .ics subscription URL', () => {
-    expect(
-      normalizeTimeEditUrl(
-        'https://cloud.timeedit.net/lut-saimia/web/lutpublic/ri1Y8X1QQ7wZ16QfQ5079675yYY95Z7.html',
-      ),
-    ).toBe(
-      'https://cloud.timeedit.net/lut-saimia/web/lutpublic/ri1Y8X1QQ7wZ16QfQ5079675yYY95Z7.ics',
-    )
+    expect(normalizeTimeEditUrl(FAKE_TIMEEDIT_HTML)).toBe(FAKE_TIMEEDIT_ICS)
   })
 
   it('accepts an .ics URL as-is', () => {
-    const url = 'https://cloud.timeedit.net/lut-saimia/web/lutpublic/ri1Y8X1QQ7wZ16QfQ5079675yYY95Z7.ics'
-    expect(normalizeTimeEditUrl(url)).toBe(url)
+    expect(normalizeTimeEditUrl(FAKE_TIMEEDIT_ICS)).toBe(FAKE_TIMEEDIT_ICS)
   })
 
   it('rejects other hosts and garbage', () => {
     expect(normalizeTimeEditUrl('https://example.com/ri1Y8.html')).toBeNull()
-    expect(normalizeTimeEditUrl('https://cloud.timeedit.net/lut-saimia/web/lutpublic/ri1Y8X1QQ7wZ16QfQ5079675yYY95Z7')).toBeNull()
+    expect(normalizeTimeEditUrl(`${TIMEEDIT_BASE}/${FAKE_TIMEEDIT_ID}`)).toBeNull()
     expect(normalizeTimeEditUrl('oops')).toBeNull()
   })
 })

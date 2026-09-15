@@ -31,13 +31,13 @@ const lessons: Lesson[] = [
 describe('normalizeMoodleUrl', () => {
   it('accepts an export.php URL with userid + authtoken', () => {
     const url =
-      'https://moodle.lut.fi/calendar/export.php?preset_what=all&preset_time=recentupcoming&userid=12345&authtoken=abc123def'
+      'https://moodle.lut.fi/calendar/export.php?preset_what=all&preset_time=recentupcoming&userid=12345&authtoken=abc123def' // placeholder sintetis
     expect(normalizeMoodleUrl(url)).toBe(url)
   })
 
   it('accepts the export_execute.php subscription URL with custom preset', () => {
     const url =
-      'https://moodle.lut.fi/calendar/export_execute.php?userid=2291633&authtoken=9610792a93f9b4006f1630316e1ea12fa2e6f7c4&preset_what=all&preset_time=custom'
+      'https://moodle.lut.fi/calendar/export_execute.php?userid=1234567&authtoken=SYNTHETIC-NOT-A-REAL-TOKEN&preset_what=all&preset_time=custom' // placeholder sintetis — bukan token Moodle asli
     expect(normalizeMoodleUrl(url)).toBe(url)
   })
 

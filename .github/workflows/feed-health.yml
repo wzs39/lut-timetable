@@ -1,0 +1,96 @@
+name: Feed health check
+
+# Monthly probe of the remote data sources (SISU, TimeEdit, Moodle).
+# Surfaces outages of the ICS feeds or public CORS proxies early,
+# instead of discovering them the morning of class.
+#
+# The two personal subscription links are NEVER stored in this file — they are
+# read from repository secrets (names listed in the env block below). If a
+# secret is missing the run fails with a readable message instead of probing
+# empty URLs, so a manual run from the Actions UI is still useful.
+
+on:
+  schedule:
+    - cron: '0 6 1 * *' # 1st of every month, 06:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Set under: Settings -> Secrets and variables -> Actions
+      #   SISU_ICS_URL     https://sisu.lut.fi/ilmo/api/calendar-share/<id>
+      #   TIMEEDIT_ICS_URL https://cloud.timeedit.net/lut-saimia/web/lutpublic/<id>.html
+      SISU_ICS: ${{ secrets.SISU_ICS_URL }}
+      TIMEEDIT_ICS: ${{ secrets.TIMEEDIT_ICS_URL }}
+    steps:
+      - name: Check required feed secrets
+        run: |
+          set -u
+          missing=0
+          for name in SISU_ICS TIMEEDIT_ICS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Repository secret $name is not set — add it in Settings -> Secrets and variables -> Actions, then re-run this workflow."
+              missing=1
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            {
+              echo "### Feed health: NOT RUN — required secrets are missing"
+              echo ""
+              echo "Nothing was probed. Add these repository secrets and re-run:"
+              echo ""
+              echo "| Secret | What goes in it |"
+              echo "| --- | --- |"
+              echo "| \`SISU_ICS_URL\` | your SISU calendar-share ICS link (\`https://sisu.lut.fi/ilmo/api/calendar-share/<id>\`) |"
+              echo "| \`TIMEEDIT_ICS_URL\` | your TimeEdit subscription link (\`https://cloud.timeedit.net/lut-saimia/web/lutpublic/<id>.html\`) |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Both feed secrets are configured."
+
+      - name: Probe endpoints
+        run: |
+          set -u
+          pass=0; fail=0
+          check() { # name expected_code url [curl args...]
+            name="$1"; expect="$2"; url="$3"; shift 3
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$@" "$url") || code=000
+            if [ "$code" = "$expect" ]; then
+              echo "PASS  $name ($code)"; pass=$((pass+1))
+            else
+              echo "FAIL  $name (got $code, want $expect) -> $url"; fail=$((fail+1))
+            fi
+          }
+
+          # Direct feeds
+          check "SISU ICS direct"        200 "$SISU_ICS"
+          check "TimeEdit ICS direct"    200 "$TIMEEDIT_ICS"
+
+          # SISU GraphQL (course-id lookup path)
+          check "SISU GraphQL"           200 "https://sisu.lut.fi/graphql" \
+            -X POST -H 'Content-Type: application/json' \
+            -d '{"query":"{ course_unit_search(codeQuery: \"CS-A1110\", resultLimit: 1) { id } }"}'
+
+          # Moodle export endpoint (unauthenticated -> 303 to login proves reachability)
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \
+            "https://moodle.lut.fi/calendar/export.php") || code=000
+          if [ "$code" = "200" ] || [ "$code" = "303" ]; then
+            echo "PASS  Moodle calendar export ($code)"; pass=$((pass+1))
+          else
+            echo "FAIL  Moodle calendar export (got $code)"; fail=$((fail+1))
+          fi
+
+          # Public CORS proxies the web app falls back to — probed with the same
+          # relayed feed the app sends through them.
+          TIMEEDIT_Q=$(python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["TIMEEDIT_ICS"], safe=""))')
+          check "allorigins proxy"       200 "https://api.allorigins.win/raw?url=$TIMEEDIT_Q"
+          check "corsproxy.io proxy"     200 "https://corsproxy.io/?url=$TIMEEDIT_Q"
+
+          echo ""
+          echo "### Feed health: $pass passed, $fail failed" >> "$GITHUB_STEP_SUMMARY"
+          exit $((fail > 0))
