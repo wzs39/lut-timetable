@@ -20,7 +20,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
+        with:
+          # The legacy `tools` package no longer exists in the SDK repository, but
+          # the action's default package list still requests it, which failed the
+          # run with: Warning: Failed to find package 'tools'. platform-tools is
+          # all we need here; Gradle auto-downloads the platform and build-tools.
+          packages: platform-tools
       - name: Install deps & build web assets
         working-directory: timetable
         run: |
