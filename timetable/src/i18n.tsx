@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { KEYS, readString, writeString } from './lib/storage'
 
 export type Lang = 'zh' | 'en'
 
@@ -87,6 +88,10 @@ const messages: Record<Lang, Record<string, string>> = {
     dataTitle: '数据备份',
     exportData: '导出数据',
     settingsTitle: '设置',
+    themeTitle: '外观',
+    themeSystem: '跟随系统',
+    themeDark: '深色',
+    themeLight: '浅色',
     moreActions: '更多',
     tasksTitle: '任务',
     tasksPending: '未完成 {n} 项',
@@ -131,6 +136,11 @@ const messages: Record<Lang, Record<string, string>> = {
     dueGoAssign: '查看作业',
     dueMoreN: '还有 {n} 项…',
     dueTodayTitle: '今日截止（{n}）',
+    examCountdownTitle: '考试倒计时（{n}）',
+    freeRoomsTitle: '空闲教室（{n}）',
+    freeUntil: '直到 {time}',
+    examToday: '今天',
+    examInDays: '{n} 天后',
     dueOpens: '开始',
     dueOpenActivity: '打开 Moodle 活动',
     dueNotifTitle: '作业即将截止',
@@ -181,6 +191,8 @@ const messages: Record<Lang, Record<string, string>> = {
     updateUpToDate: '已是最新版本 {v}',
     updateCheckFail: '检查更新失败，请稍后重试',
     updateAvailable: '发现新版本 {v}，正在后台下载…',
+    updateApkAvailable: '发现新版本 {v}，点击获取新 APK',
+    updateGetApk: '下载 APK',
     indoorNav: '室内导航 · 按楼栋',
     batchSort: '排序',
     batchSortTime: '按时间',
@@ -318,6 +330,10 @@ const messages: Record<Lang, Record<string, string>> = {
     dataTitle: 'Data backup',
     exportData: 'Export',
     settingsTitle: 'Settings',
+    themeTitle: 'Appearance',
+    themeSystem: 'System',
+    themeDark: 'Dark',
+    themeLight: 'Light',
     moreActions: 'More',
     tasksTitle: 'Tasks',
     tasksPending: '{n} unfinished',
@@ -362,6 +378,11 @@ const messages: Record<Lang, Record<string, string>> = {
     dueGoAssign: 'View work',
     dueMoreN: '{n} more…',
     dueTodayTitle: 'Due today ({n})',
+    examCountdownTitle: 'Exam countdown ({n})',
+    freeRoomsTitle: 'Free rooms ({n})',
+    freeUntil: 'until {time}',
+    examToday: 'Today',
+    examInDays: 'in {n} days',
     dueOpens: 'Opens',
     dueOpenActivity: 'Open Moodle activity',
     dueNotifTitle: 'Assignment due soon',
@@ -412,6 +433,8 @@ const messages: Record<Lang, Record<string, string>> = {
     updateUpToDate: 'You are on the latest version {v}',
     updateCheckFail: 'Update check failed — try again later',
     updateAvailable: 'New version {v} found — downloading in background…',
+    updateApkAvailable: 'New version {v} available — get the APK',
+    updateGetApk: 'Download APK',
     indoorNav: 'Indoor navigation · by building',
     batchSort: 'Sort',
     batchSortTime: 'By time',
@@ -478,22 +501,24 @@ const messages: Record<Lang, Record<string, string>> = {
 
 interface I18nCtx {
   lang: Lang
+  /** Locale BCP-47 untuk toLocaleDateString / toLocaleTimeString */
+  locale: string
   setLang: (l: Lang) => void
   t: (key: string, params?: Record<string, string | number>) => string
 }
 
 const Ctx = createContext<I18nCtx | null>(null)
 
-const LS_KEY = 'tt_lang'
+
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>(() => {
-    const saved = localStorage.getItem(LS_KEY)
+    const saved = readString(KEYS.lang)
     return saved === 'en' || saved === 'zh' ? saved : 'zh'
   })
 
   useEffect(() => {
-    localStorage.setItem(LS_KEY, lang)
+    writeString(KEYS.lang, lang)
     document.documentElement.lang = localeOf[lang]
   }, [lang])
 
@@ -510,7 +535,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return s
   }
 
-  return <Ctx.Provider value={{ lang, setLang, t }}>{children}</Ctx.Provider>
+  return (
+    <Ctx.Provider value={{ lang, locale: localeOf[lang], setLang, t }}>
+      {children}
+    </Ctx.Provider>
+  )
 }
 
 export function useI18n(): I18nCtx {

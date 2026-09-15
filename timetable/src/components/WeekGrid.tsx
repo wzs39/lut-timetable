@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Lesson } from '../types'
 import { addDays, sameDay, startOfWeek, formatTime, formatDay } from '../lib/date'
 import { useI18n } from '../i18n'
-import { courseColor } from '../lib/colors'
+import { useNowDate } from '../lib/useNow'
+import { KEYS } from '../lib/storage'
+import { courseColor, courseStyle, courseTextStyle } from '../lib/colors'
 import {
   layoutDay,
   conflictGroupsOf,
@@ -13,6 +15,7 @@ import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle } from '../lib/display'
 import { noteForLesson, type NotesMap } from '../lib/notes'
 import LessonNote from './LessonNote'
+import Icon from './Icon'
 
 const START_HOUR = 8
 const END_HOUR = 20
@@ -28,7 +31,7 @@ interface Props {
   notes?: NotesMap
 }
 
-const LS_DISMISS = 'tt_conflict_dismissed'
+const LS_DISMISS = KEYS.conflictDismissed
 
 /** ≥768px = tampilan grid penuh; di bawahnya pakai tampilan per-hari */
 function useIsWideScreen(): boolean {
@@ -45,17 +48,11 @@ function useIsWideScreen(): boolean {
 }
 
 export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: Props) {
-  const { lang, t } = useI18n()
-  const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
+  const { lang, t, locale } = useI18n()
   const isWide = useIsWideScreen()
   const scrollRef = useRef<HTMLDivElement>(null)
-  const [now, setNow] = useState(() => new Date())
-
-  // Perbarui posisi garis "sekarang" tiap 30 detik
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 30_000)
-    return () => clearInterval(timer)
-  }, [])
+  // Garis "sekarang" ikut jam bersama aplikasi (satu timer, bukan per-komponen)
+  const now = useNowDate()
 
   // Auto-scroll ke jam sekarang saat pertama dibuka
   useEffect(() => {
@@ -205,31 +202,31 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
       <button
         key={l.id}
         onClick={() => onSelect(l.id)}
-        className="w-full rounded-lg border px-3 py-2 text-left text-xs"
-        style={{ background: cc.bg, borderColor: cc.border }}
+        className="lesson-card w-full rounded-lg border px-3 py-2 text-left text-xs"
+        style={courseStyle(cc)}
       >
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate font-semibold" style={{ color: cc.text }}>
+          <span className="truncate font-semibold" style={courseTextStyle(cc)}>
             {l.code || displayTitle(l)}
             {l.type && TYPE_META[l.type] && (
               <span
-                className="ml-1 opacity-90"
+                className="ml-1 inline-flex align-[-2px] opacity-90"
                 title={t(TYPE_META[l.type].key)}
               >
-                {TYPE_META[l.type].icon}
+                <Icon name={TYPE_META[l.type].icon} size={10} />
               </span>
             )}
           </span>
-          <span className="shrink-0 font-mono text-[10px] text-zinc-300">
+          <span className="shrink-0 font-mono text-[10px] text-[var(--text-2)]">
             {formatTime(l.start, locale)}–{formatTime(l.end, locale)}
           </span>
         </div>
-        <div className="mt-0.5 truncate text-[11px] text-zinc-400">
+        <div className="mt-0.5 truncate text-[11px] text-[var(--text-2)]">
           {displayTitle(l)}
         </div>
         {l.location && (
-          <div className="mt-0.5 truncate text-[10px] text-zinc-500">
-            📍 {l.location}
+          <div className="mt-0.5 truncate text-[10px] text-[var(--text-3)]">
+            <span className="inline-flex items-center gap-1"><Icon name="pin" size={11} /> {l.location}</span>
           </div>
         )}
         <LessonNote note={note} />
@@ -240,10 +237,10 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
   const groupBox = (g: ConflictGroup) => (
     <div
       key={g.key}
-      className="rounded-lg border border-amber-400/70 bg-amber-400/10 px-2 py-2"
+      className="app-card px-2 py-2"
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-medium text-amber-300">
-        <span>⚠ {t('conflictSameTimeN', { n: g.lessons.length })}</span>
+      <div className="app-badge-due mb-1.5 flex items-center justify-between gap-2 text-[10px] font-medium">
+        <span className="inline-flex items-center gap-1.5"><Icon name="warn" size={12} /> {t('conflictSameTimeN', { n: g.lessons.length })}</span>
         <button
           className="shrink-0 underline decoration-dotted opacity-80"
           onClick={() => dismissKey(g.key)}
@@ -263,7 +260,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
     return (
       <div className="flex-1 flex flex-col min-h-0">
         {weekStrip && (
-          <div className="px-3 pt-2 pb-0 text-[11px] text-amber-300/90">
+          <div className="px-3 pt-2 pb-0 text-[11px] text-[var(--text-2)]">
             {weekStrip}
           </div>
         )}
@@ -273,11 +270,11 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
               key={i}
               onClick={() => setMobileDay(i)}
               className={
-                'flex-1 rounded-md py-1 text-[11px] border ' +
+                'flex-1 rounded-md py-1 text-[11px] border transition ' +
                 (i === mobileDay
-                  ? 'bg-sky-600/90 border-sky-500 text-white'
-                  : 'bg-zinc-800 border-zinc-700 text-zinc-400') +
-                (sameDay(d, new Date()) ? ' ring-1 ring-sky-400/60' : '')
+                  ? 'app-btn-primary border-transparent'
+                  : 'border-[var(--line)] bg-[var(--surface-1)] text-[var(--text-2)] hover:text-[var(--text-1)]') +
+                (sameDay(d, new Date()) && i !== mobileDay ? ' ring-1 ring-[var(--line)]' : '')
               }
             >
               <div className="font-medium">
@@ -291,7 +288,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
         </div>
         <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-4 safe-bottom">
           {hiddenToday.length > 0 && (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-[11px] text-violet-300">
+            <div className="app-card flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-[var(--text-2)]">
               <span>{t('hiddenClashN', { n: hiddenToday.length })}</span>
               <button
                 className="shrink-0 underline decoration-dotted"
@@ -302,7 +299,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
             </div>
           )}
           {placed.length === 0 ? (
-            <p className="py-10 text-center text-xs text-zinc-600">
+            <p className="py-10 text-center text-xs text-[var(--text-3)]">
               {t('noLessonsToday')}
             </p>
           ) : (
@@ -318,7 +315,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {weekStrip && (
-        <div className="px-4 pt-2 pb-0 text-[11px] text-amber-300/90">
+        <div className="px-4 pt-2 pb-0 text-[11px] text-[var(--text-2)]">
           {weekStrip}
         </div>
       )}
@@ -329,7 +326,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
             {hours.map((h) => (
               <div
                 key={h}
-                className="text-[10px] text-zinc-500 text-right pr-2"
+                className="text-[10px] text-[var(--text-3)] text-right pr-2"
                 style={{ height: HOUR_PX }}
               >
                 {h.toString().padStart(2, '0')}:00
@@ -340,13 +337,13 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
           <div className="relative flex flex-1">
             {/* Hari */}
             {weekDays.map((day, i) => (
-              <div key={i} className="flex-1 min-w-0 border-l border-zinc-800">
+              <div key={i} className="flex-1 min-w-0 border-l border-[var(--line)]">
                 <div
                   className={
                     'text-center text-xs py-1.5 ' +
                     (sameDay(day, new Date())
-                      ? 'text-sky-400 font-medium'
-                      : 'text-zinc-400')
+                      ? 'text-[var(--text-1)] font-medium'
+                      : 'text-[var(--text-3)]')
                   }
                 >
                   {formatDay(day, locale)}
@@ -360,18 +357,18 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                             role="img"
                             aria-label={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
                             title={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
-                            className="ml-1 rounded bg-amber-500/15 px-1 text-[10px] font-semibold text-amber-400 align-middle"
+                            className="app-badge ml-1 px-1 font-semibold !text-[10px] text-[var(--text-2)] align-middle"
                           >
-                            ⚠{shown.length}
+                            <Icon name="warn" size={11} />{shown.length}
                           </span>
                         )}
                         {hidden.length > 0 && (
                           <button
-                            className="ml-1 rounded bg-violet-500/15 px-1 text-[10px] font-semibold text-violet-300 align-middle hover:bg-violet-500/25"
+                            className="app-badge ml-1 px-1 font-semibold !text-[10px] align-middle hover:text-[var(--text-1)]"
                             title={t('dayHiddenRestore', { n: hidden.length })}
                             onClick={() => restoreDay(i)}
                           >
-                            ↩{hidden.length}
+                            <Icon name="restore" size={11} />{hidden.length}
                           </button>
                         )}
                       </>
@@ -386,7 +383,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                   {hours.map((h, idx) => (
                     <div
                       key={h}
-                      className="absolute left-0 right-0 border-t border-zinc-800/60"
+                      className="absolute left-0 right-0 border-t border-[var(--line)]/60"
                       style={{ top: idx * HOUR_PX }}
                     />
                   ))}
@@ -429,7 +426,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                         className={
                           'absolute rounded-md px-1.5 py-1 text-left overflow-hidden border ' +
                           (visibleConflict
-                            ? 'outline outline-1 outline-amber-400/90 shadow-[0_0_6px_rgba(251,191,36,0.35)]'
+                            ? 'outline outline-1 outline-zinc-400/80 shadow-[0_0_5px_rgba(0,0,0,0.4)]'
                             : '')
                         }
                         style={{
@@ -440,21 +437,22 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                           background: cc.bg,
                           borderColor: cc.border,
                           color: cc.text,
-                        }}
+                          '--ch': cc.ch,
+                        } as React.CSSProperties}
                       >
                         {compact ? (
                           /* Blok pendek (<50min): satu baris kode + waktu */
                           <div className="text-[10px] leading-tight truncate">
                             {visibleConflict && (
                               <span
-                                className="text-amber-400 mr-0.5 cursor-pointer"
+                                className="text-[var(--text-1)] mr-0.5 cursor-pointer inline-flex"
                                 title={t('blockDismissHint')}
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   dismissKey(p.clusterKey)
                                 }}
                               >
-                                ⚠
+                                <Icon name="warn" size={10} />
                               </span>
                             )}
                             <span className="font-semibold">
@@ -471,14 +469,14 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                             <div className="flex items-center gap-1 text-[11px] font-semibold leading-tight">
                               {visibleConflict && (
                                 <span
-                                  className="text-amber-400 shrink-0 cursor-pointer"
+                                  className="text-[var(--text-1)] shrink-0 cursor-pointer inline-flex"
                                   title={t('blockDismissHint')}
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     dismissKey(p.clusterKey)
                                   }}
                                 >
-                                  ⚠
+                                  <Icon name="warn" size={10} />
                                 </span>
                               )}
                               <span className="truncate">
@@ -486,10 +484,10 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                               </span>
                               {l.type && TYPE_META[l.type] && (
                                 <span
-                                  className="shrink-0 opacity-90"
+                                  className="shrink-0 inline-flex align-[-2px] opacity-90"
                                   title={t(TYPE_META[l.type].key)}
                                 >
-                                  {TYPE_META[l.type].icon}
+                                  <Icon name={TYPE_META[l.type].icon} size={10} />
                                 </span>
                               )}
                             </div>
@@ -512,7 +510,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                             </div>
                             {showLocation && (
                               <div className="text-[10px] opacity-70 leading-tight truncate">
-                                📍 {l.location}
+                                <span className="inline-flex items-center gap-1"><Icon name="pin" size={11} /> {l.location}</span>
                               </div>
                             )}
                             <LessonNote note={note} />
@@ -529,11 +527,11 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
             {showNowLine && (
               <>
                 <div
-                  className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-red-500/90"
+                  className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-[var(--danger)]"
                   style={{ top: nowTop }}
                 />
                 <div
-                  className="pointer-events-none absolute z-20 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-red-500 shadow"
+                  className="pointer-events-none absolute z-20 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[var(--danger)] shadow"
                   style={{
                     top: nowTop,
                     left: `calc(${(todayIndex * 100) / 7}% - 5px)`,

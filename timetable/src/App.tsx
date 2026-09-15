@@ -18,6 +18,8 @@ import {
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { loadTasks, pendingTasks, saveTasks, type Task } from './lib/tasks'
+import { checkApkUpdate } from './lib/apkUpdate'
+import Icon from './components/Icon'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
 import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber } from './lib/date'
 import {
@@ -31,7 +33,7 @@ import {
 
 function App() {
   const tt = useTimetable()
-  const { lang, setLang, t } = useI18n()
+  const { lang, locale, setLang, t } = useI18n()
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [view, setView] = useState<'today' | 'week' | 'assign'>('today')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -47,6 +49,8 @@ function App() {
     version: string
     kind: 'ready' | 'downloading' | 'available' | 'latest' | 'error'
     percent?: number
+    /** Android: release page to open for the APK download */
+    apkUrl?: string
   } | null>(null)
   const [updateChecking, setUpdateChecking] = useState(false)
   const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
@@ -79,8 +83,20 @@ function App() {
   const checkForUpdate = useCallback(async () => {
     const bridge = (window as unknown as { lutUpdate?: any }).lutUpdate
     if (!bridge?.check) {
-      // 无桥接（浏览器/开发模式）：直接报告当前版本。
-      setUpdateState({ version: appVersion ?? '?', kind: 'latest' })
+      // 无 Electron 桥：Android 上走 GitHub Releases 检查 APK 更新。
+      setUpdateChecking(true)
+      try {
+        const apk = await checkApkUpdate(appVersion ?? '0.0.0')
+        setUpdateChecking(false)
+        if (apk) {
+          setUpdateState({ version: apk.version, kind: 'available', apkUrl: apk.releaseUrl })
+        } else {
+          setUpdateState({ version: appVersion ?? '?', kind: 'latest' })
+        }
+      } catch {
+        setUpdateChecking(false)
+        setUpdateState({ version: appVersion ?? '?', kind: 'error' })
+      }
       return
     }
     setUpdateChecking(true)
@@ -127,8 +143,6 @@ function App() {
   const dupGroups = useMemo(() => findDuplicateGroups(tt.lessons), [tt.lessons])
   const dupCount = removableCount(dupGroups)
   const pendingTaskCount = pendingTasks(tasks).length
-  const viewBtn = (v: 'today' | 'week' | 'assign') =>
-    'px-2.5 min-h-9 ' + (view === v ? 'bg-sky-600 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300')
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
   const isCurrentWeek = useMemo(
@@ -136,7 +150,7 @@ function App() {
     [weekStart],
   )
   const weekNum = isoWeekNumber(weekStart)
-  const weekRangeText = formatWeekRange(weekStart, lang === 'zh' ? 'zh-CN' : 'en-US')
+  const weekRangeText = formatWeekRange(weekStart, locale)
   const weekVisibleLessons = useMemo(
     () => lessonsInRange(tt.visibleLessons, weekStart, weekEnd),
     [tt.visibleLessons, weekStart, weekEnd],
@@ -154,38 +168,38 @@ function App() {
   }, [])
 
   return (
-    <div className="app-shell h-screen flex flex-col bg-zinc-950 text-zinc-100">
-      <header className="app-header safe-top flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-zinc-800/80">
+    <div className="app-shell h-screen flex flex-col">
+      <header className="app-header safe-top flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-[var(--line)]">
         <div className="flex items-center gap-3">
           <button
-            className="md:hidden rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+            className="app-btn md:hidden px-2.5 min-h-9"
             onClick={() => setMenuOpen(true)}
             title="菜单"
           >
-            ☰
+            <Icon name="menu" size={16} />
           </button>
           <h1 className="text-sm font-semibold">{t('appName')}</h1>
-          <span className="hidden sm:inline text-[11px] text-zinc-500">
+          <span className="hidden sm:inline text-[11px] text-[var(--text-3)]">
             {t('lessonsSources', { n: tt.lessons.length, m: tt.sources.length })}
           </span>
         </div>
         <div className="app-actions flex flex-wrap items-center justify-end gap-1.5 text-xs ml-auto">
           {/* 视图切换：今日 / 周 / 作业 */}
-          <div className="flex rounded-md overflow-hidden border border-zinc-700">
-            <button onClick={() => setView('today')} className={viewBtn('today')}>
+          <div className="app-seg">
+            <button onClick={() => setView('today')} aria-pressed={view === 'today'}>
               {t('viewToday')}
             </button>
-            <button onClick={() => setView('week')} className={viewBtn('week')}>
+            <button onClick={() => setView('week')} aria-pressed={view === 'week'}>
               {t('viewWeek')}
             </button>
             <button
               onClick={() => setView('assign')}
-              className={viewBtn('assign')}
+              aria-pressed={view === 'assign'}
               title={t('assignTitle')}
             >
-              🎓<span className="hidden sm:inline"> {t('assignNav')}</span>
+                <span className="inline-flex items-center gap-2"><Icon name="graduation" size={16} /><span className="hidden sm:inline"> {t('assignNav')}</span></span>
               {pendingTaskCount > 0 && (
-                <span className="ml-1 rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white">{pendingTaskCount}</span>
+                <span className="ml-1 rounded-full bg-[var(--surface-1)] px-1.5 text-[10px] font-semibold tabular-nums">{pendingTaskCount}</span>
               )}
             </button>
           </div>
@@ -193,43 +207,34 @@ function App() {
             <div className="hidden sm:flex items-center gap-1.5">
               <button
                 onClick={onPrevWeek}
-                className="app-header-btn rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+                className="app-btn px-2.5 min-h-9"
+                aria-label={t('prevWeek')}
               >
-                ←
+                <Icon name="chevron-left" size={15} />
               </button>
               <span
-                className={
-                  'inline-block max-w-[24vw] truncate align-middle rounded-md border px-2 py-1.5 text-[11px] sm:max-w-none sm:text-xs tabular-nums ' +
-                  (isCurrentWeek
-                    ? 'bg-sky-600/15 border-sky-600/50 text-sky-300'
-                    : 'bg-amber-500/15 border-amber-500/60 text-amber-300')
-                }
+                className="inline-block max-w-[24vw] truncate align-middle rounded-md border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1.5 text-[11px] sm:max-w-none sm:text-xs tabular-nums text-[var(--text-2)]"
                 title={t('weekRange', { w: weekNum, range: weekRangeText })}
               >
                 {t('weekRange', { w: weekNum, range: weekRangeText })}
               </span>
               <button
                 onClick={onNextWeek}
-                className="app-header-btn rounded-md bg-zinc-800 hover:bg-zinc-700 px-2.5 min-h-9"
+                className="app-btn px-2.5 min-h-9"
+                aria-label={t('nextWeek')}
               >
-                →
+                <Icon name="chevron-right" size={15} />
               </button>
-              <button
-                onClick={onThisWeek}
-                className={
-                  'rounded-md px-2.5 min-h-9 ' +
-                  (isCurrentWeek
-                    ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                    : 'bg-amber-600/90 hover:bg-amber-500 font-medium text-white')
-                }
-              >
-                {t('thisWeek')}
-              </button>
+              {!isCurrentWeek && (
+                <button onClick={onThisWeek} className="app-btn-primary px-2.5 min-h-9">
+                  {t('thisWeek')}
+                </button>
+              )}
             </div>
           )}
           <button
             onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-            className="app-header-btn rounded-md bg-sky-600/80 hover:bg-sky-600 px-2.5 min-h-9 font-medium"
+            className="app-btn px-2.5 min-h-9 font-medium"
             title="切换语言 / Switch language"
           >
             {lang === 'zh' ? 'EN' : '中文'}
@@ -237,56 +242,55 @@ function App() {
           <div className="relative">
             <button
               onClick={() => setShowMoreActions((open) => !open)}
-              className="app-header-btn rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 sm:px-2.5 min-h-9"
+              className="app-btn px-2 sm:px-2.5 min-h-9"
               title={t('moreActions')}
               aria-expanded={showMoreActions}
             >
-              <span aria-hidden="true">⋯</span><span className="hidden sm:inline"> {t('moreActions')}</span>
+              <span aria-hidden="true" className="inline-flex items-center"><Icon name="more" size={16} /></span><span className="hidden sm:inline"> {t('moreActions')}</span>
             </button>
             {showMoreActions && (
-              <div className="animate-pop-in absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-zinc-700/80 bg-zinc-900/95 p-1.5 shadow-2xl shadow-black/40 backdrop-blur-xl">
+              <div className="animate-pop-in absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-1.5 shadow-2xl shadow-black/50">
                 <button
                   onClick={() => { setShowSettings(true); setShowMoreActions(false) }}
                   className="app-menu-item"
                 >
-                  <span>⚙ {t('settingsTitle')}</span><span>›</span>
+                  <span className="inline-flex items-center gap-2"><Icon name="settings" /> {t('settingsTitle')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
                 </button>
                 <button
                   onClick={() => { setShowBatchFilter(true); setShowMoreActions(false) }}
                   className="app-menu-item"
                 >
-                  <span>🔍 {t('batchButton')}</span><span>›</span>
+                  <span className="inline-flex items-center gap-2"><Icon name="search" /> {t('batchButton')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
                 </button>
                 <button
                   onClick={() => { setShowConflicts(true); setShowMoreActions(false) }}
                   className="app-menu-item"
                 >
-                  <span>⚔ {t('conflictsButton')}</span><span>›</span>
+                  <span className="inline-flex items-center gap-2"><Icon name="warn" /> {t('conflictsButton')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
                 </button>
                 {dupCount > 0 && (
                   <button
                     onClick={() => { setShowDupResolver(true); setShowMoreActions(false) }}
-                    className="app-menu-item text-amber-300"
+                    className="app-menu-item text-[var(--due)]"
                   >
-                    <span>🧩 {t('dupButton', { n: dupCount })}</span><span>›</span>
+                    <span className="inline-flex items-center gap-2"><Icon name="puzzle" /> {t('dupButton', { n: dupCount })}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
                   </button>
                 )}
                 {tt.hiddenKeys.size > 0 && (
                   <button
                     onClick={() => { tt.unhideAll(); setShowMoreActions(false) }}
-                    className="app-menu-item text-zinc-300"
+                    className="app-menu-item text-[var(--text-2)]"
                   >
-                    <span>🙈 {t('hiddenN', { n: tt.hiddenKeys.size })}</span><span>↩</span>
+                    <span className="inline-flex items-center gap-2"><Icon name="eye-off" /> {t('hiddenN', { n: tt.hiddenKeys.size })}</span><span className="text-[var(--text-3)]"><Icon name="restore" size={12} /></span>
                   </button>
                 )}
-                <div className="my-1 border-t border-zinc-700/60" />
+                <div className="my-1 border-t border-[var(--line)]/60" />
                 <button
                   onClick={() => { void checkForUpdate(); setShowMoreActions(false) }}
                   disabled={updateChecking}
                   className="app-menu-item"
                 >
-                  <span>⬇ {updateChecking ? t('updateChecking') : t('updateCheck')}</span>
-                  <span aria-hidden="true">›</span>
+                  <span className="inline-flex items-center gap-2"><Icon name="sync" /> {updateChecking ? t('updateChecking') : t('updateCheck')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
                 </button>
               </div>
             )}
@@ -297,39 +301,31 @@ function App() {
           <div className="sm:hidden flex w-full items-center gap-1 pb-0.5">
             <button
               onClick={onPrevWeek}
-              className="shrink-0 rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 min-h-9"
+              className="app-btn shrink-0 px-2 min-h-9"
               title={t('prevWeek')}
             >
-              ←
+              <Icon name="chevron-left" size={15} />
             </button>
             <span
-              className={
-                'min-w-0 flex-1 rounded-md border px-2 py-1 text-center text-[11px] leading-snug tabular-nums ' +
-                (isCurrentWeek
-                  ? 'bg-sky-600/15 border-sky-600/50 text-sky-300'
-                  : 'bg-amber-500/15 border-amber-500/60 text-amber-300')
-              }
+              className="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 text-center text-[11px] leading-snug tabular-nums text-[var(--text-2)]"
             >
               {t('weekRange', { w: weekNum, range: weekRangeText })}
             </span>
             <button
               onClick={onNextWeek}
-              className="shrink-0 rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 min-h-9"
+              className="app-btn shrink-0 px-2 min-h-9"
               title={t('nextWeek')}
             >
-              →
+              <Icon name="chevron-right" size={15} />
             </button>
-            <button
-              onClick={onThisWeek}
-              className={
-                'shrink-0 rounded-md px-2 min-h-9 ' +
-                (isCurrentWeek
-                  ? 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
-                  : 'bg-amber-600/90 hover:bg-amber-500 font-medium text-white')
-              }
-            >
-              {t('thisWeek')}
-            </button>
+            {!isCurrentWeek && (
+              <button
+                onClick={onThisWeek}
+                className="app-btn-primary shrink-0 px-2 min-h-9"
+              >
+                {t('thisWeek')}
+              </button>
+            )}
           </div>
         )}
       </header>
@@ -503,29 +499,31 @@ function App() {
       {updateState && (
         <div className="fixed bottom-4 inset-x-0 z-50 flex justify-center px-4 animate-modal-in">
           <div
-            className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg text-white text-sm px-4 py-3 shadow-lg max-w-full ${
+            className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg text-sm px-4 py-3 shadow-lg max-w-full ${
               updateState.kind === 'error'
-                ? 'bg-rose-600'
+                ? 'bg-[var(--btn-danger)] text-white'
                 : updateState.kind === 'ready'
-                  ? 'bg-emerald-600'
-                  : 'bg-zinc-800 border border-zinc-700'
+                  ? 'bg-[var(--btn-ok)] text-white'
+                  : 'bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--line)]'
             }`}
           >
             <span>
               {updateState.kind === 'ready' && (
-                <>🔄 {t('updateReady', { v: updateState.version })}</>
+                <span className="inline-flex items-center gap-2"><Icon name="sync" /> {t('updateReady', { v: updateState.version })}</span>
               )}
               {updateState.kind === 'downloading' &&
                 t('updateDownloading', { p: updateState.percent ?? 0 })}
               {updateState.kind === 'available' &&
-                t('updateAvailable', { v: updateState.version })}
+                (updateState.apkUrl
+                  ? t('updateApkAvailable', { v: updateState.version })
+                  : t('updateAvailable', { v: updateState.version }))}
               {updateState.kind === 'latest' &&
                 t('updateUpToDate', { v: updateState.version })}
               {updateState.kind === 'error' && t('updateCheckFail')}
             </span>
             {updateState.kind === 'ready' && (
               <button
-                className="rounded bg-white text-emerald-700 px-3 min-h-9 font-medium"
+                className="rounded bg-white text-[var(--ok)] px-3 min-h-9 font-medium"
                 onClick={() =>
                   (window as unknown as { lutUpdate?: any }).lutUpdate?.install()
                 }
@@ -533,8 +531,18 @@ function App() {
                 {t('updateInstallNow')}
               </button>
             )}
+            {updateState.kind === 'available' && updateState.apkUrl && (
+              <a
+                href={updateState.apkUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded bg-white text-[var(--text-3)] px-3 min-h-9 font-medium"
+              >
+                <Icon name="external" size={13} /> {t('updateGetApk')}
+              </a>
+            )}
             <button
-              className="text-white/80 hover:text-white"
+              className="opacity-80 transition hover:opacity-100"
               onClick={() => setUpdateState(null)}
             >
               {t('updateLater')}

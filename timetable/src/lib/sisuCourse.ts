@@ -1,7 +1,6 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { fetchViaElectron, hasLutBridge } from './fetchIcs'
-
-const LS_CACHE = 'tt_sisu_course_ids'
+import { KEYS, readJson, writeJson } from './storage'
 
 const QUERY = (code: string) =>
   JSON.stringify({
@@ -59,9 +58,7 @@ export async function sisuGraphql(query: string): Promise<any> {
  */
 export async function resolveSisuCourseUrl(code: string): Promise<string> {
   const clean = code.trim().toUpperCase()
-  const cache: Record<string, string> = JSON.parse(
-    localStorage.getItem(LS_CACHE) || '{}',
-  )
+  const cache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
   if (cache[clean]) {
     return `https://sisu.lut.fi/student/courseunit/${cache[clean]}`
   }
@@ -71,7 +68,7 @@ export async function resolveSisuCourseUrl(code: string): Promise<string> {
   if (!id) throw new Error('not-found')
 
   cache[clean] = id
-  localStorage.setItem(LS_CACHE, JSON.stringify(cache))
+  writeJson(KEYS.sisuCourseIds, cache)
   return `https://sisu.lut.fi/student/courseunit/${id}`
 }
 

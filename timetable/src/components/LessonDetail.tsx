@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
+import Icon from './Icon'
 import { resolveSisuCourseUrl } from '../lib/sisuCourse'
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
@@ -49,8 +50,7 @@ export default function LessonDetail({
   assignments,
   onOpenAssignments,
 }: Props) {
-  const { t, lang } = useI18n()
-  const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
+  const { t, locale } = useI18n()
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(lesson.title)
   const [code, setCode] = useState(lesson.code || '')
@@ -140,7 +140,7 @@ export default function LessonDetail({
   }
 
   const inputCls =
-    'mt-0.5 w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 focus:outline-none focus:border-sky-500'
+    'mt-0.5 app-input'
 
   const startD = new Date(lesson.start)
   const endD = new Date(lesson.end)
@@ -165,27 +165,27 @@ export default function LessonDetail({
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >
-      <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl">
+      <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold">
             {editing ? t('editTitle') : t('detailTitle')}
           </h3>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200"
+            className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
-            ✕
+            <Icon name="close" size={13} />
           </button>
         </div>
 
         {editing ? (
           <>
             <div className="space-y-2 text-xs">
-              <div className="text-[11px] text-zinc-500">{sourceNote}</div>
+              <div className="text-[11px] text-[var(--text-3)]">{sourceNote}</div>
 
               <label className="block">
-                <span className="text-zinc-500">{t('name')}</span>
+                <span className="text-[var(--text-3)]">{t('name')}</span>
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -196,7 +196,7 @@ export default function LessonDetail({
 
               <div className="flex gap-2">
                 <label className="block w-1/2">
-                  <span className="text-zinc-500">{t('code')}</span>
+                  <span className="text-[var(--text-3)]">{t('code')}</span>
                   <input
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
@@ -204,7 +204,7 @@ export default function LessonDetail({
                   />
                 </label>
                 <label className="block w-1/2">
-                  <span className="text-zinc-500">{t('location')}</span>
+                  <span className="text-[var(--text-3)]">{t('location')}</span>
                   <input
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
@@ -215,7 +215,7 @@ export default function LessonDetail({
 
               <div className="flex gap-2">
                 <label className="block w-2/4">
-                  <span className="text-zinc-500">{t('date')}</span>
+                  <span className="text-[var(--text-3)]">{t('date')}</span>
                   <input
                     type="date"
                     value={date}
@@ -224,7 +224,7 @@ export default function LessonDetail({
                   />
                 </label>
                 <label className="block w-1/4">
-                  <span className="text-zinc-500">{t('start')}</span>
+                  <span className="text-[var(--text-3)]">{t('start')}</span>
                   <input
                     type="time"
                     value={start}
@@ -233,7 +233,7 @@ export default function LessonDetail({
                   />
                 </label>
                 <label className="block w-1/4">
-                  <span className="text-zinc-500">{t('end')}</span>
+                  <span className="text-[var(--text-3)]">{t('end')}</span>
                   <input
                     type="time"
                     value={end}
@@ -243,24 +243,24 @@ export default function LessonDetail({
                 </label>
               </div>
 
-              {error && <p className="text-[11px] text-rose-400">{error}</p>}
+              {error && <p className="text-[11px] text-[var(--danger)]">{error}</p>}
             </div>
 
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => setEditing(false)}
-                className="flex-1 rounded-md bg-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-600"
+                className="flex-1 rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover-1)]"
               >
                 {t('cancel')}
               </button>
               <button
                 onClick={handleSave}
-                className="flex-[2] rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium hover:bg-sky-500"
+                className="app-fill-info flex-[2] rounded-md px-3 py-1.5 text-xs"
               >
                 {t('save')}
               </button>
             </div>
-            <p className="mt-2 text-center text-[10px] text-zinc-600">
+            <p className="mt-2 text-center text-[10px] text-[var(--text-3)]">
               {t('shortcuts')}
             </p>
           </>
@@ -268,17 +268,17 @@ export default function LessonDetail({
           <>
             {/* --- Mode lihat: info lengkap, hanya-baca --- */}
             <div className="space-y-2.5 text-xs">
-              <div className="text-[11px] text-zinc-500">
+              <div className="text-[11px] text-[var(--text-3)]">
                 {sourceNote}
                 {lesson.type && TYPE_META[lesson.type] && (
                   <span className="ml-1">
-                    · {TYPE_META[lesson.type].icon} {t(TYPE_META[lesson.type].key)}
+                    · {<Icon name={TYPE_META[lesson.type].icon} size={11} />} {t(TYPE_META[lesson.type].key)}
                   </span>
                 )}
               </div>
 
               <div
-                className="rounded-md border border-zinc-800 bg-zinc-800/40 px-2.5 py-2 text-sm font-medium leading-snug"
+                className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2 text-sm font-medium leading-snug"
                 style={{ color: lesson.code ? undefined : undefined }}
               >
                 {displayTitle(lesson)}
@@ -287,36 +287,36 @@ export default function LessonDetail({
               <dl className="space-y-1.5">
                 {lesson.code && (
                   <div className="flex gap-2">
-                    <dt className="w-14 shrink-0 text-zinc-500">{t('code')}</dt>
+                    <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('code')}</dt>
                     <dd className="font-mono">{lesson.code}</dd>
                   </div>
                 )}
                 <div className="flex gap-2">
-                  <dt className="w-14 shrink-0 text-zinc-500">{t('date')}</dt>
+                  <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('date')}</dt>
                   <dd>{formatDay(startD, locale)}</dd>
                 </div>
                 <div className="flex gap-2">
-                  <dt className="w-14 shrink-0 text-zinc-500">{t('time')}</dt>
+                  <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('time')}</dt>
                   <dd>
                     {formatTime(lesson.start, locale)} –{' '}
                     {formatTime(lesson.end, locale)}
-                    <span className="ml-1 text-zinc-500">({durText})</span>
+                    <span className="ml-1 text-[var(--text-3)]">({durText})</span>
                   </dd>
                 </div>
                 <div className="flex gap-2">
-                  <dt className="w-14 shrink-0 text-zinc-500">
+                  <dt className="w-14 shrink-0 text-[var(--text-3)]">
                     {t('location')}
                   </dt>
-                  <dd className={lesson.location ? '' : 'text-zinc-500'}>
+                  <dd className={lesson.location ? '' : 'text-[var(--text-3)]'}>
                     {lesson.location || '—'}
                   </dd>
                 </div>
                 {buildingOf(lesson.location) && (
                   <div className="flex gap-2">
-                    <dt className="w-14 shrink-0 text-zinc-500">🧭</dt>
+                    <dt className="w-14 shrink-0 text-[var(--text-3)] inline-flex"><Icon name="compass" size={12} className="mt-0.5" /></dt>
                     <dd>
-                      <span className="font-medium">🏢 {buildingOf(lesson.location)}</span>
-                      <span className="ml-2 text-zinc-400">
+                      <span className="font-medium inline-flex items-center gap-1"><Icon name="building" size={12} /> {buildingOf(lesson.location)}</span>
+                      <span className="ml-2 text-[var(--text-2)]">
                         {t('room')}: {roomOf(lesson.location as string)}
                       </span>
                     </dd>
@@ -327,7 +327,7 @@ export default function LessonDetail({
               {lesson.code && (
                 <button
                   onClick={openSisu}
-                  className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline"
+                  className="text-[11px] text-[var(--info)] hover:text-[var(--info)] hover:underline"
                 >
                   {sisuState === 'loading'
                     ? t('sisuLookingUp')
@@ -341,7 +341,7 @@ export default function LessonDetail({
                   href={timeEditUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="block text-[11px] text-violet-400 hover:text-violet-300 hover:underline"
+                  className="block text-[11px] text-[var(--violet)] hover:text-[var(--violet)] hover:underline"
                 >
                   {t('viewTimeEdit')}
                 </a>
@@ -361,23 +361,23 @@ export default function LessonDetail({
                 return (
                   <button
                     onClick={onOpenAssignments}
-                    className="block w-full rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-left hover:bg-emerald-500/20"
+                    className="block w-full rounded-md border border-[var(--line-ok)] bg-[var(--tint-ok)] px-2.5 py-2 text-left hover:bg-[var(--tint-ok)]"
                   >
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300/80">
-                      🎓 {related.length > 0
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ok)]">
+                      <span className="inline-flex items-center gap-1.5"><Icon name="graduation" size={12} /> {related.length > 0
                         ? t('lessonAssignments', { n: related.length })
-                        : t('lessonAssignmentsEmpty')}
+                        : t('lessonAssignmentsEmpty')}</span>
                     </div>
                     {related.length > 0 && (
                       <ul className="mt-1 space-y-0.5">
                         {related.slice(0, 3).map((task) => (
-                          <li key={task.id} className="truncate text-[11px] text-emerald-100">
+                          <li key={task.id} className="truncate text-[11px] text-[var(--ok)]">
                             · {task.title}
-                            {isOverdue(task) && <span className="ml-1 text-rose-300">· {t('taskOverdue')}</span>}
+                            {isOverdue(task) && <span className="ml-1 text-[var(--danger)]">· {t('taskOverdue')}</span>}
                           </li>
                         ))}
                         {related.length > 3 && (
-                          <li className="text-[10px] text-emerald-300/70">…</li>
+                          <li className="text-[10px] text-[var(--ok)]">…</li>
                         )}
                       </ul>
                     )}
@@ -387,11 +387,11 @@ export default function LessonDetail({
 
               {/* Catatan kursus: berlaku untuk semua pelajaran dengan kode+jenis sama */}
               {onSaveNote && (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2">
+                <div className="rounded-md border border-[var(--line-due)] bg-[var(--tint-due)] px-2.5 py-2">
                   {noteEdit ? (
                     <>
-                      <div className="text-[10px] font-medium text-amber-300/80">
-                        📝 {t('noteTitle')} · {noteScope}
+                      <div className="text-[10px] font-medium text-[var(--due)]">
+                        <span className="inline-flex items-center gap-1.5"><Icon name="note" size={12} /> {t('noteTitle')} · {noteScope}</span>
                       </div>
                       <textarea
                         value={noteText}
@@ -399,12 +399,12 @@ export default function LessonDetail({
                         placeholder={t('notePlaceholder')}
                         rows={2}
                         autoFocus
-                        className="mt-1 w-full resize-none rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs focus:border-amber-500 focus:outline-none"
+                        className="mt-1 w-full resize-none app-input"
                       />
                       <div className="mt-1.5 flex gap-2">
                         <button
                           onClick={() => setNoteEdit(false)}
-                          className="flex-1 rounded-md bg-zinc-700 px-2 py-1 text-[11px] font-medium hover:bg-zinc-600"
+                          className="flex-1 rounded-md bg-[var(--surface-2)] px-2 py-1 text-[11px] font-medium hover:bg-[var(--hover-1)]"
                         >
                           {t('cancel')}
                         </button>
@@ -413,7 +413,7 @@ export default function LessonDetail({
                             onSaveNote(noteText)
                             setNoteEdit(false)
                           }}
-                          className="flex-[2] rounded-md bg-amber-600 px-2 py-1 text-[11px] font-medium hover:bg-amber-500"
+                          className="app-fill-due flex-[2] rounded-md px-2 py-1 text-[11px]"
                         >
                           {t('noteSave')}
                         </button>
@@ -421,10 +421,10 @@ export default function LessonDetail({
                     </>
                   ) : note ? (
                     <>
-                      <div className="text-[10px] font-medium text-amber-300/80">
-                        📝 {t('noteTitle')} · {noteScope}
+                      <div className="text-[10px] font-medium text-[var(--due)]">
+                        <span className="inline-flex items-center gap-1.5"><Icon name="note" size={12} /> {t('noteTitle')} · {noteScope}</span>
                       </div>
-                      <p className="mt-1 whitespace-pre-wrap text-[11px] leading-snug text-amber-100">
+                      <p className="mt-1 whitespace-pre-wrap text-[11px] leading-snug text-[var(--due)]">
                         {note}
                       </p>
                       <div className="mt-1.5 flex gap-2">
@@ -433,13 +433,13 @@ export default function LessonDetail({
                             setNoteText(note)
                             setNoteEdit(true)
                           }}
-                          className="rounded bg-amber-600/30 px-2 py-0.5 text-[10px] text-amber-200 hover:bg-amber-600/50"
+                          className="rounded bg-[var(--tint-due)] px-2 py-0.5 text-[10px] text-[var(--due)] hover:bg-[var(--tint-due)]"
                         >
                           {t('noteEdit')}
                         </button>
                         <button
                           onClick={onRemoveNote}
-                          className="rounded bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-700"
+                          className="rounded bg-[var(--surface-2)] px-2 py-0.5 text-[10px] text-[var(--text-2)] hover:bg-[var(--hover-1)]"
                         >
                           {t('noteRemove')}
                         </button>
@@ -447,12 +447,12 @@ export default function LessonDetail({
                     </>
                   ) : (
                     <>
-                      <div className="text-[10px] text-amber-200/70">
+                      <div className="text-[10px] text-[var(--due)]">
                         {t('noteApplies', { scope: noteScope })}
                       </div>
                       <button
                         onClick={() => setNoteEdit(true)}
-                        className="mt-1 rounded bg-amber-600/30 px-2 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-600/50"
+                        className="mt-1 rounded bg-[var(--tint-due)] px-2 py-1 text-[11px] font-medium text-[var(--due)] hover:bg-[var(--tint-due)]"
                       >
                         {t('noteAdd')}
                       </button>
@@ -465,9 +465,9 @@ export default function LessonDetail({
             <div className="mt-4 flex gap-2">
               <button
                 onClick={startEdit}
-                className="flex-[2] rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium hover:bg-sky-500"
+                className="app-fill-info flex-[2] rounded-md px-3 py-1.5 text-xs"
               >
-                ✏️ {t('edit')}
+                <span className="inline-flex items-center gap-1.5"><Icon name="pencil" size={12} /> {t('edit')}</span>
               </button>
               <button
                 onClick={() => {
@@ -475,13 +475,13 @@ export default function LessonDetail({
                   onClose()
                 }}
                 title={t('batchHideHint')}
-                className="rounded-md border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200"
+                className="rounded-md border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]"
               >
-                🙈
+                <Icon name="eye-off" size={13} />
               </button>
               <button
                 onClick={handleDelete}
-                className="flex-1 rounded-md border border-rose-500/40 px-3 py-1.5 text-xs font-medium text-rose-400/90 hover:bg-rose-500/10 hover:text-rose-300"
+                className="flex-1 rounded-md border border-[var(--danger)] px-3 py-1.5 text-xs font-medium text-[var(--danger)] hover:bg-[var(--tint-danger)] hover:text-[var(--danger)]"
               >
                 {t('delete')}
               </button>

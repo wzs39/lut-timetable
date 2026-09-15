@@ -1,4 +1,5 @@
 import type { LessonSource, LessonType } from '../types'
+import { KEYS, readJson, writeJson } from './storage'
 
 export interface FilterPreset {
   id: string
@@ -15,19 +16,13 @@ export interface FilterPreset {
   sort: 'time' | 'name' | 'source'
 }
 
-const LS_PRESETS = 'tt_filter_presets'
-
 export function loadPresets(): FilterPreset[] {
-  try {
-    const arr = JSON.parse(localStorage.getItem(LS_PRESETS) || '[]')
-    return Array.isArray(arr) ? arr : []
-  } catch {
-    return []
-  }
+  const arr = readJson<unknown>(KEYS.filterPresets, [])
+  return Array.isArray(arr) ? (arr as FilterPreset[]) : []
 }
 
 function savePresets(p: FilterPreset[]) {
-  localStorage.setItem(LS_PRESETS, JSON.stringify(p))
+  writeJson(KEYS.filterPresets, p)
 }
 
 export function addPreset(

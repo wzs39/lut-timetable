@@ -3,6 +3,7 @@ import type { Lesson, SyncSource } from '../types'
 import { normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
 import { QUICK_LINKS } from '../lib/quickLinks'
 import { useI18n } from '../i18n'
+import Icon from './Icon'
 import CourseSearch from './CourseSearch'
 import SyncProtection from './SyncProtection'
 
@@ -128,23 +129,23 @@ export default function Sidebar({
   }
 
   const inputCls =
-    'w-full rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs focus:outline-none focus:border-emerald-500'
+    'w-full rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--ok)]'
 
   return (
-    <aside className="w-80 max-w-[85vw] shrink-0 border-r border-zinc-800 bg-zinc-900/60 flex flex-col overflow-y-auto safe-bottom">
+    <aside className="w-80 max-w-[85vw] shrink-0 border-r border-[var(--line)] bg-[var(--surface-1)] flex flex-col overflow-y-auto safe-bottom">
       {onCloseDrawer && (
         <div className="flex justify-end px-3 pt-3 md:hidden">
           <button
             onClick={onCloseDrawer}
-            className="rounded-md bg-zinc-800 hover:bg-zinc-700 px-2 py-1 text-xs"
+            className="rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1 text-xs"
           >
-            ✕
+            <Icon name="close" size={13} />
           </button>
         </div>
       )}
       <div className="p-4 space-y-6">
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
             {t('syncCalendar')}
           </h2>
           <textarea
@@ -152,16 +153,16 @@ export default function Sidebar({
             onChange={(e) => setUrl(e.target.value)}
             placeholder={t('pasteUrl')}
             rows={3}
-            className="w-full rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1.5 text-xs focus:outline-none focus:border-sky-500 resize-none"
+            className="w-full rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--info)] resize-none"
           />
-          {urlError && <p className="text-[11px] text-rose-400 mt-1">{urlError}</p>}
+          {urlError && <p className="text-[11px] text-[var(--danger)] mt-1">{urlError}</p>}
           <button
             onClick={addSource}
-            className="mt-2 w-full rounded-md bg-sky-600 hover:bg-sky-500 px-2 py-1.5 text-xs font-medium"
+            className="mt-2 w-full rounded-md app-btn-primary px-2 py-1.5 text-xs font-medium"
           >
             {t('addSource')}
           </button>
-          <label className="mt-2 flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
+          <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--text-2)] cursor-pointer">
             <input
               type="checkbox"
               checked={autoSync}
@@ -170,7 +171,7 @@ export default function Sidebar({
             />
             {t('autoSyncHint')}
           </label>
-          <label className="flex items-center gap-2 text-[11px] text-zinc-400 cursor-pointer">
+          <label className="flex items-center gap-2 text-[11px] text-[var(--text-2)] cursor-pointer">
             <input
               type="checkbox"
               checked={notifEnabled}
@@ -180,7 +181,7 @@ export default function Sidebar({
             {t('notifHint')}
           </label>
           {syncMessage && (
-            <p className="text-[11px] text-zinc-400 mt-1">{syncMessage}</p>
+            <p className="text-[11px] text-[var(--text-2)] mt-1">{syncMessage}</p>
           )}
         </div>
 
@@ -188,25 +189,25 @@ export default function Sidebar({
           {sources.map((s) => (
             <div
               key={s.id}
-              className="rounded-md bg-zinc-800/70 border border-zinc-700 p-2 text-xs"
+              className="rounded-md bg-[var(--surface-2)] border border-[var(--line)] p-2 text-xs"
             >
               <div className="flex items-center justify-between">
                 <span className="font-medium">
-                  {s.type === 'sisu' ? '🔵 SISU' : '🟣 TimeEdit'} · {s.label}
+                  <span className="inline-flex items-center gap-1"><span className={"inline-block h-2 w-2 rounded-full " + (s.type === 'sisu' ? 'bg-[var(--info)]' : 'bg-[var(--violet)]')} /> {s.type === 'sisu' ? 'SISU' : 'TimeEdit'}</span> · {s.label}
                 </span>
                 <button
                   onClick={() => onRemoveSource(s.id)}
-                  className="text-zinc-500 hover:text-rose-400"
-                  title="✕"
+                  className="text-[var(--text-3)] hover:text-[var(--danger)]"
+                  title="Close"
                 >
-                  ✕
+                  <Icon name="close" size={13} />
                 </button>
               </div>
-              <div className="text-[10px] text-zinc-500 mt-0.5 truncate" title={s.url}>
+              <div className="text-[10px] text-[var(--text-3)] mt-0.5 truncate" title={s.url}>
                 {s.url}
               </div>
               <div className="flex items-center justify-between mt-1">
-                <span className="text-[10px] text-zinc-500">
+                <span className="text-[10px] text-[var(--text-3)]">
                   {t('lessonsN', { n: s.count })}
                   {s.lastSync
                     ? ` · ${new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
@@ -215,7 +216,7 @@ export default function Sidebar({
                 <button
                   onClick={() => onSync(s)}
                   disabled={syncing}
-                  className="rounded bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 px-2 py-0.5 text-[10px]"
+                  className="rounded bg-[var(--surface-2)] hover:bg-[var(--hover-1)] disabled:opacity-50 px-2 py-0.5 text-[10px]"
                 >
                   {t('syncNow')}
                 </button>
@@ -227,7 +228,7 @@ export default function Sidebar({
         <SyncProtection revision={syncMessage ?? ''} />
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
             {t('addManual')}
           </h2>
           <div className="space-y-1.5">
@@ -242,13 +243,13 @@ export default function Sidebar({
                 value={mCode}
                 onChange={(e) => setMCode(e.target.value)}
                 placeholder={t('codePh')}
-                className="w-1/2 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                className="w-1/2 rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--ok)]"
               />
               <input
                 value={mLocation}
                 onChange={(e) => setMLocation(e.target.value)}
                 placeholder={t('locationPh')}
-                className="w-1/2 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                className="w-1/2 rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--ok)]"
               />
             </div>
             <div className="flex gap-1">
@@ -259,27 +260,27 @@ export default function Sidebar({
                   className={
                     'flex-1 rounded-md py-1 text-[11px] border ' +
                     (mDays.includes(d)
-                      ? 'bg-emerald-600/80 border-emerald-500 text-white'
-                      : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600')
+                      ? 'bg-[var(--accent)] border-transparent text-[var(--accent-text)] font-medium'
+                      : 'bg-[var(--surface-2)] border-[var(--line)] text-[var(--text-3)] hover:border-[var(--hover-line)]')
                   }
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+            <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-3)]">
               <input
                 type="date"
                 value={mDateFrom}
                 onChange={(e) => setMDateFrom(e.target.value)}
-                className="w-1/2 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs"
+                className="w-1/2 rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs"
               />
-              <span>→</span>
+              <span className="inline-flex text-[var(--text-3)]"><Icon name="arrow-right" size={12} /></span>
               <input
                 type="date"
                 value={mDateTo}
                 onChange={(e) => setMDateTo(e.target.value)}
-                className="w-1/2 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs"
+                className="w-1/2 rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs"
               />
             </div>
             <div className="flex gap-1.5">
@@ -287,23 +288,23 @@ export default function Sidebar({
                 type="time"
                 value={mStart}
                 onChange={(e) => setMStart(e.target.value)}
-                className="w-1/2 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs"
+                className="w-1/2 rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs"
               />
               <input
                 type="time"
                 value={mEnd}
                 onChange={(e) => setMEnd(e.target.value)}
-                className="w-1/2 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs"
+                className="w-1/2 rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs"
               />
             </div>
             <button
               onClick={addManualBatch}
-              className="w-full rounded-md bg-emerald-600 hover:bg-emerald-500 px-2 py-1.5 text-xs font-medium"
+              className="w-full rounded-md app-btn-primary px-2 py-1.5 text-xs font-medium"
             >
               {t('addBatch')}
             </button>
             {mMessage && (
-              <p className="text-[11px] text-emerald-400">{mMessage}</p>
+              <p className="text-[11px] text-[var(--ok)]">{mMessage}</p>
             )}
           </div>
         </div>
@@ -311,7 +312,7 @@ export default function Sidebar({
         <CourseSearch />
 
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
             {t('quickLinks')}
           </h2>
           <div className="grid grid-cols-2 gap-1.5">
@@ -321,10 +322,10 @@ export default function Sidebar({
                 href={l.url}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-1.5 text-[11px] text-zinc-300 truncate"
+                className="rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] border border-[var(--line)] px-2 py-1.5 text-[11px] text-[var(--text-2)] truncate"
                 title={l.url}
               >
-                {l.icon} {l.name}
+                {<Icon name={l.icon} size={12} />} {l.name}
               </a>
             ))}
           </div>

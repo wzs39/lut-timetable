@@ -10,7 +10,7 @@ export default function TruncatedNote({ note }: { note: string }) {
         setOpen((o) => !o)
       }}
       className={
-        'mt-1 cursor-pointer whitespace-pre-wrap text-[11px] text-zinc-400 ' +
+        'mt-1 cursor-pointer whitespace-pre-wrap text-[11px] text-[var(--text-2)] ' +
         (open ? '' : 'line-clamp-3')
       }
       title={open ? undefined : note}

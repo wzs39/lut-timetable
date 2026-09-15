@@ -1,4 +1,5 @@
 import type { Lesson } from '../types'
+import { KEYS, readJson, readString, writeJson, writeString } from './storage'
 
 /**
  * Bridge to Lecture Translator: the timetable tells the translator which
@@ -10,35 +11,20 @@ import type { Lesson } from '../types'
  * repeat lectures reuse the same course (and its glossary/materials).
  */
 
-const LS_TRANSLATOR_URL = 'tt_translator_url'
-const LS_SESSION_MAP = 'tt_translator_sessions_v1' // lesson code -> session id
-
 export function loadTranslatorUrl(): string {
-  return localStorage.getItem(LS_TRANSLATOR_URL) ?? 'http://localhost:8000'
+  return readString(KEYS.translatorUrl) ?? 'http://localhost:8000'
 }
 
 export function saveTranslatorUrl(url: string): void {
-  try {
-    localStorage.setItem(LS_TRANSLATOR_URL, url.replace(/\/+$/, ''))
-  } catch {
-    // quota/private-mode: the in-memory value still works this session
-  }
+  writeString(KEYS.translatorUrl, url.replace(/\/+$/, ''))
 }
 
 function loadSessionMap(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(LS_SESSION_MAP) ?? '{}') as Record<string, string>
-  } catch {
-    return {}
-  }
+  return readJson<Record<string, string>>(KEYS.translatorSessions, {})
 }
 
 function saveSessionMap(map: Record<string, string>): void {
-  try {
-    localStorage.setItem(LS_SESSION_MAP, JSON.stringify(map))
-  } catch {
-    // non-fatal: worst case we create a duplicate session next time
-  }
+  writeJson(KEYS.translatorSessions, map)
 }
 
 async function postJson(base: string, path: string, body: unknown): Promise<any> {

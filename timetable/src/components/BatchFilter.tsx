@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
+import Icon from './Icon'
 import { formatTime } from '../lib/date'
-import { courseColor } from '../lib/colors'
+import { courseColor, courseStyle, courseTextStyle } from '../lib/colors'
 import {
   loadPresets,
   addPreset,
@@ -45,8 +46,7 @@ export default function BatchFilter({
   onHideMany,
   onClose,
 }: Props) {
-  const { t, lang } = useI18n()
-  const locale = lang === 'zh' ? 'zh-CN' : 'en-US'
+  const { t, lang, locale } = useI18n()
   const DAYS = lang === 'zh' ? DAY_ZH : DAY_EN
 
   const [q, setQ] = useState('')
@@ -191,7 +191,7 @@ export default function BatchFilter({
   }
 
   const inputCls =
-    'rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs focus:outline-none focus:border-sky-500'
+    'app-input !w-auto'
 
   return (
     <div
@@ -200,21 +200,21 @@ export default function BatchFilter({
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
       tabIndex={-1}
     >
-      <div className="flex w-full max-w-lg flex-col rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl max-h-[85vh]">
+      <div className="flex w-full max-w-lg flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl max-h-[85vh]">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold">{t('batchTitle')}</h3>
           <button
             onClick={onClose}
-            className="text-zinc-500 hover:text-zinc-200"
+            className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
-            ✕
+            <Icon name="close" size={13} />
           </button>
         </div>
 
         {/* 预设 */}
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
             {t('presetsLabel')}
           </span>
           {presets.map((p) => (
@@ -223,8 +223,8 @@ export default function BatchFilter({
               className={
                 'group flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ' +
                 (p.id === activePresetId
-                  ? 'border-sky-500 bg-sky-600/30 text-sky-200'
-                  : 'border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600')
+                  ? 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-1)]'
+                  : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-1)]')
               }
             >
               <button onClick={() => applyPreset(p)} title={`${p.q} ${p.from}${p.to ? '→' + p.to : ''}`}>
@@ -232,23 +232,23 @@ export default function BatchFilter({
               </button>
               <button
                 onClick={() => setPresets(removePreset(p.id))}
-                className="text-zinc-500 hover:text-rose-400"
+                className="text-[var(--text-3)] hover:text-[var(--danger)]"
                 title={t('presetDelete')}
               >
-                ✕
+                <Icon name="close" size={13} />
               </button>
             </span>
           ))}
           <button
             onClick={saveCurrent}
-            className="rounded-full border border-dashed border-zinc-600 px-2 py-0.5 text-[11px] text-zinc-400 hover:border-sky-500 hover:text-sky-300"
+            className="rounded-full border border-dashed border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--text-2)] hover:border-[var(--info)] hover:text-[var(--info)]"
           >
             ＋ {t('presetSave')}
           </button>
         </div>
 
         {/* 筛选条件 */}
-        <div className="space-y-2 rounded-md border border-zinc-800 bg-zinc-800/40 p-2.5">
+        <div className="space-y-2 rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2.5">
           <div className="flex gap-1.5">
             <input
               value={q}
@@ -260,20 +260,20 @@ export default function BatchFilter({
             {hasFilters && (
               <button
                 onClick={reset}
-                className="rounded-md bg-zinc-700 hover:bg-zinc-600 px-2 text-[11px] text-zinc-300"
+                className="rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 text-[11px] text-[var(--text-2)]"
               >
                 {t('batchReset')}
               </button>
             )}
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+          <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-3)]">
             <input
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               className={`w-1/2 ${inputCls}`}
             />
-            <span>→</span>
+            <span className="inline-flex text-[var(--text-3)]"><Icon name="arrow-right" size={12} /></span>
             <input
               type="date"
               value={to}
@@ -289,8 +289,8 @@ export default function BatchFilter({
                 className={
                   'flex-1 rounded-md py-1 text-[11px] border ' +
                   (days.includes(d)
-                    ? 'bg-sky-600/80 border-sky-500 text-white'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600')
+                    ? 'bg-[var(--accent)] border-transparent text-[var(--accent-text)] font-medium'
+                    : 'bg-[var(--surface-2)] border-[var(--line)] text-[var(--text-3)] hover:border-[var(--hover-line)]')
                 }
               >
                 {label}
@@ -305,8 +305,8 @@ export default function BatchFilter({
                 className={
                   'flex-1 rounded-md py-1 text-[11px] border ' +
                   (sources.has(s)
-                    ? 'bg-sky-600/80 border-sky-500 text-white'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600')
+                    ? 'bg-[var(--accent)] border-transparent text-[var(--accent-text)] font-medium'
+                    : 'bg-[var(--surface-2)] border-[var(--line)] text-[var(--text-3)] hover:border-[var(--hover-line)]')
                 }
               >
                 {SOURCE_ICON[s]}{' '}
@@ -323,24 +323,24 @@ export default function BatchFilter({
                 className={
                   'rounded-md py-1 px-2 text-[11px] border ' +
                   (typeFilter.has(ty)
-                    ? 'bg-violet-600/80 border-violet-500 text-white'
-                    : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600')
+                    ? 'bg-[var(--btn-violet)]/80 border-[var(--violet)] text-white'
+                    : 'bg-[var(--surface-2)] border-[var(--line)] text-[var(--text-3)] hover:border-[var(--hover-line)]')
                 }
               >
-                {TYPE_META[ty].icon} {t(TYPE_META[ty].key)}
+                {<Icon name={TYPE_META[ty].icon} size={11} />} {t(TYPE_META[ty].key)}
               </button>
             ))}
           </div>
           <div className="flex items-center justify-between text-[11px]">
-            <span className="text-zinc-400">
+            <span className="text-[var(--text-2)]">
               {t('batchMatched', { n: matched.length })}
             </span>
-            <label className="flex items-center gap-1 text-zinc-500">
+            <label className="flex items-center gap-1 text-[var(--text-3)]">
               {t('batchSort')}
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as typeof sort)}
-                className="rounded bg-zinc-800 border border-zinc-700 px-1 py-0.5 text-[11px] focus:outline-none"
+                className="rounded bg-[var(--surface-2)] border border-[var(--line)] px-1 py-0.5 text-[11px] focus:outline-none"
               >
                 <option value="time">{t('batchSortTime')}</option>
                 <option value="name">{t('batchSortName')}</option>
@@ -350,13 +350,13 @@ export default function BatchFilter({
             <span className="flex gap-2">
               <button
                 onClick={() => setSelected(new Set(matched.map((l) => l.id)))}
-                className="text-sky-400 hover:text-sky-300"
+                className="text-[var(--info)] hover:text-[var(--info)]"
               >
                 {t('selectAll')}
               </button>
               <button
                 onClick={() => setSelected(new Set())}
-                className="text-zinc-500 hover:text-zinc-300"
+                className="text-[var(--text-3)] hover:text-[var(--text-2)]"
               >
                 {t('clearSel')}
               </button>
@@ -367,7 +367,7 @@ export default function BatchFilter({
         {/* 结果列表 */}
         <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
           {matched.length === 0 ? (
-            <p className="py-8 text-center text-xs text-zinc-600">
+            <p className="py-8 text-center text-xs text-[var(--text-3)]">
               {t('batchEmpty')}
             </p>
           ) : (
@@ -381,7 +381,7 @@ export default function BatchFilter({
                     'flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[11px] ' +
                     (checked ? '' : 'opacity-50')
                   }
-                  style={{ background: c.bg, borderColor: c.border }}
+                  style={courseStyle(c)}
                 >
                   <input
                     type="checkbox"
@@ -396,20 +396,20 @@ export default function BatchFilter({
                     }
                     className="accent-sky-500"
                   />
-                  <span className="w-24 shrink-0 font-mono text-zinc-300">
+                  <span className="w-24 shrink-0 font-mono text-[var(--text-2)]">
                     {formatTime(l.start, locale)}–{formatTime(l.end, locale)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate" style={{ color: c.text }}>
+                  <span className="min-w-0 flex-1 truncate" style={courseTextStyle(c)}>
                     {SOURCE_ICON[l.source]}{' '}
                     {l.code ? `${l.code} · ` : ''}
                     {l.type && TYPE_META[l.type] && (
                       <span title={t(TYPE_META[l.type].key)}>
-                        {TYPE_META[l.type].icon}
+                        {<Icon name={TYPE_META[l.type].icon} size={11} />}
                       </span>
                     )}
                     {displayTitle(l)}
                   </span>
-                  <span className="shrink-0 text-zinc-500">
+                  <span className="shrink-0 text-[var(--text-3)]">
                     {new Date(l.start).toLocaleDateString(locale, {
                       month: 'numeric',
                       day: 'numeric',
@@ -426,7 +426,7 @@ export default function BatchFilter({
         <div className="mt-3 flex gap-2">
           <button
             onClick={onClose}
-            className="flex-1 rounded-md bg-zinc-700 px-3 py-1.5 text-xs font-medium hover:bg-zinc-600"
+            className="flex-1 rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover-1)]"
           >
             {t('cancel')}
           </button>
@@ -434,14 +434,14 @@ export default function BatchFilter({
             onClick={applyHide}
             disabled={selected.size === 0}
             title={t('batchHideHint')}
-            className="flex-1 rounded-md bg-amber-600/90 px-3 py-1.5 text-xs font-medium hover:bg-amber-500 disabled:opacity-50"
+            className="flex-1 rounded-md bg-[var(--tint-due)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--tint-due)] disabled:opacity-50"
           >
-            🙈 {t('batchHide', { n: selected.size })}
+            <span className="inline-flex items-center gap-1.5"><Icon name="eye-off" size={13} /> {t('batchHide', { n: selected.size })}</span>
           </button>
           <button
             onClick={applyDelete}
             disabled={selected.size === 0}
-            className="flex-1 rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium hover:bg-rose-500 disabled:opacity-50"
+            className="app-fill-danger flex-1 rounded-md px-3 py-1.5 text-xs disabled:opacity-50"
           >
             {t('batchDelete', { n: selected.size })}
           </button>

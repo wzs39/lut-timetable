@@ -9,6 +9,7 @@ import {
   clearOverrides,
 } from '../lib/store'
 import { useI18n } from '../i18n'
+import Icon from './Icon'
 
 function hhmm(d: Date): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
@@ -72,32 +73,32 @@ export default function SyncProtection({ revision }: Props) {
   const total = tombs.length + ovrs.length
 
   return (
-    <div className="rounded-md bg-zinc-800/70 border border-zinc-700">
+    <div className="rounded-md bg-[var(--surface-2)] border border-[var(--line)]">
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-2 py-1.5 text-xs"
       >
-        <span className="font-medium text-zinc-300">🛡 {t('syncProtection')}</span>
+        <span className="font-medium text-[var(--text-2)] inline-flex items-center gap-1.5"><Icon name="shield" size={13} /> {t('syncProtection')}</span>
         <span className="flex items-center gap-1.5">
           {total > 0 && (
-            <span className="rounded-full bg-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300">
+            <span className="rounded-full bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] text-[var(--text-2)]">
               {total}
             </span>
           )}
-          <span className="text-zinc-500">{open ? '▾' : '▸'}</span>
+          <span className="text-[var(--text-3)] inline-flex"><Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} /></span>
         </span>
       </button>
 
       {open && (
         <div className="px-2 pb-2 space-y-2">
           {total === 0 && (
-            <p className="text-[10px] text-zinc-500">{t('protectionEmpty')}</p>
+            <p className="text-[10px] text-[var(--text-3)]">{t('protectionEmpty')}</p>
           )}
 
           {tombs.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
                   {t('tombstoneList', { n: tombs.length })}
                 </span>
                 <button
@@ -107,7 +108,7 @@ export default function SyncProtection({ revision }: Props) {
                       refresh()
                     }
                   }}
-                  className="text-[10px] text-zinc-500 hover:text-rose-400"
+                  className="text-[10px] text-[var(--text-3)] hover:text-[var(--danger)]"
                 >
                   {t('clearAll')}
                 </button>
@@ -116,17 +117,17 @@ export default function SyncProtection({ revision }: Props) {
                 {tombs.map((k) => (
                   <li
                     key={k}
-                    className="flex items-center justify-between gap-1 rounded bg-zinc-900/70 px-1.5 py-1 text-[10px]"
+                    className="flex items-center justify-between gap-1 rounded bg-[var(--surface-1)] px-1.5 py-1 text-[10px]"
                   >
-                    <span className="truncate text-zinc-400" title={k}>
-                      🚫 {tombLabel(k)}
+                    <span className="truncate text-[var(--text-2)]" title={k}>
+                      <span className="inline-flex items-center gap-1"><Icon name="close" size={11} className="text-[var(--danger)]" /> {tombLabel(k)}</span>
                     </span>
                     <button
                       onClick={() => {
                         removeTombstone(k)
                         refresh()
                       }}
-                      className="shrink-0 rounded bg-zinc-700 hover:bg-sky-600 px-1.5 py-0.5 text-zinc-200"
+                      className="shrink-0 rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[var(--text-1)] hover:bg-[var(--btn-info)] hover:text-[var(--btn-fg)]"
                     >
                       {t('revoke')}
                     </button>
@@ -139,7 +140,7 @@ export default function SyncProtection({ revision }: Props) {
           {ovrs.length > 0 && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
                   {t('overrideList', { n: ovrs.length })}
                 </span>
                 <button
@@ -149,7 +150,7 @@ export default function SyncProtection({ revision }: Props) {
                       refresh()
                     }
                   }}
-                  className="text-[10px] text-zinc-500 hover:text-rose-400"
+                  className="text-[10px] text-[var(--text-3)] hover:text-[var(--danger)]"
                 >
                   {t('clearAll')}
                 </button>
@@ -158,17 +159,17 @@ export default function SyncProtection({ revision }: Props) {
                 {ovrs.map(([k, patch]) => (
                   <li
                     key={k}
-                    className="flex items-center justify-between gap-1 rounded bg-zinc-900/70 px-1.5 py-1 text-[10px]"
+                    className="flex items-center justify-between gap-1 rounded bg-[var(--surface-1)] px-1.5 py-1 text-[10px]"
                   >
-                    <span className="truncate text-zinc-400" title={k}>
-                      ✏️ {overrideLabel(k, patch)}
+                    <span className="truncate text-[var(--text-2)]" title={k}>
+                      <span className="inline-flex items-center gap-1"><Icon name="pencil" size={11} /> {overrideLabel(k, patch)}</span>
                     </span>
                     <button
                       onClick={() => {
                         deleteOverride(k)
                         refresh()
                       }}
-                      className="shrink-0 rounded bg-zinc-700 hover:bg-sky-600 px-1.5 py-0.5 text-zinc-200"
+                      className="shrink-0 rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[var(--text-1)] hover:bg-[var(--btn-info)] hover:text-[var(--btn-fg)]"
                     >
                       {t('revoke')}
                     </button>
@@ -179,7 +180,7 @@ export default function SyncProtection({ revision }: Props) {
           )}
 
           {total > 0 && (
-            <p className="text-[10px] text-zinc-600">{t('protectionHint')}</p>
+            <p className="text-[10px] text-[var(--text-3)]">{t('protectionHint')}</p>
           )}
         </div>
       )}

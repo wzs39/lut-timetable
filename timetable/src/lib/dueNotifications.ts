@@ -1,6 +1,7 @@
 import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Task } from './tasks'
 import { isOverdue } from './tasks'
+import { exactAlarmsEnabled } from './notifications'
 
 /** Remind this long before the deadline (two reminders per task). */
 export const DUE_REMIND_BEFORE_H = [24, 1] as const
@@ -78,13 +79,14 @@ export async function refreshDueNotifications(
   }
 
   const scheduledIds = new Set(pending.notifications.map((n) => n.id))
+  const exact = await exactAlarmsEnabled()
   const toSchedule = [...wanted.values()]
     .filter(({ id }) => !scheduledIds.has(id))
     .map(({ id, at, task, beforeH }) => ({
       id,
       title: texts.title,
       body: texts.body(task, formatDueTime(task.dueAt!, locale), beforeH),
-      schedule: { at, allowWhileIdle: true },
+      schedule: { at, allowWhileIdle: true, exact },
       smallIcon: undefined,
     }))
 

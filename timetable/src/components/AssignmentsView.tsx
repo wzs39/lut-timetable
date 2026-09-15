@@ -19,9 +19,10 @@ import {
   type MoodleSource,
 } from '../lib/moodle'
 import { normalizeCourseCode } from '../lib/ics'
-import { courseColorByKey } from '../lib/colors'
+import { courseColorByKey, courseStyle, courseTextStyle } from '../lib/colors'
 import { QUICK_LINKS } from '../lib/quickLinks'
 import TruncatedNote from './TruncatedNote'
+import Icon from './Icon'
 
 interface Props {
   tasks: Task[]
@@ -37,7 +38,7 @@ type Group = 'overdue' | 'due7' | 'later' | 'nodue' | 'done'
 const GROUP_ORDER: Group[] = ['overdue', 'due7', 'later', 'nodue', 'done']
 
 export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCourse, onClose }: Props) {
-  const { t, lang } = useI18n()
+  const { t, locale } = useI18n()
   const [title, setTitle] = useState('')
   const [course, setCourse] = useState('')
   const [dueAt, setDueAt] = useState('')
@@ -139,7 +140,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
 
   const formatDue = (due?: string) => {
     if (!due) return t('taskNoDue')
-    return new Date(due).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-US', {
+    return new Date(due).toLocaleString(locale, {
       weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     })
   }
@@ -187,7 +188,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
   }
 
   const inputCls =
-    'w-full rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1.5 text-xs focus:outline-none focus:border-sky-500'
+    'w-full rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--info)]'
 
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
@@ -195,21 +196,21 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
         {/* Header row */}
         <div className="flex items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold">🎓 {t('assignTitle')}</h2>
-            <p className="mt-0.5 text-[11px] text-zinc-500">
+            <h2 className="inline-flex items-center gap-2 text-sm font-semibold"><Icon name="graduation" size={16} /> {t('assignTitle')}</h2>
+            <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
               {t('assignSubtitle', { n: pending })}
             </p>
           </div>
           <div className="flex shrink-0 gap-1.5">
             <button
               onClick={() => { setShowAddForm((o) => !o); setShowMoodleCard(false) }}
-              className="rounded-md bg-sky-600 px-2.5 min-h-9 text-xs font-medium hover:bg-sky-500"
+              className="app-btn-primary px-2.5 min-h-9 text-xs"
               title={t('taskAdd')}
             >
               ＋
             </button>
             {onClose && (
-              <button onClick={onClose} className="rounded-md bg-zinc-800 px-2.5 min-h-9 hover:bg-zinc-700" title={t('closeHint')}>✕</button>
+              <button onClick={onClose} className="app-btn px-2.5 min-h-9" title={t('closeHint')}><Icon name="close" size={14} /></button>
             )}
           </div>
         </div>
@@ -219,7 +220,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={t('assignSearchPh')}
-          className="w-full rounded-md border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs focus:outline-none focus:border-sky-500"
+          className="app-input"
         />
 
         {/* 分组筛选 chips */}
@@ -237,39 +238,39 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                   'rounded-full border px-2.5 py-1 text-[11px] transition ' +
                   (active
                     ? g === 'overdue'
-                      ? 'border-rose-500 bg-rose-500/20 text-rose-200'
-                      : 'border-sky-500 bg-sky-500/20 text-sky-200'
-                    : 'border-zinc-700 bg-zinc-800/60 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200')
+                      ? 'border-[var(--danger)] bg-[var(--tint-danger)] text-[var(--danger)]'
+                      : 'border-[var(--info)] bg-[var(--tint-info)] text-[var(--info)]'
+                    : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-2)] hover:text-[var(--text-1)]')
                 }
               >
                 {g === 'all' ? t('assignFilterAll') : groupLabel[g]} {n}
               </button>
             )
           })}
-          <label className="ml-auto flex items-center gap-1.5 text-[11px] text-zinc-400">
+          <label className="ml-auto flex items-center gap-1.5 text-[11px] text-[var(--text-2)]">
             <input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} className="accent-sky-500" />
             {t('tasksShowCompleted')}
           </label>
         </div>
 
         {/* ---- 收纳抽屉：Moodle 同步 ---- */}
-        <section className="rounded-xl border border-zinc-700/80 bg-zinc-900/60">
+        <section className="app-card">
           <button
             onClick={() => { setShowMoodleCard((o) => !o); setShowAddForm(false) }}
             title={t('toggleHint')}
             className="flex w-full items-center justify-between px-3 py-2.5"
           >
-            <span className="text-xs font-semibold text-zinc-200">
-              🟠 {t('moodleTitle')}
-              {moodle && <span className="ml-2 text-[10px] font-normal text-zinc-500">{moodle.count} · {moodle.lastSync ? new Date(moodle.lastSync).toLocaleTimeString(lang === 'zh' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' }) : ''}</span>}
+            <span className="text-xs font-semibold text-[var(--text-1)]">
+              <Icon name="assignment" size={13} /> {t('moodleTitle')}
+              {moodle && <span className="ml-2 text-[10px] font-normal text-[var(--text-3)]">{moodle.count} · {moodle.lastSync ? new Date(moodle.lastSync).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : ''}</span>}
             </span>
-            <span className="text-[11px] text-zinc-500">{showMoodleCard ? '▾' : '›'}</span>
+            <span className="text-[var(--text-3)] inline-flex"><Icon name={showMoodleCard ? 'chevron-down' : 'chevron-right'} size={12} /></span>
           </button>
           {showMoodleCard && (
-            <div className="border-t border-zinc-700/60 p-3">
+            <div className="border-t border-[var(--line)] p-3">
               {showMoodleForm ? (
                 <div className="space-y-1.5">
-                  <p className="text-[11px] text-zinc-500">{t('moodleHint')}</p>
+                  <p className="text-[11px] text-[var(--text-3)]">{t('moodleHint')}</p>
                   <input
                     value={moodleUrl}
                     onChange={(e) => setMoodleUrl(e.target.value)}
@@ -279,12 +280,12 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                   <div className="flex items-center gap-2">
                     <button
                       onClick={addMoodle}
-                      className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium hover:bg-orange-500"
+                      className="app-btn-primary px-3 py-1.5 text-xs"
                     >
                       {t('moodleConnect')}
                     </button>
                     {moodle && (
-                      <button onClick={() => { setShowMoodleForm(false); setMoodleMsg(null) }} className="rounded-md bg-zinc-700 px-3 py-1.5 text-xs">
+                      <button onClick={() => { setShowMoodleForm(false); setMoodleMsg(null) }} className="rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs">
                         {t('cancel')}
                       </button>
                     )}
@@ -293,33 +294,33 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
               ) : (
                 moodle && (
                   <div className="space-y-1.5">
-                    <div className="truncate rounded-md border border-zinc-700 bg-zinc-800/60 px-2 py-1 text-[10px] text-zinc-500" title={moodle.url}>
+                    <div className="truncate rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1 text-[10px] text-[var(--text-3)]" title={moodle.url}>
                       {moodle.url}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => void syncMoodleNow()}
                         disabled={moodleBusy}
-                        className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-medium hover:bg-orange-500 disabled:opacity-50"
+                        className="app-btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
                       >
                         {moodleBusy ? t('moodleSyncing') : t('moodleSyncNow')}
                       </button>
-                      <button onClick={removeMoodle} className="rounded-md bg-zinc-700 px-3 py-1.5 text-xs hover:bg-zinc-600">
+                      <button onClick={removeMoodle} className="rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs hover:bg-[var(--hover-1)]">
                         {t('moodleRemove')}
                       </button>
                     </div>
                   </div>
                 )
               )}
-              {moodleMsg && <p className="mt-1.5 text-[11px] text-zinc-400">{moodleMsg}</p>}
+              {moodleMsg && <p className="mt-1.5 text-[11px] text-[var(--text-2)]">{moodleMsg}</p>}
             </div>
           )}
         </section>
 
         {/* ---- 收纳抽屉：手动添加任务 ---- */}
         {showAddForm && (
-          <section className="animate-modal-in rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
-            <div className="mb-2 text-[11px] font-semibold text-sky-300">
+          <section className="animate-modal-in rounded-lg border border-[var(--line-info)] bg-[var(--tint-info)] p-3">
+            <div className="mb-2 text-[11px] font-semibold text-[var(--info)]">
               {editingId ? t('taskEdit') : t('taskAdd')}
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -354,10 +355,10 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
             <datalist id="assign-course-options">
               {courses.map((value) => <option key={value} value={value} />)}
             </datalist>
-            {error && <p className="mt-1 text-[11px] text-rose-400">{error}</p>}
+            {error && <p className="mt-1 text-[11px] text-[var(--danger)]">{error}</p>}
             <div className="mt-2 flex justify-end gap-2">
-              {editingId && <button onClick={reset} className="rounded-md bg-zinc-700 px-3 py-1.5 text-xs">{t('cancel')}</button>}
-              <button onClick={submit} className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium hover:bg-sky-500">
+              {editingId && <button onClick={reset} className="rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs">{t('cancel')}</button>}
+              <button onClick={submit} className="app-btn-primary px-3 py-1.5 text-xs">
                 {editingId ? t('save') : t('taskAddButton')}
               </button>
             </div>
@@ -365,27 +366,27 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
         )}
 
         {/* ---- 收纳抽屉：常用平台 ---- */}
-        <section className="rounded-xl border border-zinc-700/80 bg-zinc-900/60">
+        <section className="app-card">
           <button
             onClick={() => setShowLinks((o) => !o)}
             title={t('toggleHint')}
             className="flex w-full items-center justify-between px-3 py-2.5"
           >
-            <span className="text-xs font-semibold text-zinc-200">🔗 {t('quickLinks')}</span>
-            <span className="text-[11px] text-zinc-500">{showLinks ? '▾' : '›'}</span>
+            <span className="text-xs font-semibold text-[var(--text-1)] inline-flex items-center gap-1.5"><Icon name="link" size={12} /> {t('quickLinks')}</span>
+            <span className="text-[var(--text-3)] inline-flex"><Icon name={showLinks ? 'chevron-down' : 'chevron-right'} size={12} /></span>
           </button>
           {showLinks && (
-            <div className="animate-modal-in grid grid-cols-3 gap-1.5 border-t border-zinc-700/60 p-3">
+            <div className="animate-modal-in grid grid-cols-3 gap-1.5 border-t border-[var(--line)] p-3">
               {QUICK_LINKS.map((l) => (
                 <a
                   key={l.key}
                   href={l.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-2 py-1.5 text-center text-[11px] text-zinc-300 truncate"
+                  className="app-btn px-2 py-1.5 text-center text-[11px] truncate"
                   title={l.url}
                 >
-                  {l.icon} {l.name}
+                  {<Icon name={l.icon} size={12} />} {l.name}
                 </a>
               ))}
             </div>
@@ -394,7 +395,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
 
         {/* Grouped task list */}
         {GROUP_ORDER.every((g) => (groups.get(g) ?? []).length === 0) ? (
-          <p className="py-10 text-center text-xs text-zinc-500">
+          <p className="py-10 text-center text-xs text-[var(--text-3)]">
             {q.trim() || groupFilter !== 'all' ? t('assignNoMatch') : t('tasksEmpty')}
           </p>
         ) : (
@@ -404,7 +405,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
               if (items.length === 0) return null
               return (
                 <section key={g}>
-                  <h3 className={'mb-1.5 text-[11px] font-semibold uppercase tracking-wider ' + (g === 'overdue' ? 'text-rose-400' : 'text-zinc-500')}>
+                  <h3 className={'mb-1.5 text-[11px] font-semibold uppercase tracking-wider ' + (g === 'overdue' ? 'text-[var(--danger)]' : 'text-[var(--text-3)]')}>
                     {groupLabel[g]} · {items.length}
                   </h3>
                   <ul className="space-y-2">
@@ -414,8 +415,8 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                       const cc = courseCodeOf(task.course)
                       const c = cc ? courseColorByKey(cc) : null
                       return (
-                        <li key={task.id} className={'task-row rounded-lg border p-2.5 ' + (task.completed ? 'border-zinc-800 bg-zinc-800/40 opacity-60' : overdue ? 'border-rose-500/50 bg-rose-500/10' : 'border-zinc-700 bg-zinc-800/60')}
-                          style={task.completed || overdue ? undefined : c ? { background: c.bg, borderColor: c.border } : undefined}
+                        <li key={task.id} className={'task-row rounded-lg border p-2.5 ' + (task.completed ? 'border-[var(--line)] bg-[var(--surface-2)] opacity-50' : overdue ? 'border-[var(--danger)] bg-[var(--surface-2)]' : 'border-[var(--line)] bg-[var(--surface-2)]')}
+                          style={task.completed || overdue ? undefined : c ? courseStyle(c) : undefined}
                         >
                           <div className="flex items-start gap-2">
                             <input
@@ -426,39 +427,39 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                               aria-label={task.title}
                             />
                             <div className="min-w-0 flex-1">
-                              <div className={'text-xs font-medium ' + (task.completed ? 'line-through text-zinc-500' : '')} style={task.completed || !c ? undefined : { color: c.text }}>
-                                {isMoodle && <span className="mr-1" title="Moodle">🟠</span>}
+                              <div className={'text-xs font-medium ' + (task.completed ? 'line-through text-[var(--text-3)]' : '')} style={task.completed || !c ? undefined : { color: c.text }}>
+                                {isMoodle && <span className="mr-1 inline-flex" title="Moodle"><Icon name="assignment" size={11} /></span>}
                                 {task.title}
                               </div>
-                              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-zinc-400">
+                              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-[var(--text-2)]">
                                 {task.course && (
                                   cc && onJumpToCourse ? (
                                     <button
                                       onClick={() => onJumpToCourse(cc)}
                                       className="font-medium underline-offset-2 hover:underline"
-                                      style={{ color: c!.text }}
+                                      style={courseTextStyle(c!)}
                                       title={t('jumpToCourse')}
                                     >
-                                      📚 {task.course} ↦
+                                      <span className="inline-flex items-center gap-1"><Icon name="book" size={11} /> {task.course} <Icon name="jump" size={10} /></span>
                                     </button>
                                   ) : (
-                                    <span>📚 {task.course}</span>
+                                    <span className="inline-flex items-center gap-1"><Icon name="book" size={11} /> {task.course}</span>
                                   )
                                 )}
-                                {task.dueAt && <span>🕒 {formatDue(task.dueAt)}{overdue ? ` · ${t('taskOverdue')}` : ''}</span>}
+                                {task.dueAt && <span className="inline-flex items-center gap-1"><Icon name="clock" size={11} /> {formatDue(task.dueAt)}{overdue ? ` · ${t('taskOverdue')}` : ''}</span>}
                               </div>
                               {task.note && <TruncatedNote note={task.note} />}
                             </div>
                             <div className="flex shrink-0 gap-1">
                               {task.url && (
-                                <a href={task.url} target="_blank" rel="noreferrer" className="rounded bg-orange-600/80 px-1.5 py-1 text-[10px] hover:bg-orange-500" title="Moodle">
-                                  ↗
+                                <a href={task.url} target="_blank" rel="noreferrer" className="app-btn-ghost px-1.5 py-1 text-[10px]" title="Moodle">
+                                  <Icon name="external" size={11} />
                                 </a>
                               )}
                               {!isMoodle && (
                                 <>
-                                  <button onClick={() => edit(task)} className="rounded bg-zinc-700 px-1.5 py-1 text-[10px]" title={t('edit')}>✎</button>
-                                  <button onClick={() => onChange(removeTask(tasks, task.id))} className="rounded bg-zinc-700 px-1.5 py-1 text-[10px] text-rose-300" title={t('delete')}>✕</button>
+                                  <button onClick={() => edit(task)} className="app-btn-ghost px-1.5 py-1" title={t('edit')}><Icon name="pencil" size={11} /></button>
+                                  <button onClick={() => onChange(removeTask(tasks, task.id))} className="app-btn-ghost px-1.5 py-1 text-[var(--danger)]" title={t('delete')}><Icon name="close" size={11} /></button>
                                 </>
                               )}
                             </div>

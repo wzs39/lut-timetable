@@ -1,5 +1,6 @@
 import type { Lesson, LessonType } from '../types'
 import { normalizeCourseCode } from './ics'
+import { KEYS, readJson, writeJson } from './storage'
 
 export interface CourseNote {
   note: string
@@ -7,8 +8,6 @@ export interface CourseNote {
 }
 
 export type NotesMap = Record<string, CourseNote>
-
-const LS_NOTES = 'tt_course_notes'
 
 /** Slug dari judul untuk pelajaran tanpa kode (manual). */
 function titleSlug(title: string): string {
@@ -32,12 +31,8 @@ export function noteKeyOf(l: Pick<Lesson, 'code' | 'type' | 'title'>): string {
 
 /** Baca semua catatan dari localStorage. */
 export function loadNotes(): NotesMap {
-  try {
-    const raw = JSON.parse(localStorage.getItem(LS_NOTES) || '{}') as unknown
-    return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as NotesMap) : {}
-  } catch {
-    return {}
-  }
+  const raw = readJson<unknown>(KEYS.courseNotes, {})
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as NotesMap) : {}
 }
 
 /** Simpan/hapus catatan untuk kunci pelajaran; return state baru (persisted). */
@@ -51,7 +46,7 @@ export function saveNote(
   const key = noteKeyOf(lesson)
   if (!trimmed) delete next[key]
   else next[key] = { note: trimmed, updatedAt: new Date().toISOString() }
-  localStorage.setItem(LS_NOTES, JSON.stringify(next))
+  writeJson(KEYS.courseNotes, next)
   return next
 }
 
@@ -59,7 +54,7 @@ export function saveNote(
 export function removeNote(notes: NotesMap, key: string): NotesMap {
   const next = { ...notes }
   delete next[key]
-  localStorage.setItem(LS_NOTES, JSON.stringify(next))
+  writeJson(KEYS.courseNotes, next)
   return next
 }
 

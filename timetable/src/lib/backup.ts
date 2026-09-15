@@ -1,26 +1,11 @@
 import { downloadBlob } from './download'
-
-/** Semua key localStorage milik aplikasi */
-const BACKUP_KEYS = [
-  'tt_lessons_v1',
-  'tt_sources_v1',
-  'tt_tombstones',
-  'tt_overrides',
-  'tt_sisu_course_ids',
-  'tt_conflict_dismissed',
-  'tt_course_notes',
-  'tt_tasks_v1',
-  'tt_moodle_source_v1',
-  'tt_lang',
-  'tt_autosync',
-  'tt_notif',
-] as const
+import { BACKUP_KEYS, type StorageKey } from './storage'
 
 export interface BackupFile {
   app: 'lut-timetable'
   version: 1
   exportedAt: string
-  data: Partial<Record<(typeof BACKUP_KEYS)[number], string>>
+  data: Partial<Record<StorageKey, string>>
 }
 
 export async function exportBackup(): Promise<void> {
@@ -44,15 +29,17 @@ export async function exportBackup(): Promise<void> {
   )
 }
 
-/** Terapkan file backup; return jumlah key yang ditulis */
+/**
+ * Terapkan file backup; return jumlah key yang ditulis.
+ * Key di luar registry tetap diterima agar backup lama tidak hilang.
+ */
 export function importBackup(text: string): number {
   const file = JSON.parse(text) as BackupFile
   if (file.app !== 'lut-timetable' || file.version !== 1) {
     throw new Error('bad-format')
   }
   let n = 0
-  for (const k of BACKUP_KEYS) {
-    const v = file.data[k]
+  for (const [k, v] of Object.entries(file.data ?? {})) {
     if (typeof v === 'string') {
       localStorage.setItem(k, v)
       n++

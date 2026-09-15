@@ -1,7 +1,14 @@
+import type { CSSProperties } from 'react'
 import type { Lesson } from '../types'
 import { extractCourseCode, normalizeCourseCode } from './ics'
 
-interface CourseColor {
+export interface CourseColor {
+  /**
+   * Triplet HSL "hue sat" — satu-satunya angka yang ditulis inline pada
+   * elemen (`--ch`). Lightness, alpha, dan varian tema hidup di CSS, jadi
+   * tema terang/gelap tidak perlu menghitung ulang warna di JS.
+   */
+  ch: string
   /** background fill */
   bg: string
   /** border */
@@ -10,20 +17,20 @@ interface CourseColor {
   text: string
 }
 
-/** Palet 12 warna yang mudah dibedakan pada tema gelap */
-const PALETTE: CourseColor[] = [
-  { bg: 'rgba(14,165,233,0.22)', border: 'rgba(14,165,233,0.55)', text: '#bae6fd' }, // sky
-  { bg: 'rgba(139,92,246,0.22)', border: 'rgba(139,92,246,0.55)', text: '#ddd6fe' }, // violet
-  { bg: 'rgba(16,185,129,0.20)', border: 'rgba(16,185,129,0.55)', text: '#a7f3d0' }, // emerald
-  { bg: 'rgba(245,158,11,0.20)', border: 'rgba(245,158,11,0.55)', text: '#fde68a' }, // amber
-  { bg: 'rgba(244,63,94,0.20)', border: 'rgba(244,63,94,0.55)', text: '#fecdd3' }, // rose
-  { bg: 'rgba(6,182,212,0.20)', border: 'rgba(6,182,212,0.55)', text: '#a5f3fc' }, // cyan
-  { bg: 'rgba(132,204,22,0.20)', border: 'rgba(132,204,22,0.55)', text: '#d9f99d' }, // lime
-  { bg: 'rgba(249,115,22,0.20)', border: 'rgba(249,115,22,0.55)', text: '#fed7aa' }, // orange
-  { bg: 'rgba(217,70,239,0.18)', border: 'rgba(217,70,239,0.50)', text: '#f5d0fe' }, // fuchsia
-  { bg: 'rgba(20,184,166,0.20)', border: 'rgba(20,184,166,0.55)', text: '#99f6e4' }, // teal
-  { bg: 'rgba(99,102,241,0.22)', border: 'rgba(99,102,241,0.55)', text: '#c7d2fe' }, // indigo
-  { bg: 'rgba(234,179,8,0.18)', border: 'rgba(234,179,8,0.50)', text: '#fef08a' }, // yellow
+/** 12 hue yang mudah dibedakan; lightness/alpha diatur CSS per tema */
+const PALETTE: string[] = [
+  '199 89%', // sky
+  '258 90%', // violet
+  '160 84%', // emerald
+  '38 92%', // amber
+  '349 89%', // rose
+  '189 94%', // cyan
+  '85 78%', // lime
+  '25 95%', // orange
+  '292 91%', // fuchsia
+  '173 80%', // teal
+  '239 84%', // indigo
+  '48 96%', // yellow
 ]
 
 /** FNV-1a hash — deterministik, distribusi merata */
@@ -37,19 +44,36 @@ function hashString(s: string): number {
 }
 
 /**
- * Warna konsisten per kunci mata kuliah (kode ternormalisasi). Dipakai
- * langsung oleh UI non-lesson (mis. tugas per kursus) agar warnanya
- * identik dengan blok kursus di kalender.
+ * Warna konsisten per mata kuliah: kunci = kode kursus ternormalisasi
+ * (nomor grup 4 digit dibuang — grup paralel = warna sama).
  */
 export function courseColorByKey(code: string): CourseColor {
-  return PALETTE[hashString(normalizeCourseCode(code)) % PALETTE.length]
+  const ch = PALETTE[hashString(normalizeCourseCode(code)) % PALETTE.length]
+  return {
+    ch,
+    bg: 'hsl(var(--ch) var(--cc-l) / var(--cc-bg-a))',
+    border: 'hsl(var(--ch) var(--cc-l) / var(--cc-border-a))',
+    text: 'hsl(var(--ch) var(--cc-text-l) / var(--cc-text-a))',
+  }
 }
 
 /**
- * Warna konsisten per mata kuliah: kunci = kode kursus ternormalisasi
- * (nomor grup 4 digit dibuang — grup paralel = warna sama).
+ * Warna konsisten per mata kuliah: kunci = kode kursus ternormalisasi.
  * Tanpa kode, coba ekstrak dari judul; fallback terakhir: judul utuh.
  */
 export function courseColor(l: Lesson): CourseColor {
   return courseColorByKey(l.code || extractCourseCode(l.title) || l.title)
+}
+
+/**
+ * Style blok kursus: menulis `--ch` sekaligus warna turunannya, sehingga
+ * semua anak elemen mewarisi hue yang sama (teks/badge di dalam kartu).
+ */
+export function courseStyle(c: CourseColor): CSSProperties {
+  return { background: c.bg, borderColor: c.border, '--ch': c.ch } as CSSProperties
+}
+
+/** Hanya mendefinisikan hue — untuk elemen yang memakai `c.text` saja. */
+export function courseTextStyle(c: CourseColor): CSSProperties {
+  return { color: c.text, '--ch': c.ch } as CSSProperties
 }

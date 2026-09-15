@@ -37,7 +37,7 @@ export default function CourseSearch() {
 
   return (
     <div>
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
         {t('courseSearch')}
       </h2>
       <div className="flex gap-1.5">
@@ -46,18 +46,18 @@ export default function CourseSearch() {
           onChange={(e) => setTerm(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && doSearch()}
           placeholder={t('courseSearchPh')}
-          className="flex-1 min-w-0 rounded-md bg-zinc-800 border border-zinc-700 px-2 py-1 text-xs focus:outline-none focus:border-sky-500"
+          className="flex-1 min-w-0 app-input !w-auto"
         />
         <button
           onClick={doSearch}
           disabled={loading}
-          className="rounded-md bg-sky-600 hover:bg-sky-500 disabled:opacity-50 px-2.5 py-1 text-xs font-medium"
+          className="rounded-md app-btn-primary disabled:opacity-50 px-2.5 py-1 text-xs font-medium"
         >
           {loading ? '…' : t('search')}
         </button>
       </div>
 
-      {error && <p className="text-[11px] text-rose-400 mt-1">{error}</p>}
+      {error && <p className="text-[11px] text-[var(--danger)] mt-1">{error}</p>}
 
       {results && results.length > 0 && (
         <div className="mt-2 space-y-1 max-h-64 overflow-y-auto">
@@ -65,10 +65,10 @@ export default function CourseSearch() {
             <button
               key={c.id}
               onClick={() => openCourse(c)}
-              className="w-full text-left rounded-md bg-zinc-800/70 hover:bg-zinc-700/70 border border-zinc-700 px-2 py-1.5"
+              className="w-full text-left rounded-md bg-[var(--surface-2)] hover:bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1.5"
             >
-              <span className="text-xs font-medium text-sky-300">{c.code}</span>
-              <span className="text-[11px] text-zinc-300"> · {c.name}</span>
+              <span className="text-xs font-medium text-[var(--info)]">{c.code}</span>
+              <span className="text-[11px] text-[var(--text-2)]"> · {c.name}</span>
             </button>
           ))}
         </div>

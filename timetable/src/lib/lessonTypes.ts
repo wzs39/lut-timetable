@@ -1,16 +1,17 @@
 import type { LessonType } from '../types'
+import type { IconName } from '../components/Icon'
 
 /** Ikon + kunci i18n + label singkat per jenis sesi */
 export const TYPE_META: Record<
   LessonType,
-  { icon: string; key: string; short: string }
+  { icon: IconName; key: string; short: string }
 > = {
-  lecture: { icon: '📖', key: 'typeLecture', short: 'Lec' },
-  exercise: { icon: '✏️', key: 'typeExercise', short: 'Ex' },
-  tutorial: { icon: '🧭', key: 'typeTutorial', short: 'Tut' },
-  seminar: { icon: '🗣️', key: 'typeSeminar', short: 'Sem' },
-  lab: { icon: '🧪', key: 'typeLab', short: 'Lab' },
-  exam: { icon: '📝', key: 'typeExam', short: 'Exam' },
-  workshop: { icon: '🔧', key: 'typeWorkshop', short: 'Wsh' },
-  other: { icon: '📌', key: 'typeOther', short: '—' },
+  lecture: { icon: 'book', key: 'typeLecture', short: 'Lec' },
+  exercise: { icon: 'pencil', key: 'typeExercise', short: 'Ex' },
+  tutorial: { icon: 'compass', key: 'typeTutorial', short: 'Tut' },
+  seminar: { icon: 'assignment', key: 'typeSeminar', short: 'Sem' },
+  lab: { icon: 'puzzle', key: 'typeLab', short: 'Lab' },
+  exam: { icon: 'exam', key: 'typeExam', short: 'Exam' },
+  workshop: { icon: 'settings', key: 'typeWorkshop', short: 'Wsh' },
+  other: { icon: 'pin', key: 'typeOther', short: '—' },
 }
