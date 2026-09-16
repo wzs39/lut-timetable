@@ -90,7 +90,7 @@ jobs:
 
           # 1. Signed with the release key: a different key means existing
           #    installs could never be updated.
-          APKSIGNER=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}" -type f -name 'apksigner*' 2>/dev/null | sort -V | tail -1)
+          APKSIGNER=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
           if [ -n "$APKSIGNER" ]; then
             "$APKSIGNER" verify --print-certs "$APK" | tee /tmp/certs.txt
             grep -qi "$RELEASE_CERT_SHA256" /tmp/certs.txt \
