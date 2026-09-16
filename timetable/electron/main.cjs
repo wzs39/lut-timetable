@@ -1,8 +1,16 @@
 const { app, BrowserWindow, ipcMain } = require('electron')
 const path = require('node:path')
 const { autoUpdater } = require('electron-updater')
+const { attachExternalLinkHandling } = require('./external-links.cjs')
 
 const isDev = !app.isPackaged
+
+/** Satu-satunya sumber kebenaran untuk "URL milik aplikasi sendiri". */
+const DEV_URL = 'http://localhost:5210'
+
+function isInternalUrl(url) {
+  return url.startsWith(isDev ? DEV_URL : 'file://')
+}
 
 // 代理 SISU / TimeEdit 请求: 主进程 Node fetch 无 CORS 限制。
 // Renderer tidak fetch langsung (terkena CORS), melainkan lewat IPC bridge
@@ -44,8 +52,11 @@ function createWindow() {
   })
   mainWindow = win
 
+  // Tautan luar (SISU, TimeEdit, Moodle, APK) keluar ke browser default OS.
+  attachExternalLinkHandling(win.webContents, isInternalUrl)
+
   if (isDev) {
-    win.loadURL('http://localhost:5210')
+    win.loadURL(DEV_URL)
     win.webContents.openDevTools({ mode: 'detach' })
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
