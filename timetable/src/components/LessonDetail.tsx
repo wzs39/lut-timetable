@@ -9,6 +9,8 @@ import { formatDay, formatTime } from '../lib/date'
 import { normalizeCourseCode } from '../lib/ics'
 import { scopeText } from '../lib/notes'
 import { isOverdue, pendingTasks, type Task } from '../lib/tasks'
+import { openExternal } from '../lib/openExternal'
+import ExternalLink from './ExternalLink'
 
 interface Props {
   lesson: Lesson
@@ -124,7 +126,7 @@ export default function LessonDetail({
     setSisuState('loading')
     try {
       const url = await resolveSisuCourseUrl(lesson.code)
-      window.open(url, '_blank', 'noopener')
+      openExternal(url)
       setSisuState('idle')
     } catch {
       setSisuState('notfound')
@@ -337,14 +339,12 @@ export default function LessonDetail({
                 </button>
               )}
               {timeEditUrl && (
-                <a
+                <ExternalLink
                   href={timeEditUrl}
-                  target="_blank"
-                  rel="noreferrer"
                   className="block text-[11px] text-[var(--violet)] hover:text-[var(--violet)] hover:underline"
                 >
                   {t('viewTimeEdit')}
-                </a>
+                </ExternalLink>
               )}
 
               {/* Tugas/assignment milik kode kursus ini */}

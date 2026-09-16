@@ -21,6 +21,7 @@ import {
 import { normalizeCourseCode } from '../lib/ics'
 import { courseColorByKey, courseStyle, courseTextStyle } from '../lib/colors'
 import { QUICK_LINKS } from '../lib/quickLinks'
+import ExternalLink from './ExternalLink'
 import TruncatedNote from './TruncatedNote'
 import Icon from './Icon'
 
@@ -378,16 +379,14 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
           {showLinks && (
             <div className="animate-modal-in grid grid-cols-3 gap-1.5 border-t border-[var(--line)] p-3">
               {QUICK_LINKS.map((l) => (
-                <a
+                <ExternalLink
                   key={l.key}
                   href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
                   className="app-btn px-2 py-1.5 text-center text-[11px] truncate"
                   title={l.url}
                 >
                   {<Icon name={l.icon} size={12} />} {l.name}
-                </a>
+                </ExternalLink>
               ))}
             </div>
           )}
@@ -452,9 +451,13 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                             </div>
                             <div className="flex shrink-0 gap-1">
                               {task.url && (
-                                <a href={task.url} target="_blank" rel="noreferrer" className="app-btn-ghost px-1.5 py-1 text-[10px]" title="Moodle">
+                                <ExternalLink
+                                  href={String(task.url)}
+                                  className="app-btn-ghost px-1.5 py-1 text-[10px]"
+                                  title="Moodle"
+                                >
                                   <Icon name="external" size={11} />
-                                </a>
+                                </ExternalLink>
                               )}
                               {!isMoodle && (
                                 <>

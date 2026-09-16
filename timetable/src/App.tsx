@@ -19,6 +19,7 @@ import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { loadTasks, pendingTasks, saveTasks, type Task } from './lib/tasks'
 import { checkApkUpdate } from './lib/apkUpdate'
+import ExternalLink from './components/ExternalLink'
 import Icon from './components/Icon'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
 import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber } from './lib/date'
@@ -49,7 +50,7 @@ function App() {
     version: string
     kind: 'ready' | 'downloading' | 'available' | 'latest' | 'error'
     percent?: number
-    /** Android: release page to open for the APK download */
+    /** Android: direct APK asset URL to download */
     apkUrl?: string
   } | null>(null)
   const [updateChecking, setUpdateChecking] = useState(false)
@@ -89,7 +90,7 @@ function App() {
         const apk = await checkApkUpdate(appVersion ?? '0.0.0')
         setUpdateChecking(false)
         if (apk) {
-          setUpdateState({ version: apk.version, kind: 'available', apkUrl: apk.releaseUrl })
+          setUpdateState({ version: apk.version, kind: 'available', apkUrl: apk.apkUrl })
         } else {
           setUpdateState({ version: appVersion ?? '?', kind: 'latest' })
         }
@@ -532,14 +533,12 @@ function App() {
               </button>
             )}
             {updateState.kind === 'available' && updateState.apkUrl && (
-              <a
+              <ExternalLink
                 href={updateState.apkUrl}
-                target="_blank"
-                rel="noreferrer"
                 className="inline-flex items-center gap-1.5 rounded bg-white text-[var(--text-3)] px-3 min-h-9 font-medium"
               >
                 <Icon name="external" size={13} /> {t('updateGetApk')}
-              </a>
+              </ExternalLink>
             )}
             <button
               className="opacity-80 transition hover:opacity-100"

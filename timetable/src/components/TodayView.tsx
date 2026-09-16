@@ -18,6 +18,7 @@ import { normalizeCourseCode } from '../lib/ics'
 import { upcomingExams } from '../lib/exams'
 import { freeRoomsNow } from '../lib/freeRooms'
 import LessonNote from './LessonNote'
+import ExternalLink from './ExternalLink'
 import TruncatedNote from './TruncatedNote'
 import Icon from './Icon'
 import CollapsiblePanel from './CollapsiblePanel'
@@ -376,16 +377,14 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                         )}
                         <span className="ml-auto flex items-center gap-1">
                           {task.url && (
-                            <a
-                              href={task.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
+                            <ExternalLink
+                              href={String(task.url)}
                               className="app-btn-ghost px-1.5 py-1 text-[10px] leading-none"
                               title={t('dueOpenActivity')}
+                              stopPropagation
                             >
                               <Icon name="external" size={11} />
-                            </a>
+                            </ExternalLink>
                           )}
                           {cc && onJumpToCourse && (
                             <button
