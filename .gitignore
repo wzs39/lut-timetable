@@ -13,6 +13,13 @@ timetable/release-electron/
 # Local installer downloads (canonical copies live on GitHub Releases)
 releases/
 
+# Signing material — the Android release key lives outside the repo and must
+# never be committed. CI gets it from the ANDROID_KEYSTORE_BASE64 secret.
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
 # Local tooling state
 .freebuff/
 *.log

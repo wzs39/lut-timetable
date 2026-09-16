@@ -1,5 +1,20 @@
 apply plugin: 'com.android.application'
 
+// --- Release signing ---------------------------------------------------------
+// The keystore is never stored in the repository. CI decodes it from the
+// ANDROID_KEYSTORE_BASE64 secret into a temp file and passes the path plus the
+// passwords through the environment; a local build can use the same names as
+// Gradle properties (-PLUT_KEYSTORE_FILE=... etc.). When nothing is configured
+// the release build simply stays unsigned instead of silently using the debug
+// key.
+def signingValue = { String name -> System.getenv(name) ?: project.findProperty(name) }
+def releaseStoreFile = signingValue('LUT_KEYSTORE_FILE')
+def releaseStorePassword = signingValue('LUT_KEYSTORE_PASSWORD')
+def releaseKeyAlias = signingValue('LUT_KEY_ALIAS')
+def releaseKeyPassword = signingValue('LUT_KEY_PASSWORD')
+def hasReleaseSigning = releaseStoreFile && file(releaseStoreFile).exists() &&
+        releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 android {
     namespace = "dev.lut.timetable"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +22,10 @@ android {
         applicationId "dev.lut.timetable"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // CI passes the release version so the package identifies itself exactly
+        // like the tag it was published under; local builds keep the defaults.
+        versionCode (project.findProperty('LUT_VERSION_CODE') ?: '1').toInteger()
+        versionName (project.findProperty('LUT_VERSION_NAME') ?: '1.0')
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +33,31 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        // Defined only when a keystore is actually configured, so an unconfigured
+        // build cannot end up with an empty (invalid) signing config.
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Distributable build. The dex is ~80% of this APK, so shrinking the
+            // code (plus resources) is where the size actually goes; the release
+            // variant also drops the debugging metadata the debug build carries.
+            // Capacitor's library ships the consumer keep rules for plugin
+            // classes — see proguard-rules.pro for the extras we add.
+            minifyEnabled true
+            shrinkResources true
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }
