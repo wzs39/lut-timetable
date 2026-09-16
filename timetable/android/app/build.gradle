@@ -24,8 +24,11 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI passes the release version so the package identifies itself exactly
         // like the tag it was published under; local builds keep the defaults.
-        versionCode (project.findProperty('LUT_VERSION_CODE') ?: '1').toInteger()
-        versionName (project.findProperty('LUT_VERSION_NAME') ?: '1.0')
+        // Assignment form is required here: the command form `versionCode (x).toInteger()`
+        // parses as `versionCode(x).toInteger()` — the setter gets the raw String and
+        // .toInteger() runs on its null return ("Value is null" at configure time).
+        versionCode = (project.findProperty('LUT_VERSION_CODE') ?: '1').toInteger()
+        versionName = project.findProperty('LUT_VERSION_NAME') ?: '1.0'
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
