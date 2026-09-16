@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { searchSisuCourses, type SisuCourse } from '../lib/sisuCourse'
 import { useI18n } from '../i18n'
+import { openExternal } from '../lib/openExternal'
 
 /** Panel pencarian kursus di katalog SISU */
 export default function CourseSearch() {
@@ -28,11 +29,7 @@ export default function CourseSearch() {
   }
 
   const openCourse = (c: SisuCourse) => {
-    window.open(
-      `https://sisu.lut.fi/student/courseunit/${c.id}`,
-      '_blank',
-      'noopener',
-    )
+    openExternal(`https://sisu.lut.fi/student/courseunit/${c.id}`)
   }
 
   return (

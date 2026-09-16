@@ -10,7 +10,6 @@ export interface ApkUpdateInfo {
   version: string
   /** Direct download URL of the debug APK asset */
   apkUrl: string
-  releaseUrl: string
 }
 
 function cmpVersion(a: string, b: string): number {
@@ -26,7 +25,6 @@ function cmpVersion(a: string, b: string): number {
 export interface LatestRelease {
   tagName: string
   apkUrl: string | null
-  releaseUrl: string
 }
 
 /** Query the GitHub releases API (pure, injectable for tests). */
@@ -36,14 +34,12 @@ export async function fetchLatestRelease(
   const raw = await get(RELEASES_API)
   const json = JSON.parse(raw) as {
     tag_name?: string
-    html_url?: string
     assets?: { name?: string; browser_download_url?: string }[]
   }
   const apk = (json.assets ?? []).find((a) => a.name?.endsWith('.apk'))
   return {
     tagName: json.tag_name ?? '',
     apkUrl: apk?.browser_download_url ?? null,
-    releaseUrl: json.html_url ?? RELEASES_API,
   }
 }
 
@@ -63,6 +59,5 @@ export async function checkApkUpdate(
   return {
     version: rel.tagName.replace(/^v/, ''),
     apkUrl: rel.apkUrl,
-    releaseUrl: rel.releaseUrl,
   }
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Lesson, SyncSource } from '../types'
 import { normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
 import { QUICK_LINKS } from '../lib/quickLinks'
+import ExternalLink from './ExternalLink'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
 import CourseSearch from './CourseSearch'
@@ -317,16 +318,14 @@ export default function Sidebar({
           </h2>
           <div className="grid grid-cols-2 gap-1.5">
             {QUICK_LINKS.map((l) => (
-              <a
+              <ExternalLink
                 key={l.key}
                 href={l.url}
-                target="_blank"
-                rel="noreferrer"
                 className="rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] border border-[var(--line)] px-2 py-1.5 text-[11px] text-[var(--text-2)] truncate"
                 title={l.url}
               >
                 {<Icon name={l.icon} size={12} />} {l.name}
-              </a>
+              </ExternalLink>
             ))}
           </div>
         </div>

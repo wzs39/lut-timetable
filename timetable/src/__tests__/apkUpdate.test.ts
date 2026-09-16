@@ -22,11 +22,10 @@ function releaseJson(tag: string, assets: string[] = ['app-debug.apk']): string 
 }
 
 describe('fetchLatestRelease', () => {
-  it('parses tag, APK asset and release URL', async () => {
+  it('parses tag and the APK asset URL', async () => {
     const r = await fetchLatestRelease(async () => releaseJson('v0.2.9'))
     expect(r.tagName).toBe('v0.2.9')
-    expect(r.apkUrl).toContain('app-debug.apk')
-    expect(r.releaseUrl).toContain('releases/tag/v0.2.9')
+    expect(r.apkUrl).toContain('releases/download/v0.2.9/app-debug.apk')
   })
 
   it('returns null apkUrl when no APK asset exists', async () => {
