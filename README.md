@@ -12,7 +12,7 @@ A clean-slate timetable app for LUT / LAB students (Windows + Android + iOS), wi
 |---|---|---|---|
 | **Windows** (Electron) | `LUT.Timetable.Setup-<version>.exe` | ✅ Released 已发布 | NSIS installer. **Supports auto-update** from GitHub Releases. 支持自动更新（每次推送到 main 自动出新版）。 |
 | **Windows** (Electron) | `LUT.Timetable-<version>.msi` | ✅ Released 已发布 | MSI for enterprise deployment 企业批量部署用. **No auto-update** 无自动更新。 |
-| **Android** | `app-debug.apk` | ✅ Released 已发布 | Debug-signed APK — install with "allow unknown sources". 调试签名安装包，需允许"未知来源"。Cannot be published to Google Play. 不能上架。 |
+| **Android** | `app-release.apk` | ✅ Released 已发布 | **Release-signed** APK (own keystore) — install with "allow unknown sources". 正式签名安装包，需允许"未知来源"。Checks GitHub Releases in-app. 内置更新检查。Still not on Google Play. 仍未上架。 |
 | **Web 网页版** | — | ❌ Deprecated 已废弃 | Removed: SISU ICS has no CORS headers, so browser sync depended on flaky public proxies. 已废弃：浏览器同步依赖不稳定的公共代理。 |
 | **iOS / macOS** | 源码构建 | 🔧 **Build from source 从源码构建** | **No signed release / no App Store version.** The Xcode project (`timetable/ios/`) is committed and **CI compile-checks it on every push** (simulator build, unsigned). To run it you need a Mac with Xcode: `npm ci && npm run build && npx cap sync ios`, open `timetable/ios/App/App.xcodeproj`, press Run. sideload to a device requires your own free Apple ID (7-day validity) or a paid Developer account. **无签名发布版、不上架 App Store。** Xcode 工程已提交，CI 每次推送都会编译验证（模拟器、无签名）。自建需 Mac + Xcode：`npm ci && npm run build && npx cap sync ios`，打开 `timetable/ios/App/App.xcodeproj` 点 Run；装真机需用自己的免费 Apple ID（7 天有效）或付费开发者账号。 |
 
@@ -27,7 +27,9 @@ Latest installers are always at: 最新安装包始终发布在：
 
 1. **Windows (recommended)** — download `LUT.Timetable.Setup-<version>.exe`, double-click, install. The app **auto-updates** (checks GitHub Releases at launch, downloads new versions, one-click restart to apply).
 2. **Windows (alternate)** — `LUT.Timetable-<version>.msi` via Group Policy / silent deploy. Manual reinstall needed for updates.
-3. **Android** — download `app-debug.apk`, allow "unknown sources", open the file. Re-download after each update (no in-app updater on Android).
+3. **Android** — download `app-release.apk`, allow "unknown sources", open the file. The app checks GitHub Releases itself and offers a **Download APK** button when a newer build exists.
+   - Coming from an older **debug-signed** build (0.2.12 or earlier)? Android only upgrades an app signed with the same key, so that build can never update in place: **uninstall it once**, then install this APK. From there on updates work normally.
+   - Released APKs are signed with the project's own release key; the fingerprint is printed by CI on every build (`Verify the APK` step).
 
 ### First run / sync
 
@@ -59,7 +61,9 @@ All data is stored locally on your device (`localStorage`). Nothing is sent to o
 
 1. **Windows（推荐）** — 下载 `LUT.Timetable.Setup-<version>.exe`，双击安装。应用启动时自动检查 GitHub Releases 新版、后台下载，**一键重启即可完成更新**。
 2. **Windows（备选）** — `LUT.Timetable-<version>.msi` 适合企业批量部署；更新需手动重装。
-3. **Android** — 下载 `app-debug.apk`，允许"未知来源"后打开安装。每次更新需重新下载（Android 端暂无应用内更新）。
+3. **Android** — 下载 `app-release.apk`，允许"未知来源"后打开安装。应用会自己检查 GitHub Releases，有新版本时给出 **下载 APK** 按钮（点它会在系统浏览器里下载）。
+   - 如果你装的是更早的**调试签名**版本（0.2.12 及以前）：Android 只允许同签名覆盖安装，那个版本无法原地升级，需要**先卸载一次**再装这个包；之后更新就正常了。
+   - 发布包使用项目自己的正式签名密钥，每次 CI 构建都会打印证书指纹（`Verify the APK` 步骤）。
 
 ### 首次使用 / 同步
 
@@ -96,5 +100,7 @@ npm run build      # production web build -> dist/
 ```
 
 - Every push to `main` triggers CI (`.github/workflows/native-build.yml`) which builds the Windows installers **and** the Android APK, auto-increments the patch version, and publishes everything to GitHub Releases — including `latest.yml` that drives the Windows auto-updater.
-- Android APK can also be built in a Docker sandbox without a local Android SDK: see `timetable/docker/` (`build-android.bat` / `build-android.sh`).
+- Android APK can also be built in a Docker sandbox without a local Android SDK: see `timetable/docker/` (`build-android.bat` / `build-android.sh`). That path builds a **debug** APK for local testing; signed release APKs are produced by CI.
+- **Android release signing**: the keystore is never in the repository. CI decodes it from the `ANDROID_KEYSTORE_BASE64` secret and passes the path/passwords through `LUT_KEYSTORE_FILE` / `LUT_KEYSTORE_PASSWORD` / `LUT_KEY_ALIAS` / `LUT_KEY_PASSWORD`; `app/build.gradle` reads those names, so a local `assembleRelease` works the same way with `-PLUT_KEYSTORE_FILE=...` etc. Without them the release build stays unsigned instead of silently using the debug key. The keystore lives outside the repo — **back it up**: losing it means no existing install can ever be updated again.
+- **Manual CI run**: `workflow_dispatch` on any branch builds and verifies the Android APK only (no publishing). Pass `publish: true` to reproduce the full push behaviour.
 - Troubleshooting: if a sync fails, check you're on the latest release (Windows), and for Android make sure notifications permission is granted if reminders don't fire.

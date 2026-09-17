@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Lesson, SyncSource } from './types'
 import { useTimetable } from './hooks/useTimetable'
+import { MoodleProvider } from './hooks/useMoodleData'
 import WeekGrid from './components/WeekGrid'
 import TodayView from './components/TodayView'
 import LessonDetail from './components/LessonDetail'
@@ -18,6 +19,7 @@ import {
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { loadTasks, pendingTasks, saveTasks, type Task } from './lib/tasks'
+import { useDelayedUnmount } from './lib/useExitAnimation'
 import { checkApkUpdate } from './lib/apkUpdate'
 import ExternalLink from './components/ExternalLink'
 import Icon from './components/Icon'
@@ -32,8 +34,15 @@ import {
   type NotesMap,
 } from './lib/notes'
 
-function App() {
-  const tt = useTimetable()
+function AppInner({
+  tasks,
+  setTasks,
+  tt,
+}: {
+  tasks: Task[]
+  setTasks: (t: Task[]) => void
+  tt: ReturnType<typeof useTimetable>
+}) {
   const { lang, locale, setLang, t } = useI18n()
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [view, setView] = useState<'today' | 'week' | 'assign'>('today')
@@ -43,8 +52,8 @@ function App() {
   const [showConflicts, setShowConflicts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showMoreActions, setShowMoreActions] = useState(false)
-  const [tasks, setTasks] = useState<Task[]>(() => loadTasks())
   const [menuOpen, setMenuOpen] = useState(false)
+  const drawerMounted = useDelayedUnmount(menuOpen)
   const [notes, setNotes] = useState<NotesMap>(() => loadNotes())
   const [updateState, setUpdateState] = useState<{
     version: string
@@ -200,7 +209,9 @@ function App() {
             >
                 <span className="inline-flex items-center gap-2"><Icon name="graduation" size={16} /><span className="hidden sm:inline"> {t('assignNav')}</span></span>
               {pendingTaskCount > 0 && (
-                <span className="ml-1 rounded-full bg-[var(--surface-1)] px-1.5 text-[10px] font-semibold tabular-nums">{pendingTaskCount}</span>
+                /* .app-badge 携带自己的 bg/fg 对（surface-2 + text-2），所以数字在
+                   选中（accent 底、accent-text 继承）和未选中两种状态下都可读。 */
+                <span className="app-badge ml-1 font-semibold tabular-nums">{pendingTaskCount}</span>
               )}
             </button>
           </div>
@@ -331,45 +342,46 @@ function App() {
         )}
       </header>
       <div className="flex flex-1 min-h-0">
-        {/* 移动端：侧栏变成抽屉（<md） */}
-        <div
-          className={
-            (menuOpen ? 'fixed inset-0 z-40 flex bg-black/60' : 'hidden') + ' md:hidden'
-          }
-          onClick={(e) => e.target === e.currentTarget && setMenuOpen(false)}
-        >
-          <Sidebar
-            sources={tt.sources}
-            syncing={tt.syncing}
-            syncMessage={tt.syncMessage}
-            autoSync={tt.autoSync}
-            onToggleAutoSync={tt.setAutoSync}
-            notifEnabled={tt.notifEnabled}
-            onToggleNotif={tt.setNotifEnabled}
-            onAddSource={(s: SyncSource) => tt.addSource([...tt.sources, s])}
-            onRemoveSource={tt.removeSource}
-            onSync={tt.sync}
-            onAddManual={tt.addManualLesson}
-            onCloseDrawer={() => setMenuOpen(false)}
-          />
-        </div>
+        {/* 移动端：侧栏变成抽屉（<md）。进入滑入、退出滑出（useDelayedUnmount
+            在退出帧期间保持挂载，动画结束后才真正卸载）。 */}
+        {drawerMounted && (
+          <div
+            className={
+              (menuOpen ? 'animate-fade-in ' : 'animate-fade-out ') +
+              'fixed inset-0 z-40 flex bg-black/60 md:hidden'
+            }
+            onClick={(e) => e.target === e.currentTarget && setMenuOpen(false)}
+          >
+            <div
+              className={
+                (menuOpen ? 'animate-drawer-in ' : 'animate-exit-left ') + 'h-full'
+              }
+            >
+              <Sidebar
+                sources={tt.sources}
+                syncing={tt.syncing}
+                syncMessage={tt.syncMessage}
+                onSync={tt.sync}
+                onAddManual={tt.addManualLesson}
+                onOpenSettings={() => setShowSettings(true)}
+                onCloseDrawer={() => setMenuOpen(false)}
+              />
+            </div>
+          </div>
+        )}
         {/* 桌面端：固定侧栏 */}
         <div className="hidden md:flex h-full">
           <Sidebar
             sources={tt.sources}
             syncing={tt.syncing}
             syncMessage={tt.syncMessage}
-            autoSync={tt.autoSync}
-            onToggleAutoSync={tt.setAutoSync}
-            notifEnabled={tt.notifEnabled}
-            onToggleNotif={tt.setNotifEnabled}
-            onAddSource={(s: SyncSource) => tt.addSource([...tt.sources, s])}
-            onRemoveSource={tt.removeSource}
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
+            onOpenSettings={() => setShowSettings(true)}
           />
         </div>
         <main className="flex-1 flex flex-col min-w-0">
+          <div key={view} className="animate-view-in flex flex-1 min-h-0 flex-col">
           {view === 'today' && (
             <TodayView
               lessons={tt.visibleLessons}
@@ -406,6 +418,7 @@ function App() {
               tasks={tasks}
               lessons={tt.lessons}
               onChange={(next) => setTasks(saveTasks(next))}
+              onOpenSettings={() => setShowSettings(true)}
               onJumpToCourse={(code) => {
                 // 跳到该课程下一次出现的周视图，并选中那节课
                 const target = tt.visibleLessons
@@ -423,6 +436,7 @@ function App() {
               }}
             />
           )}
+          </div>
         </main>
       </div>
       {selectedLesson && (
@@ -469,6 +483,16 @@ function App() {
       )}
       {showSettings && (
         <Settings
+          sources={tt.sources}
+          syncing={tt.syncing}
+          syncMessage={tt.syncMessage}
+          autoSync={tt.autoSync}
+          onToggleAutoSync={tt.setAutoSync}
+          notifEnabled={tt.notifEnabled}
+          onToggleNotif={tt.setNotifEnabled}
+          onAddSource={(s: SyncSource) => tt.addSource([...tt.sources, s])}
+          onRemoveSource={tt.removeSource}
+          onSync={tt.sync}
           translatorUrl={translatorUrl}
           onTranslatorUrl={(u) => {
             setTranslatorUrl(u)
@@ -553,4 +577,17 @@ function App() {
   )
 }
 
-export default App
+/**
+ * Moodle 状态的单一所有者：Settings（配置）与作业页（信息展示）
+ * 共用同一份连接/成绩/提交状态，互不持有副本。
+ * tasks/lessons 在 AppInner 内部初始化后经 prop 传入 provider。
+ */
+export default function App() {
+  const [tasks, setTasks] = useState<Task[]>(() => loadTasks())
+  const tt = useTimetable()
+  return (
+    <MoodleProvider tasks={tasks} lessons={tt.lessons} onTasks={(n) => setTasks(saveTasks(n))}>
+      <AppInner tasks={tasks} setTasks={setTasks} tt={tt} />
+    </MoodleProvider>
+  )
+}

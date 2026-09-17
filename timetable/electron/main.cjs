@@ -12,11 +12,17 @@ function isInternalUrl(url) {
   return url.startsWith(isDev ? DEV_URL : 'file://')
 }
 
-// 代理 SISU / TimeEdit 请求: 主进程 Node fetch 无 CORS 限制。
+// 代理 SISU / TimeEdit / Moodle 请求: 主进程 Node fetch 无 CORS 限制。
 // Renderer tidak fetch langsung (terkena CORS), melainkan lewat IPC bridge
 // preload.cjs -> ipcMain.handle di bawah. Ini satu-satunya jalur yang
 // benar-benar lolos CORS di Electron (custom protocol tetap kena CORS).
-const PROXY_HOSTS = ['sisu.lut.fi', 'cloud.timeedit.net']
+//
+// PENTING: daftar ini harus mencakup SETIAP host yang bisa diminta renderer
+// (lihat CALENDAR_HOSTS di src/lib/fetchIcs.ts). Host yang tertinggal di sini
+// ditolak dengan 403 "host not allowed" dan sync-nya mati tanpa jejak di UI —
+// itu yang dulu terjadi pada moodle.lut.fi. Uji src/__tests__/proxyHosts.test.ts
+// menjaga kedua daftar tetap sinkron.
+const PROXY_HOSTS = ['sisu.lut.fi', 'cloud.timeedit.net', 'moodle.lut.fi']
 
 ipcMain.handle('lut-proxy-fetch', async (_event, { url, method, headers, body }) => {
   try {

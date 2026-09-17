@@ -10,19 +10,15 @@ import {
   updateTask,
   type Task,
 } from '../lib/tasks'
-import {
-  loadMoodleSource,
-  matchCourseCode,
-  normalizeMoodleUrl,
-  saveMoodleSource,
-  syncMoodle,
-  type MoodleSource,
-} from '../lib/moodle'
+import { matchCourseCode } from '../lib/moodle'
+import { taskMatchKey } from '../lib/submissions'
 import { normalizeCourseCode } from '../lib/ics'
 import { courseColorByKey, courseStyle, courseTextStyle } from '../lib/colors'
 import { QUICK_LINKS } from '../lib/quickLinks'
+import { useMoodleData } from '../hooks/useMoodleData'
 import ExternalLink from './ExternalLink'
 import TruncatedNote from './TruncatedNote'
+import GradeCourseCard from './GradeCourseCard'
 import Icon from './Icon'
 
 interface Props {
@@ -31,6 +27,7 @@ interface Props {
   onChange: (tasks: Task[]) => void
   /** 跳转到该课程的日历位置（点击课程代码时） */
   onJumpToCourse?: (code: string) => void
+  onOpenSettings: () => void
   onClose?: () => void
 }
 
@@ -38,8 +35,9 @@ type Group = 'overdue' | 'due7' | 'later' | 'nodue' | 'done'
 
 const GROUP_ORDER: Group[] = ['overdue', 'due7', 'later', 'nodue', 'done']
 
-export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCourse, onClose }: Props) {
+export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCourse, onOpenSettings, onClose }: Props) {
   const { t, locale } = useI18n()
+  const md = useMoodleData()
   const [title, setTitle] = useState('')
   const [course, setCourse] = useState('')
   const [dueAt, setDueAt] = useState('')
@@ -56,13 +54,6 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
   const [showMoodleCard, setShowMoodleCard] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [showLinks, setShowLinks] = useState(false)
-
-  // Moodle source state
-  const [moodle, setMoodle] = useState(() => loadMoodleSource())
-  const [moodleUrl, setMoodleUrl] = useState('')
-  const [moodleMsg, setMoodleMsg] = useState<string | null>(null)
-  const [moodleBusy, setMoodleBusy] = useState(false)
-  const [showMoodleForm, setShowMoodleForm] = useState(() => !loadMoodleSource())
 
   const courses = useMemo(() => courseOptions(lessons), [lessons])
   const pending = tasks.filter((task) => !task.completed).length
@@ -96,47 +87,6 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     setDueAt(task.dueAt ? task.dueAt.slice(0, 16) : '')
     setNote(task.note || '')
     setError(null)
-  }
-
-  const addMoodle = () => {
-    const icsUrl = normalizeMoodleUrl(moodleUrl.trim())
-    if (!icsUrl) {
-      setMoodleMsg(t('moodleBadUrl'))
-      return
-    }
-    setMoodleMsg(null)
-    const next: MoodleSource = { url: icsUrl, count: 0 }
-    setMoodle(next)
-    saveMoodleSource(next)
-    setMoodleUrl('')
-    setShowMoodleForm(false)
-    void syncMoodleNow(next)
-  }
-
-  const syncMoodleNow = async (src?: MoodleSource) => {
-    const s = src ?? moodle
-    if (!s || moodleBusy) return
-    setMoodleBusy(true)
-    setMoodleMsg(t('moodleSyncing'))
-    try {
-      const r = await syncMoodle(s, tasks, lessons)
-      onChange(r.tasks)
-      setMoodle(loadMoodleSource())
-      setMoodleMsg(t('moodleSyncOk', { a: r.added, u: r.updated }))
-    } catch (e) {
-      setMoodleMsg(t('moodleSyncFail', { e: String(e).replace('Error: ', '') }))
-    } finally {
-      setMoodleBusy(false)
-    }
-  }
-
-  const removeMoodle = () => {
-    // Remove the source and every task it created.
-    onChange(tasks.filter((task) => !task.id.startsWith('moodle:')))
-    setMoodle(null)
-    saveMoodleSource(null)
-    setShowMoodleForm(true)
-    setMoodleMsg(null)
   }
 
   const formatDue = (due?: string) => {
@@ -254,69 +204,73 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
           </label>
         </div>
 
-        {/* ---- 收纳抽屉：Moodle 同步 ---- */}
+        {/* ---- 收纳抽屉：Moodle（纯信息 + 数据操作） ---- */}
         <section className="app-card">
           <button
-            onClick={() => { setShowMoodleCard((o) => !o); setShowAddForm(false) }}
+            onClick={() => setShowMoodleCard((o) => !o)}
             title={t('toggleHint')}
             className="flex w-full items-center justify-between px-3 py-2.5"
           >
-            <span className="text-xs font-semibold text-[var(--text-1)]">
+            <span className="text-xs font-semibold text-[var(--text-1)] inline-flex items-center gap-1.5">
               <Icon name="assignment" size={13} /> {t('moodleTitle')}
-              {moodle && <span className="ml-2 text-[10px] font-normal text-[var(--text-3)]">{moodle.count} · {moodle.lastSync ? new Date(moodle.lastSync).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : ''}</span>}
+              {md.grades && md.grades.length > 0 && (
+                <span className="ml-1 app-badge px-1.5 py-0.5 text-[10px]">{md.grades.length}</span>
+              )}
             </span>
             <span className="text-[var(--text-3)] inline-flex"><Icon name={showMoodleCard ? 'chevron-down' : 'chevron-right'} size={12} /></span>
           </button>
           {showMoodleCard && (
             <div className="border-t border-[var(--line)] p-3">
-              {showMoodleForm ? (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] text-[var(--text-3)]">{t('moodleHint')}</p>
-                  <input
-                    value={moodleUrl}
-                    onChange={(e) => setMoodleUrl(e.target.value)}
-                    placeholder={t('moodleUrlPh')}
-                    className={inputCls}
-                  />
-                  <div className="flex items-center gap-2">
+              {md.connected ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
-                      onClick={addMoodle}
-                      className="app-btn-primary px-3 py-1.5 text-xs"
+                      onClick={() => void md.syncNow()}
+                      disabled={md.busy !== 'idle'}
+                      className="app-btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
                     >
-                      {t('moodleConnect')}
+                      {md.busy === 'sync' ? t('moodleSyncing') : t('moodleSyncNow')}
                     </button>
-                    {moodle && (
-                      <button onClick={() => { setShowMoodleForm(false); setMoodleMsg(null) }} className="rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs">
-                        {t('cancel')}
-                      </button>
+                    {md.token && (
+                      <>
+                        <button
+                          onClick={() => void md.refreshGrades()}
+                          disabled={md.busy !== 'idle'}
+                          className="app-btn px-3 py-1.5 text-xs disabled:opacity-50"
+                        >
+                          {md.busy === 'grades' ? t('gradesFetching') : t('gradesRefresh')}
+                        </button>
+                        <button
+                          onClick={() => void md.syncSubmissions()}
+                          disabled={md.busy !== 'idle'}
+                          className="app-btn px-3 py-1.5 text-xs disabled:opacity-50"
+                        >
+                          {md.busy === 'subs' ? t('subSyncing') : t('subSyncNow')}
+                        </button>
+                      </>
                     )}
                   </div>
+                  {md.message && <p className="text-[11px] text-[var(--text-2)]">{md.message}</p>}
+                  {md.grades && md.grades.length > 0 && (
+                    <ul className="space-y-2">
+                      {md.grades.map((c) => (
+                        <GradeCourseCard key={c.courseId ?? c.course} c={c} onJumpToCourse={onJumpToCourse} />
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ) : (
-                moodle && (
-                  <div className="space-y-1.5">
-                    <div className="truncate rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1 text-[10px] text-[var(--text-3)]" title={moodle.url}>
-                      {moodle.url}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        onClick={() => void syncMoodleNow()}
-                        disabled={moodleBusy}
-                        className="app-btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
-                      >
-                        {moodleBusy ? t('moodleSyncing') : t('moodleSyncNow')}
-                      </button>
-                      <button onClick={removeMoodle} className="rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs hover:bg-[var(--hover-1)]">
-                        {t('moodleRemove')}
-                      </button>
-                    </div>
-                  </div>
-                )
+                <div className="space-y-2">
+                  <p className="text-[11px] text-[var(--text-3)]">{t('moodleCta')}</p>
+                  <button onClick={onOpenSettings} className="app-btn-primary w-full px-3 py-1.5 text-xs">
+                    <span className="inline-flex items-center justify-center gap-1.5"><Icon name="settings" size={12} /> {t('openSettings')}</span>
+                  </button>
+                </div>
               )}
-              {moodleMsg && <p className="mt-1.5 text-[11px] text-[var(--text-2)]">{moodleMsg}</p>}
             </div>
           )}
         </section>
+
 
         {/* ---- 收纳抽屉：手动添加任务 ---- */}
         {showAddForm && (
@@ -410,7 +364,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                   <ul className="space-y-2">
                     {items.map((task) => {
                       const overdue = g === 'overdue'
-                      const isMoodle = task.id.startsWith('moodle:')
+                      const isMoodle = task.id.startsWith('moodle:') || task.id.startsWith('moodle-act:')
                       const cc = courseCodeOf(task.course)
                       const c = cc ? courseColorByKey(cc) : null
                       return (
@@ -446,6 +400,21 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                                   )
                                 )}
                                 {task.dueAt && <span className="inline-flex items-center gap-1"><Icon name="clock" size={11} /> {formatDue(task.dueAt)}{overdue ? ` · ${t('taskOverdue')}` : ''}</span>}
+                                {(() => {
+                                  const st = md.subStatus.get(taskMatchKey(task))
+                                  if (!st) return null
+                                  if (st.state === 'graded') return (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line-ok)] bg-[var(--tint-ok)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--ok)]" title={st.feedback || undefined}>
+                                      <Icon name="check" size={10} /> {t('subGraded')}{st.grade ? ` ${st.grade}` : ''}
+                                    </span>
+                                  )
+                                  if (st.state === 'submitted') return (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line-info)] bg-[var(--tint-info)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--info)]">
+                                      <Icon name="check" size={10} /> {t('subSubmitted')}
+                                    </span>
+                                  )
+                                  return null
+                                })()}
                               </div>
                               {task.note && <TruncatedNote note={task.note} />}
                             </div>

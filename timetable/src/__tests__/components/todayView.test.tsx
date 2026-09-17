@@ -126,7 +126,9 @@ describe('TodayView', () => {
 
     fireEvent.click(buttonsMatching(/项作业已逾期/)[0])
     expect(localStorage.getItem(KEYS.todayTasksOpen)).toBe('0')
-    expect(screen.queryByText('Tonight quiz')).toBeNull()
+    // 折叠动画把内容留在 DOM 里（grid 0fr 过渡），但 inert 让它移出无障碍树：
+    // 不可见、不可点、不可被 tab 到 —— 语义上等同旧实现的卸载。
+    expect(screen.getByText('Tonight quiz').closest('[inert]')).toBeTruthy()
     // judul ringkas tetap terlihat meski terlipat
     expect(screen.getByText('今日截止（1）')).toBeTruthy()
 

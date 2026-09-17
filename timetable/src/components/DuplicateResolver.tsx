@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useExitAnimation } from '../lib/useExitAnimation'
 import type { DupGroup } from '../lib/dedupe'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
@@ -55,6 +56,9 @@ export default function DuplicateResolver({
     return n + g.lessons.filter((l) => l.id !== chosen).length
   }, 0)
 
+  // Semua jalur tutup lewat satu frame keluar.
+  const [closing, requestClose] = useExitAnimation(onClose)
+
   const apply = () => {
     const ids: string[] = []
     for (const g of groups) {
@@ -65,25 +69,33 @@ export default function DuplicateResolver({
       })
     }
     if (ids.length > 0) onRemoveMany(ids)
-    onClose()
+    requestClose()
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') onClose()
+    if (e.key === 'Escape') requestClose()
   }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      className={
+        (closing ? 'animate-fade-out ' : 'animate-fade-in ') +
+        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+      }
+      onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >
-      <div className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl">
+      <div
+        className={
+          (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
+          'w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl'
+        }
+      >
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold">{t('dupTitle')}</h3>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
@@ -166,7 +178,7 @@ export default function DuplicateResolver({
 
         <div className="mt-3 flex gap-2">
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="flex-1 rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover-1)]"
           >
             {t('cancel')}

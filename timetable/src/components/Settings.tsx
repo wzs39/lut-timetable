@@ -1,15 +1,29 @@
 import { useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
-import { loadLessons } from '../lib/store'
+import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
 import { buildIcs } from '../lib/ics'
 import { downloadBlob } from '../lib/download'
 import { exportBackup, importBackup } from '../lib/backup'
 import { TYPE_META } from '../lib/lessonTypes'
 import { parseNoteKey, scopeText, type NotesMap } from '../lib/notes'
 import { useTheme } from '../theme'
+import { useExitAnimation } from '../lib/useExitAnimation'
+import { useMoodleData } from '../hooks/useMoodleData'
+import SyncProtection from './SyncProtection'
+import type { SyncSource } from '../types'
 
 interface Props {
+  sources: SyncSource[]
+  syncing: boolean
+  syncMessage: string | null
+  autoSync: boolean
+  onToggleAutoSync: (v: boolean) => void
+  notifEnabled: boolean
+  onToggleNotif: (v: boolean) => void
+  onAddSource: (s: SyncSource) => void
+  onRemoveSource: (id: string) => void
+  onSync: (s: SyncSource) => void
   translatorUrl: string
   onTranslatorUrl: (u: string) => void
   onLinkTranslator: () => void
@@ -20,6 +34,16 @@ interface Props {
 }
 
 export default function Settings({
+  sources,
+  syncing,
+  syncMessage,
+  autoSync,
+  onToggleAutoSync,
+  notifEnabled,
+  onToggleNotif,
+  onAddSource,
+  onRemoveSource,
+  onSync,
   translatorUrl,
   onTranslatorUrl,
   onLinkTranslator,
@@ -28,11 +52,20 @@ export default function Settings({
   onRemoveNote,
   onClose,
 }: Props) {
-  const { t } = useI18n()
+  const { t, lang, setLang } = useI18n()
   const { theme, setTheme } = useTheme()
+  const md = useMoodleData()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [icsDone, setIcsDone] = useState<string | null>(null)
+
+  // Semua jalur tutup (✕ / ESC / klik luar) lewat satu frame keluar.
+  const [closing, requestClose] = useExitAnimation(onClose)
+
+  const [sourceUrl, setSourceUrl] = useState('')
+  const [sourceError, setSourceError] = useState<string | null>(null)
+  const [tokenInput, setTokenInput] = useState('')
+  const [moodleIcsInput, setMoodleIcsInput] = useState('')
 
   const exportIcs = async () => {
     const blob = new Blob([buildIcs(loadLessons())], {
@@ -42,20 +75,54 @@ export default function Settings({
     setIcsDone(t('exportIcsDone'))
   }
 
+  const addSource = () => {
+    const raw = sourceUrl.trim()
+    if (!raw) return
+    const sisu = normalizeSisuUrl(raw)
+    const timeedit = sisu ? null : normalizeTimeEditUrl(raw)
+    const icsUrl = sisu || timeedit
+    if (!icsUrl) {
+      setSourceError(t('badUrl'))
+      return
+    }
+    setSourceError(null)
+    const type = sisu ? 'sisu' : 'timeedit'
+    onAddSource({
+      id: crypto.randomUUID(),
+      type,
+      url: raw,
+      icsUrl,
+      label: type === 'sisu' ? 'SISU calendar-share' : 'TimeEdit',
+      count: 0,
+    })
+    setSourceUrl('')
+  }
+
   const entries = Object.entries(notes).sort((a, b) => a[0].localeCompare(b[0]))
+
+  const inputCls =
+    'w-full rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--info)]'
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+      className={
+        (closing ? 'animate-fade-out ' : 'animate-fade-in ') +
+        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+      }
+      onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
+      onKeyDown={(e) => e.key === 'Escape' && requestClose()}
       tabIndex={-1}
     >
-      <div className="animate-modal-in w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl">
+      <div
+        className={
+          (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
+          'w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl'
+        }
+      >
         <div className="mb-3 flex items-center justify-between">
           <h3 className="inline-flex items-center gap-2 text-sm font-semibold"><Icon name="settings" size={15} /> {t('settingsTitle')}</h3>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
@@ -80,6 +147,145 @@ export default function Settings({
                   {t(v === 'system' ? 'themeSystem' : v === 'dark' ? 'themeDark' : 'themeLight')}
                 </button>
               ))}
+            </div>
+          </section>
+
+          {/* 语言 */}
+          <section>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+              {t('langTitle')}
+            </h4>
+            <div className="app-seg w-full">
+              {(['zh', 'en'] as const).map((v) => (
+                <button
+                  key={v}
+                  aria-pressed={lang === v}
+                  onClick={() => setLang(v)}
+                  className="flex-1"
+                >
+                  {v === 'zh' ? '中文' : 'English'}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* 课程同步：源管理 + 开关 */}
+          <section>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+              {t('syncCalendar')}
+            </h4>
+            <textarea
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              placeholder={t('pasteUrl')}
+              rows={2}
+              className={inputCls + ' resize-none'}
+            />
+            {sourceError && <p className="mt-1 text-[11px] text-[var(--danger)]">{sourceError}</p>}
+            <button onClick={addSource} className="mt-2 w-full rounded-md app-btn-primary px-2 py-1.5 text-xs font-medium">
+              {t('addSource')}
+            </button>
+            <div className="mt-2 space-y-1.5">
+              {sources.map((s) => (
+                <div key={s.id} className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-medium">
+                      <span className={'mr-1 inline-block h-2 w-2 rounded-full align-middle ' + (s.type === 'sisu' ? 'bg-[var(--info)]' : 'bg-[var(--violet)]')} />
+                      {s.type === 'sisu' ? 'SISU' : 'TimeEdit'} · <span className="text-[10px] font-normal text-[var(--text-3)]" title={s.url}>{s.label}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      <button onClick={() => onSync(s)} disabled={syncing} className="rounded bg-[var(--surface-1)] px-2 py-0.5 text-[10px] hover:bg-[var(--hover-1)] disabled:opacity-50">
+                        {t('syncNow')}
+                      </button>
+                      <button onClick={() => onRemoveSource(s.id)} className="text-[var(--text-3)] hover:text-[var(--danger)]" title={t('delete')}>
+                        <Icon name="close" size={12} />
+                      </button>
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-[var(--text-3)]">
+                    {t('lessonsN', { n: s.count })}{s.lastSync ? ` · ${new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                  </div>
+                </div>
+              ))}
+              {sources.length === 0 && <p className="text-[11px] text-[var(--text-3)]">{t('sourceEmpty')}</p>}
+              {syncMessage && <p className="text-[11px] text-[var(--text-2)]">{syncMessage}</p>}
+            </div>
+            <div className="mt-2 space-y-1">
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input type="checkbox" checked={autoSync} onChange={(e) => onToggleAutoSync(e.target.checked)} className="accent-sky-500" />
+                {t('autoSyncHint')}
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input type="checkbox" checked={notifEnabled} onChange={(e) => onToggleNotif(e.target.checked)} className="accent-sky-500" />
+                {t('notifHint')}
+              </label>
+            </div>
+          </section>
+
+          {/* Moodle 连接：密钥 + ICS 兜底 */}
+          <section>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+              <span className="inline-flex items-center gap-1.5"><Icon name="assignment" size={12} /> {t('moodleTitle')}</span>
+            </h4>
+            <div className="space-y-2">
+              {md.token ? (
+                <div className="rounded-md border border-[var(--line-ok)] bg-[var(--tint-ok)] p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-[var(--ok)]">✓ {t('gradesConnected')}</span>
+                    <button onClick={md.disconnectToken} className="text-[10px] text-[var(--text-3)] hover:text-[var(--danger)]">
+                      {t('moodleRemove')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] leading-relaxed text-[var(--text-3)]">{t('gradesHint')}</p>
+                  <input
+                    value={tokenInput}
+                    onChange={(e) => setTokenInput(e.target.value)}
+                    placeholder={t('gradesTokenPh')}
+                    className={inputCls}
+                    autoComplete="off"
+                  />
+                  <button
+                    onClick={() => void md.connectToken(tokenInput)}
+                    disabled={md.busy !== 'idle' || !tokenInput.trim()}
+                    className="app-btn-primary w-full px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    {md.busy === 'grades' ? t('gradesFetching') : t('gradesConnect')}
+                  </button>
+                </div>
+              )}
+
+              {md.ics ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2">
+                  <span className="min-w-0 truncate text-[10px] text-[var(--text-3)]" title={md.ics.url}>{md.ics.url}</span>
+                  <button onClick={md.disconnectIcs} className="shrink-0 text-[10px] text-[var(--text-3)] hover:text-[var(--danger)]">
+                    {t('moodleRemove')}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-[var(--text-3)]">{t('moodleIcsLabel')}</p>
+                  <input
+                    value={moodleIcsInput}
+                    onChange={(e) => setMoodleIcsInput(e.target.value)}
+                    placeholder={t('moodleUrlPh')}
+                    className={inputCls}
+                  />
+                  <button
+                    onClick={() => { if (md.setIcsUrl(moodleIcsInput)) setMoodleIcsInput('') }}
+                    className="w-full rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs hover:bg-[var(--hover-1)]"
+                  >
+                    {t('moodleConnect')}
+                  </button>
+                </div>
+              )}
+
+              <button onClick={() => void md.syncNow()} disabled={md.busy !== 'idle' || !md.connected} className="app-btn-primary w-full px-3 py-1.5 text-xs disabled:opacity-50">
+                {md.busy === 'sync' ? t('moodleSyncing') : t('moodleSyncNow')}
+              </button>
+              {md.message && <p className="text-[11px] text-[var(--text-2)]">{md.message}</p>}
             </div>
           </section>
 
@@ -154,6 +360,9 @@ export default function Settings({
               <p className="mt-1 text-[11px] text-[var(--text-2)]">{translatorMsg}</p>
             )}
           </section>
+
+          {/* 同步保护：tombstone / override 管理 */}
+          <SyncProtection revision={syncMessage ?? ''} />
 
           {/* 课程备注 */}
           <section>

@@ -2,6 +2,14 @@
 
 :root {
   color-scheme: dark;
+
+  /* Motion tokens: one easing family (fast-out, slow-in) + one step scale.
+     微交互 140ms，展开/弹层 220ms，大块内容 260ms — 全部走 GPU 友好的
+     opacity/transform，避免 layout 抖动。 */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 140ms;
+  --dur-med: 220ms;
+  --dur-slow: 260ms;
 }
 
 html,
@@ -393,17 +401,22 @@ body {
 }
 
 /* Hover response adapts to the theme (brighten on dark, darken on light) */
+.lesson-card {
+  transition: filter var(--dur-fast) ease;
+}
 .lesson-card:hover {
   filter: var(--card-hover-filter);
 }
 
+/* ---- Entrances ---------------------------------------------------------- */
+
 .animate-pop-in {
-  animation: pop-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: pop-in 160ms var(--ease-out) both;
   transform-origin: top right;
 }
 
 .animate-modal-in {
-  animation: modal-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: modal-in var(--dur-med) var(--ease-out) both;
 }
 
 @keyframes pop-in {
@@ -416,12 +429,127 @@ body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* Modal/drawer backdrop: fade in with the panel. */
+.animate-fade-in {
+  animation: fade-in var(--dur-fast) ease-out both;
+}
+
+/* ---- Exits: same tokens in reverse (fade + slide-down) ------------------ */
+/* Applied by useExitAnimation during the closing frame, BEFORE the component
+   unmounts, so overlays leave the screen as smoothly as they enter. */
+
+.animate-fade-out {
+  animation: fade-out var(--dur-fast) ease-out both;
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Panels: fade + slide down (mirrors modal-in). Slides the drawer left. */
+.animate-exit-down {
+  animation: exit-down var(--dur-med) var(--ease-out) both;
+}
+
+@keyframes exit-down {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(8px); }
+}
+
+.animate-exit-left {
+  animation: exit-left var(--dur-med) var(--ease-out) both;
+}
+
+@keyframes exit-left {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-100%); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Phone drawer: slides in from the left, its shadow arriving with it. */
+.animate-drawer-in {
+  animation: drawer-in var(--dur-med) var(--ease-out) both;
+}
+
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+/* Main view switch (今日 / 周 / 作业): a short, quiet rise so the change of
+   context reads without making the app feel slow. */
+.animate-view-in {
+  animation: view-in var(--dur-slow) var(--ease-out) both;
+}
+
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Collapsible panels ------------------------------------------------- */
+
+/* Content wrapper: animates grid rows 0fr->1fr so height eases with content
+   (no fixed max-height guesses). Children need min-height:0 to be able to
+   collapse.
+
+   Known Chromium quirk: interrupting the height transition mid-flight (open
+   then close within ~200ms) can freeze the computed grid-template-rows at an
+   intermediate px value and the reverse transition never starts — a blank
+   card stuck at full height. The .is-closed override sets rows back to 0fr
+   with transitions disabled, so the next open always starts from a clean 0fr. */
+.collapse-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows var(--dur-med) var(--ease-out), opacity var(--dur-fast) ease;
+}
+.collapse-wrap.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.collapse-wrap.is-closed {
+  transition: none;
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.collapse-wrap > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Collapse chevron rotates instead of swapping glyphs (closed = -90°: the
+   down-arrow points right, matching the old two-glyph look). */
+.collapse-chevron {
+  display: inline-flex;
+  transform: rotate(-90deg);
+  transition: transform var(--dur-med) var(--ease-out);
+}
+.collapse-chevron.open {
+  transform: rotate(0deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-header-btn,
   .app-menu-item,
   .animate-pop-in,
-  .animate-modal-in {
+  .animate-modal-in,
+  .animate-fade-in,
+  .animate-fade-out,
+  .animate-exit-down,
+  .animate-exit-left,
+  .animate-drawer-in,
+  .animate-view-in {
     animation: none;
+  }
+  .collapse-wrap,
+  .collapse-chevron,
+  .lesson-card {
     transition: none;
   }
 }

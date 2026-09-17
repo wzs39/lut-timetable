@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useExitAnimation } from '../lib/useExitAnimation'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
@@ -176,18 +177,21 @@ export default function BatchFilter({
     )
   }
 
+  // Semua jalur tutup lewat satu frame keluar.
+  const [closing, requestClose] = useExitAnimation(onClose)
+
   const applyDelete = () => {
     if (selected.size === 0) return
     if (confirm(t('batchDeleteConfirm', { n: selected.size }))) {
       onRemoveMany([...selected])
-      onClose()
+      requestClose()
     }
   }
 
   const applyHide = () => {
     if (selected.size === 0) return
     onHideMany([...selected])
-    onClose()
+    requestClose()
   }
 
   const inputCls =
@@ -195,16 +199,24 @@ export default function BatchFilter({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+      className={
+        (closing ? 'animate-fade-out ' : 'animate-fade-in ') +
+        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+      }
+      onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
+      onKeyDown={(e) => e.key === 'Escape' && requestClose()}
       tabIndex={-1}
     >
-      <div className="flex w-full max-w-lg flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl max-h-[85vh]">
+      <div
+        className={
+          (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
+          'flex w-full max-w-lg flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl max-h-[85vh]'
+        }
+      >
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-sm font-semibold">{t('batchTitle')}</h3>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
@@ -425,7 +437,7 @@ export default function BatchFilter({
 
         <div className="mt-3 flex gap-2">
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="flex-1 rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--hover-1)]"
           >
             {t('cancel')}

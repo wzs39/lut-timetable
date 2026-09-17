@@ -1,8 +1,9 @@
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
-import { parseIcs, normalizeCourseCode } from './ics'
+import { parseIcs } from './ics'
 import { fetchIcsText } from './fetchIcs'
 import { KEYS, readJson, writeJson, removeKey } from './storage'
+import { matchCourseCode } from './courses'
 
 /**
  * Moodle calendar (moodle.lut.fi) → assignments.
@@ -80,29 +81,10 @@ export function moodleEventUrl(uid: string): string | undefined {
   return m ? `https://moodle.lut.fi/calendar/view.php?event=${m[1]}` : undefined
 }
 
-/**
- * Map a Moodle course name to a LUT course code already present in the
- * timetable: exact title match first, then a course code found inside the
- * Moodle name. Falls back to the raw Moodle name when nothing matches.
- */
-export function matchCourseCode(
-  name: string | undefined,
-  lessons: Lesson[],
-): string | undefined {
-  if (!name) return undefined
-  const n = name.trim().toLowerCase()
-  if (!n) return undefined
-  const byTitle = lessons.filter(
-    (l) => l.title.toLowerCase().includes(n) || n.includes(l.title.toLowerCase()),
-  )
-  const coded = byTitle.find((l) => l.code)
-  if (coded?.code) return coded.code
-  const m = name.match(/\b([A-Z]{1,4}\d{1,3}[A-Z]{0,3}\d{0,4})(?:-\d{4})?\b/)
-  if (m && lessons.some((l) => l.code && normalizeCourseCode(l.code) === normalizeCourseCode(m[1]))) {
-    return m[1]
-  }
-  return undefined
-}
+// matchCourseCode dipindah ke courses.ts (satu pemilik logika pencocokan,
+// dengan jangkar daftar enrol resmi); diekspor ulang di sini agar pemanggil lama
+// tetap bekerja.
+export { matchCourseCode } from './courses'
 
 export interface MoodleAssignment {
   /** Stable ICS UID — re-syncs update instead of duplicating. */

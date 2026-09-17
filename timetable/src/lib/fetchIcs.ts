@@ -62,20 +62,75 @@ export async function fetchViaElectron(
   return res.bodyText ?? ''
 }
 
-export async function fetchIcsText(url: string): Promise<string> {
-  const cached = loadCachedIcs(url)
+/** Kredensial (userid + authtoken) dari URL ekspor kalender Moodle. */
+export function moodleCredsFromUrl(raw: string): { userid: string; authtoken: string } | null {
+  try {
+    const u = new URL(raw)
+    const userid = u.searchParams.get('userid')
+    const authtoken = u.searchParams.get('authtoken')
+    return userid && authtoken ? { userid, authtoken } : null
+  } catch {
+    return null
+  }
+}
+
+/** Ambil teks dari satu URL tanpa cache/fallback — digunakan berantai di bawah. */
+export function fetchText(url: string): Promise<string> {
+  return fetch(url).then((res) => {
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.text()
+  })
+}
+
+/** Host kalender yang didukung aplikasi — daftar tunggal di sisi renderer.
+ *  WAJIB tercakup oleh PROXY_HOSTS di electron/main.cjs: bridge desktop menolak
+ *  host lain dengan 403 "host not allowed", dan sync-nya gagal tanpa penjelasan
+ *  (persis yang terjadi pada moodle.lut.fi). Uji src/__tests__/proxyHosts.test.ts
+ *  menjaga kedua daftar tetap sinkron. */
+export const CALENDAR_HOSTS = [
+  { host: 'sisu.lut.fi', devProxy: '/proxy/sisu' },
+  { host: 'timeedit.net', devProxy: '/proxy/timeedit' },
+  { host: 'moodle.lut.fi', devProxy: '/proxy/moodle' },
+] as const
+
+/** Host itu sendiri atau subdomainnya. */
+function matchesHost(hostname: string, host: string): boolean {
+  return hostname === host || hostname.endsWith('.' + host)
+}
+
+function devProxyUrl(url: string): string | null {
+  try {
+    const u = new URL(url)
+    const entry = CALENDAR_HOSTS.find((h) => matchesHost(u.hostname, h.host))
+    return entry ? entry.devProxy + u.pathname + u.search : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Rantai fetch bersama untuk SEMUA sumber (ICS kalender + Moodle web service):
+ * CapacitorHttp → Electron bridge → dev proxy → langsung → proxy publik.
+ * Setiap langkah mencoba berurutan; kegagalan dikumpulkan untuk pesan akhir.
+ */
+async function fetchChain(
+  url: string,
+  opts: { accept: string; ttlMs: number; cacheKeyOf?: (u: string) => string },
+): Promise<string> {
+  const keyOf = opts.cacheKeyOf ?? cacheKey
+  const cached = loadCached(keyOf(url), opts.ttlMs)
 
   if (Capacitor.isNativePlatform()) {
     try {
       const res = await CapacitorHttp.get({
         url,
-        headers: { Accept: 'text/calendar' },
+        headers: { Accept: opts.accept },
         readTimeout: 15000,
         connectTimeout: 10000,
       })
       if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
       const text = typeof res.data === 'string' ? res.data : String(res.data)
-      saveCachedIcs(url, text)
+      saveCached(keyOf(url), text)
       return text
     } catch (error) {
       if (cached) return cached.text
@@ -85,8 +140,8 @@ export async function fetchIcsText(url: string): Promise<string> {
 
   if (hasLutBridge()) {
     try {
-      const text = await fetchViaElectron(url)
-      saveCachedIcs(url, text)
+      const text = await fetchViaElectron(url, { headers: { Accept: opts.accept } })
+      saveCached(keyOf(url), text)
       return text
     } catch (error) {
       if (cached) return cached.text
@@ -99,7 +154,7 @@ export async function fetchIcsText(url: string): Promise<string> {
   const proxied = devProxyUrl(url)
   if (proxied) attempted.push(fetchText(proxied))
 
-  // Direct: TimeEdit mengizinkan CORS (Access-Control-Allow-Origin: *).
+  // Direct: sebagian host mengizinkan CORS (mis. TimeEdit ACAO: *).
   attempted.push(fetchText(url))
 
   // Fallback proxy publik: allorigins (GET, gratis) lalu corsproxy.io.
@@ -114,7 +169,7 @@ export async function fetchIcsText(url: string): Promise<string> {
   for (const p of attempted) {
     try {
       const text = await p
-      saveCachedIcs(url, text)
+      saveCached(keyOf(url), text)
       return text
     } catch (e) {
       errors.push(e)
@@ -126,21 +181,39 @@ export async function fetchIcsText(url: string): Promise<string> {
   )
 }
 
+/** ICS kalender (SISU/TimeEdit/Moodle) — perilaku lama `fetchIcsText`. */
+export async function fetchIcsText(url: string): Promise<string> {
+  return fetchChain(url, { accept: 'text/calendar', ttlMs: ICS_CACHE_TTL })
+}
+
+/**
+ * Panggilan Moodle web service (REST, GET + JSON). Tanpa cache — pemanggil
+ * yang memutuskan kesegaran (nilai harus terasa “real-time” saat diminta).
+ */
+export async function fetchMoodleWebService(url: string): Promise<string> {
+  return fetchChain(url, {
+    accept: 'application/json',
+    ttlMs: 0,
+    cacheKeyOf: (u) => TRANSIENT_KEYS.icsCachePrefix + 'grades:' + encodeURIComponent(u),
+  })
+}
+
 function cacheKey(url: string): string {
   return ICS_CACHE_PREFIX + encodeURIComponent(url)
 }
 
-function loadCachedIcs(url: string): IcsCacheEntry | null {
+function loadCached(key: string, ttlMs: number = ICS_CACHE_TTL): IcsCacheEntry | null {
   try {
-    const raw = localStorage.getItem(cacheKey(url))
+    const raw = localStorage.getItem(key)
     if (!raw) return null
     const entry = JSON.parse(raw) as Partial<IcsCacheEntry>
     if (
+      ttlMs <= 0 ||
       typeof entry.fetchedAt !== 'number' ||
       typeof entry.text !== 'string' ||
-      Date.now() - entry.fetchedAt > ICS_CACHE_TTL
+      Date.now() - entry.fetchedAt > ttlMs
     ) {
-      localStorage.removeItem(cacheKey(url))
+      localStorage.removeItem(key)
       return null
     }
     return { fetchedAt: entry.fetchedAt, text: entry.text }
@@ -149,38 +222,13 @@ function loadCachedIcs(url: string): IcsCacheEntry | null {
   }
 }
 
-function saveCachedIcs(url: string, text: string): void {
+function saveCached(key: string, text: string): void {
   try {
     localStorage.setItem(
-      cacheKey(url),
+      key,
       JSON.stringify({ fetchedAt: Date.now(), text } satisfies IcsCacheEntry),
     )
   } catch {
     // Quota errors must not prevent a successful network sync.
-  }
-}
-
-export function fetchText(url: string): Promise<string> {
-  return fetch(url).then((res) => {
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return res.text()
-  })
-}
-
-function devProxyUrl(url: string): string | null {
-  try {
-    const u = new URL(url)
-    if (u.hostname.endsWith('sisu.lut.fi')) {
-      return '/proxy/sisu' + u.pathname + u.search
-    }
-    if (u.hostname.includes('timeedit.net')) {
-      return '/proxy/timeedit' + u.pathname + u.search
-    }
-    if (u.hostname.endsWith('moodle.lut.fi')) {
-      return '/proxy/moodle' + u.pathname + u.search
-    }
-    return null
-  } catch {
-    return null
   }
 }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useExitAnimation } from '../lib/useExitAnimation'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
@@ -50,10 +51,13 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
   const inputCls =
     'rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--info)]'
 
+  // Semua jalur tutup lewat satu frame keluar.
+  const [closing, requestClose] = useExitAnimation(onClose)
+
   const jump = (l: Lesson) => {
     if (!onOpenLesson) return
     onOpenLesson(l.id)
-    onClose()
+    requestClose()
   }
 
   const fmtDate = (iso: string) =>
@@ -79,14 +83,24 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      className={
+        (closing ? 'animate-fade-out ' : 'animate-fade-in ') +
+        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+      }
+      onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
+      onKeyDown={(e) => e.key === 'Escape' && requestClose()}
+      tabIndex={-1}
     >
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl">
+      <div
+        className={
+          (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
+          'flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl'
+        }
+      >
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="inline-flex items-center gap-2 text-sm font-semibold"><Icon name="warn" size={15} /> {t('conflictsTitle')}</h3>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
@@ -99,7 +113,7 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
           <input
             value={q}
             onChange={(e) => onQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && onClose()}
+            onKeyDown={(e) => e.key === 'Escape' && requestClose()}
             placeholder={t('conflictsSearchPh')}
             autoFocus
             className={'flex-1 ' + inputCls}

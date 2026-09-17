@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useExitAnimation } from '../lib/useExitAnimation'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
@@ -111,13 +112,13 @@ export default function LessonDetail({
       start: startDt.toISOString(),
       end: endDt.toISOString(),
     })
-    onClose()
+    requestClose()
   }
 
   const handleDelete = () => {
     if (confirm(t('deleteConfirm', { t: lesson.title }))) {
       onDelete(lesson.id)
-      onClose()
+      requestClose()
     }
   }
 
@@ -133,10 +134,13 @@ export default function LessonDetail({
     }
   }
 
+  // Semua jalur tutup (✕ / ESC / klik luar) lewat satu frame keluar.
+  const [closing, requestClose] = useExitAnimation(onClose)
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       if (editing) setEditing(false)
-      else onClose()
+      else requestClose()
     }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && editing) handleSave()
   }
@@ -162,18 +166,26 @@ export default function LessonDetail({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      className={
+        (closing ? 'animate-fade-out ' : 'animate-fade-in ') +
+        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+      }
+      onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
       onKeyDown={handleKeyDown}
       tabIndex={-1}
     >
-      <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl">
+      <div
+        className={
+          (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
+          'w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl'
+        }
+      >
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-sm font-semibold">
             {editing ? t('editTitle') : t('detailTitle')}
           </h3>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="text-[var(--text-3)] hover:text-[var(--text-1)]"
             title={t('closeHint')}
           >
@@ -472,7 +484,7 @@ export default function LessonDetail({
               <button
                 onClick={() => {
                   onHide(lesson.id)
-                  onClose()
+                  requestClose()
                 }}
                 title={t('batchHideHint')}
                 className="rounded-md border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]"

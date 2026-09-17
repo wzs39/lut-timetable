@@ -48,6 +48,7 @@ export type IconName =
   | 'link'
   | 'trash'
   | 'plus'
+  | 'megaphone'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   'arrow-left': <path d="M15 8H2m0 0l4-4M2 8l4 4" />,
@@ -86,6 +87,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   link: <path d="M6 10a3 3 0 010-4l2-2a3 3 0 014 4l-1 1M10 6a3 3 0 010 4l-2 2a3 3 0 01-4-4l1-1" />,
   trash: <path d="M2 4h12M5 4V2h6v2M4 4l1 10h6l1-10M6.5 7v4m3-4v4" />,
   plus: <path d="M8 2v12M2 8h12" />,
+  megaphone: <path d="M13 3v8L6 9H3a1 1 0 01-1-1V6a1 1 0 011-1h3l7-2zM5.5 9v4a1.5 1.5 0 003 0V9.5" />,
 }
 
 export default function Icon({ name, size = 14, className = '' }: IconProps) {
