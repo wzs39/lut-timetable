@@ -1,4 +1,4 @@
-import { useCallback, useContext, useMemo, useState, createContext, type ReactNode } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, createContext, type ReactNode } from 'react'
 import type { Lesson } from '../types'
 import type { Task } from '../lib/tasks'
 import {
@@ -23,6 +23,22 @@ import {
   type SubmissionStatus,
 } from '../lib/submissions'
 import { fetchActionEvents, mergeActionEvents } from '../lib/actions'
+import { fetchAnnouncements } from '../lib/announcements'
+import {
+  runSsoFlow,
+  androidSsoHooks,
+  coldStartLaunchUrl,
+  type SsoOutcome,
+} from '../lib/ssoLogin'
+import {
+  buildLaunchUrl,
+  decodeLaunchUrl,
+  md5,
+  newPassport,
+  URL_SCHEME,
+  WWWROOT,
+} from '../lib/ssoLaunch'
+import { readString } from '../lib/storage'
 import { useI18n } from '../i18n'
 
 /**
@@ -45,6 +61,10 @@ export interface MoodleData {
   disconnectIcs: () => void
   connectToken: (token: string) => Promise<boolean>
   disconnectToken: () => void
+  /** SSO 浏览器登录（LUT SSO + Duo）：返回登录 URL，令牌经 deep link 异步送达 */
+  loginWithSso: (openUrl: (url: string) => void) => void
+  ssoState: 'idle' | 'pending' | 'connecting' | 'error'
+  ssoMessage: string | null
   syncNow: () => Promise<void>
   refreshGrades: () => Promise<void>
   syncSubmissions: () => Promise<void>
@@ -77,6 +97,74 @@ export function MoodleProvider({
   const [subMap, setSubMap] = useState<Map<string, SubmissionStatus>>(new Map())
   const [busy, setBusy] = useState<MoodleData['busy']>('idle')
   const [message, setMessage] = useState<string | null>(null)
+
+  /* ---------------- Background auto-refresh (30 min tick) ----------------
+   * Satu owner: interval tunggal di provider. Setiap tick menyegarkan nilai,
+   * status pengumpulan, dan pengumuman secara berurutan. GAGAL = SENYAP
+   * (tidak ada banner) — latar belakang tidak boleh lebih berisik dari
+   * data yang ditampilkan. Dijalankan sekali segera setelah login sukses,
+   * lalu setiap REFRESH_INTERVAL_MS selama token ada. */
+  const REFRESH_INTERVAL_MS = 30 * 60 * 1000
+  const tasksRef = useRef(tasks)
+  tasksRef.current = tasks
+  const lessonsRef = useRef(lessons)
+  lessonsRef.current = lessons
+  const inFlightRef = useRef(false)
+
+  const backgroundRefresh = useCallback(async () => {
+    if (inFlightRef.current) return
+    const tk = loadGradesSource()
+    if (!tk?.token) return
+    inFlightRef.current = true
+    try {
+      try {
+        const list = await fetchGrades(tk, lessonsRef.current)
+        setGrades(list)
+        saveGradesSource({ ...tk, lastSync: new Date().toISOString() })
+        setToken((prev) => (prev ? { ...prev, lastSync: new Date().toISOString() } : prev))
+      } catch { /* silent */ }
+      try {
+        const map = await fetchSubmissionStatus(tk)
+        setSubMap(map)
+        const r = applySubmissionStatus(tasksRef.current, map)
+        if (r.archived > 0) onTasks(r.tasks)
+      } catch { /* silent */ }
+      try {
+        await fetchAnnouncements(tk)
+      } catch { /* silent */ }
+    } finally {
+      inFlightRef.current = false
+    }
+  }, [onTasks])
+
+  // Interval tunggal: hanya berjalan saat token ada. Tick di-skip bila tab
+  // tersembunyi (hemat baterai), sedang ada operasi manual, atau refresh
+  // sebelumnya masih berjalan.
+  useEffect(() => {
+    if (!token?.token) return
+    const id = window.setInterval(() => {
+      if (document.hidden || busy !== 'idle') return
+      void backgroundRefresh()
+    }, REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(id)
+  }, [token?.token, busy, backgroundRefresh])
+
+  // Saat token BARU saja terhubung (login/connect) ATAU saat aplikasi start
+  // dengan token tersimpan — jalankan satu putaran langsung sehingga
+  // pengguna tidak menunggu 30 menit untuk data pertama. Guard dicek SAAT
+  // timeout terpicu (bukan saat dijadwalkan) agar StrictMode double-mount
+  // tidak membatalkan run pertama lalu memblokir run kedua.
+  const initialRunRef = useRef<string | null>(null)
+  useEffect(() => {
+    const tk = token?.token
+    if (!tk || busy !== 'idle') return
+    const id = window.setTimeout(() => {
+      if (initialRunRef.current === tk) return
+      initialRunRef.current = tk
+      void backgroundRefresh()
+    }, 1500)
+    return () => window.clearTimeout(id)
+  }, [token?.token, busy, backgroundRefresh])
 
   const gradesErrMsg = useCallback(
     (e: unknown): string => {
@@ -148,6 +236,104 @@ export function MoodleProvider({
     setSubMap(new Map())
     setMessage(null)
   }, [])
+
+  const loginErrMsg = useCallback(
+    (e: unknown): string => {
+      const err = e as { kind?: string; detail?: string; status?: number } | undefined
+      if (err && typeof err === 'object' && 'kind' in err) {
+        if (err.kind === 'invalid-credentials') return t('loginFailCreds')
+        if (err.kind === 'rate-limit') return t('loginFailRate')
+        if (err.kind === 'service-unavailable') return t('loginFailService', { d: err.detail ?? '' })
+        if (err.kind === 'http') return t('gradesFailHttp', { s: err.status ?? 0 })
+        return t('loginFailNetwork', { d: err.detail ?? '' })
+      }
+      return t('loginFailNetwork', { d: String(e).replace('Error: ', '') })
+    },
+    [t],
+  )
+
+  /* --------------- SSO browser login (LUT SSO + Duo) ---------------
+   * Alur: buka launch.php di browser (SSO+Duo di sana) → Moodle mengarahkan
+   * ke lut-timetable://token=... → token diverifikasi passport → disimpan.
+   * Kegagalan timeout/invalid ditampilkan; sukses langsung terhubung. */
+  const [ssoState, setSsoState] = useState<MoodleData['ssoState']>('idle')
+  const [ssoMessage, setSsoMessage] = useState<string | null>(null)
+
+  const loginWithSso = useCallback(
+    (openUrl: (url: string) => void) => {
+      if (ssoState === 'pending') return
+
+      /** Passport tersimpan saat ini (satu kali pakai, dibaca decoder). */
+      const passportNow = (): string => readString('tt_moodle_sso_passport') ?? ''
+
+      /** Token mentah → verifikasi passport (renderer memiliki passport)
+       *  → site-info → simpan. Dipakai kedua jalur di bawah. */
+      const acceptToken = async (raw: string): Promise<boolean> => {
+        const decoded = decodeLaunchUrl(`${URL_SCHEME}://token=${btoa(`${md5(WWWROOT + passportNow())}:::${raw}`)}`)
+        if (!decoded) return false
+        setSsoState('connecting')
+        setSsoMessage(t('ssoConnecting'))
+        const userid = await validateGradesToken(decoded.token)
+        const src = { token: decoded.token, userid, lastSync: new Date().toISOString() }
+        saveGradesSource(src)
+        setToken(src)
+        setSsoState('idle')
+        setSsoMessage(null)
+        setMessage(t('gradesConnected', { time: timeStr() }))
+        return true
+      }
+
+      const hooks = androidSsoHooks()
+      // Android: async hooks; Electron: window.lutSso bridge; web: tidak didukung.
+      void Promise.resolve(hooks).then((h) => {
+        if (h) {
+          const flow = runSsoFlow(h)
+          setSsoState('pending')
+          setSsoMessage(t('ssoBrowserHint'))
+          flow.promise
+            .then(async (outcome: SsoOutcome) => {
+              if (outcome.ok && (await acceptToken(outcome.token))) return
+              setSsoState(outcome.ok ? 'error' : outcome.reason === 'timeout' ? 'error' : 'idle')
+              setSsoMessage(t(outcome.ok ? 'ssoFail' : outcome.reason === 'timeout' ? 'ssoTimeout' : 'ssoCancelled', { d: 'checksum' }))
+            })
+            .catch((e) => {
+              setSsoState('error')
+              setSsoMessage(loginErrMsg(e))
+            })
+          openUrl(flow.loginUrl)
+          return
+        }
+        const bridge = (window as unknown as { lutSso?: { start: (u: string) => Promise<unknown>; onResult: (cb: (r: { ok: boolean; token?: string; error?: string }) => void) => () => void } }).lutSso
+        if (!bridge) {
+          setSsoMessage(t('ssoUnsupported'))
+          setSsoState('error')
+          return
+        }
+        setSsoState('pending')
+        setSsoMessage(t('ssoWindowHint'))
+        const off = bridge.onResult((r) => {
+          off()
+          if (r?.ok && r.token) {
+            acceptToken(r.token).then((ok) => {
+              if (!ok) {
+                setSsoState('error')
+                setSsoMessage(t('ssoFail', { d: 'checksum' }))
+              }
+            }).catch((e) => {
+              setSsoState('error')
+              setSsoMessage(loginErrMsg(e))
+            })
+          } else {
+            setSsoState('error')
+            setSsoMessage(t('ssoFail', { d: r?.error ?? 'cancelled' }))
+          }
+        })
+        const passport = newPassport()
+        void bridge.start(buildLaunchUrl(passport))
+      })
+    },
+    [ssoState, loginErrMsg, t, timeStr],
+  )
 
   const syncNow = useCallback(async () => {
     if (busy !== 'idle') return
@@ -221,6 +407,40 @@ export function MoodleProvider({
     }
   }, [busy, token, tasks, onTasks, gradesErrMsg, t])
 
+  /* --------- Cold-start deep link (app dibunuh saat di browser) ---------
+   * Official app menangani ini lewat checkIntent pada deviceready: Android
+   * boleh membunuh app ketika pengguna masih mengerjakan SSO di browser;
+   * redirect lut-timetable:// kemudian MELUNCURKAN app baru sehingga
+   * listener appUrlOpen tidak pernah terpasang. Passport masih di storage
+   * → verifikasi tetap berhasil. */
+  const coldStartDoneRef = useRef(false)
+  useEffect(() => {
+    if (coldStartDoneRef.current) return
+    coldStartDoneRef.current = true
+    void (async () => {
+      const url = await coldStartLaunchUrl()
+      if (!url) return
+      const passport = readString('tt_moodle_sso_passport')
+      if (!passport) return
+      const decoded = decodeLaunchUrl(url, { passport })
+      if (!decoded) return
+      setSsoState('connecting')
+      setSsoMessage(t('ssoConnecting'))
+      try {
+        const userid = await validateGradesToken(decoded.token)
+        const src = { token: decoded.token, userid, lastSync: new Date().toISOString() }
+        saveGradesSource(src)
+        setToken(src)
+        setSsoState('idle')
+        setSsoMessage(null)
+        setMessage(t('gradesConnected', { time: timeStr() }))
+      } catch (e) {
+        setSsoState('error')
+        setSsoMessage(loginErrMsg(e))
+      }
+    })()
+  }, [])
+
   const value = useMemo<MoodleData>(
     () => ({
       ics,
@@ -234,11 +454,14 @@ export function MoodleProvider({
       disconnectIcs,
       connectToken,
       disconnectToken,
+      loginWithSso,
+      ssoState,
+      ssoMessage,
       syncNow,
       refreshGrades,
       syncSubmissions,
     }),
-    [ics, token, grades, subMap, busy, message, setIcsUrl, disconnectIcs, connectToken, disconnectToken, syncNow, refreshGrades, syncSubmissions],
+    [ics, token, grades, subMap, busy, message, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

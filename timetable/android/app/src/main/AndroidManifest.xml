@@ -22,6 +22,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Moodle SSO login kembali: launch.php mengarahkan ke
+                 lut-timetable://token=... setelah SSO+Duo selesai di browser. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="lut-timetable" />
+            </intent-filter>
+
         </activity>
 
         <provider

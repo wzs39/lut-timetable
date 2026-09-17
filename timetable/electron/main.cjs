@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron')
+const { app, BrowserWindow, ipcMain, session } = require('electron')
 const path = require('node:path')
 const { autoUpdater } = require('electron-updater')
 const { attachExternalLinkHandling } = require('./external-links.cjs')
@@ -10,6 +10,19 @@ const DEV_URL = 'http://localhost:5210'
 
 function isInternalUrl(url) {
   return url.startsWith(isDev ? DEV_URL : 'file://')
+}
+
+/** Ekstrak bagian token mentah (belum terverifikasi) dari URL launch.
+ *  Verifikasi md5(passport) tetap di renderer yang memiliki passport. */
+function rawTokenFromLaunchUrl(url) {
+  try {
+    const b64 = decodeURIComponent(url.split('token=')[1] || '')
+    const payload = Buffer.from(b64, 'base64').toString('utf8')
+    const parts = payload.split(':::')
+    return parts.length >= 2 ? parts[1] : ''
+  } catch {
+    return ''
+  }
 }
 
 // 代理 SISU / TimeEdit / Moodle 请求: 主进程 Node fetch 无 CORS 限制。
@@ -103,6 +116,51 @@ function setupAutoUpdater() {
 
   ipcMain.handle('lut-update-install', () => {
     setImmediate(() => autoUpdater.quitAndInstall())
+  })
+
+  /* ------------- Moodle SSO login (browser flow, Duo-friendly) -------------
+   * Jendela BrowserWindow dengan SESSION BARU (cookie terpisah) membuka
+   * launch.php — URL DIBUAT RENDERER bersama passport-nya. Pengguna
+   * menyelesaikan LUT SSO + Duo di dalamnya; redirect ke
+   * lut-timetable://token=... dicegah dari navigasi, token mentahnya
+   * dikirim ke renderer untuk verifikasi checksum passport. Sesi dibuang
+   * setelah selesai agar tidak ada jejak login tersisa di disk. */
+  ipcMain.handle('lut-sso-start', async (event, loginUrl) => {
+    const wc = event.sender
+    const ses = session.fromPartition('lut-sso-' + Date.now())
+    let win = null
+    let settled = false
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      try { win?.destroy() } catch { /* already gone */ }
+      ses.clearStorageData().catch(() => {})
+      wc.send('lut-sso-result', result)
+    }
+    return await new Promise((resolve) => {
+      win = new BrowserWindow({
+        width: 480,
+        height: 720,
+        title: 'Moodle Login',
+        webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
+      })
+      win.webContents.on('will-navigate', (e, url) => {
+        if (url.startsWith('lut-timetable://')) {
+          e.preventDefault()
+          finish({ ok: true, token: rawTokenFromLaunchUrl(url) })
+          resolve()
+        }
+      })
+      win.on('closed', () => {
+        if (!settled) {
+          settled = true
+          ses.clearStorageData().catch(() => {})
+          wc.send('lut-sso-result', { ok: false, error: 'cancelled' })
+        }
+        resolve()
+      })
+      win.loadURL(loginUrl)
+    })
   })
 
   // 手动检查更新：结果通过 update-status 事件回传给渲染层。
