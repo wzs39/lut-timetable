@@ -149,26 +149,30 @@ async function fetchChain(
     }
   }
 
-  const attempted: Promise<string>[] = []
+  // Langkah sisa sebagai THUNK (lazy): percobaan berikutnya hanya dibuat
+  // jika yang sebelumnya gagal — tanpa ini, 4 permintaan jaringan terjadi
+  // setiap panggilan walau yang pertama sukses.
+  const attempts: Array<() => Promise<string>> = []
 
   const proxied = devProxyUrl(url)
-  if (proxied) attempted.push(fetchText(proxied))
+  if (proxied) attempts.push(() => fetchText(proxied))
 
   // Direct: sebagian host mengizinkan CORS (mis. TimeEdit ACAO: *).
-  attempted.push(fetchText(url))
+  attempts.push(() => fetchText(url))
 
-  // Fallback proxy publik: allorigins (GET, gratis) lalu corsproxy.io.
-  attempted.push(
-    fetchText(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`),
-  )
-  attempted.push(
-    fetchText(`https://corsproxy.io/?url=${encodeURIComponent(url)}`),
-  )
+  // Fallback proxy publik HANYA untuk URL tanpa kredensial (ICS kalender
+  // publik). Panggilan webservice membawa wstoken di query — mengirimkannya
+  // ke proxy pihak ketiga membocorkan token; otentik tidak pernah lewat sini.
+  const authenticated = /([?&])(wstoken|authtoken|token)=/.test(url)
+  if (!authenticated) {
+    attempts.push(() => fetchText(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`))
+    attempts.push(() => fetchText(`https://corsproxy.io/?url=${encodeURIComponent(url)}`))
+  }
 
   const errors: unknown[] = []
-  for (const p of attempted) {
+  for (const attempt of attempts) {
     try {
-      const text = await p
+      const text = await attempt()
       saveCached(keyOf(url), text)
       return text
     } catch (e) {

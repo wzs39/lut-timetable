@@ -10,6 +10,7 @@ import { parseNoteKey, scopeText, type NotesMap } from '../lib/notes'
 import { useTheme } from '../theme'
 import { useExitAnimation } from '../lib/useExitAnimation'
 import { useMoodleData } from '../hooks/useMoodleData'
+import { openExternal } from '../lib/openExternal'
 import SyncProtection from './SyncProtection'
 import type { SyncSource } from '../types'
 
@@ -240,6 +241,23 @@ export default function Settings({
               ) : (
                 <div className="space-y-1.5">
                   <p className="text-[11px] leading-relaxed text-[var(--text-3)]">{t('gradesHint')}</p>
+                  {/* SSO 浏览器登录：唯一支持 LUT SSO + Duo 双因素的主路径 */}
+                  <button
+                    onClick={() =>
+                      md.loginWithSso((url) => {
+                        // Android: openExternal 导航主帧被原生层拦截 → 系统浏览器；
+                        // web/Electron: 打开新标签（Electron 由 external-links 转系统浏览器）。
+                        openExternal(url)
+                      })
+                    }
+                    disabled={md.ssoState === 'pending'}
+                    className="app-btn-primary w-full px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    {md.ssoState === 'pending' ? t('ssoWaiting') : t('ssoLoginBtn')}
+                  </button>
+                  {(md.ssoMessage || md.message) && (
+                    <p className="text-[10px] leading-relaxed text-[var(--text-2)]">{md.ssoMessage ?? md.message}</p>
+                  )}
                   <input
                     value={tokenInput}
                     onChange={(e) => setTokenInput(e.target.value)}
@@ -250,7 +268,7 @@ export default function Settings({
                   <button
                     onClick={() => void md.connectToken(tokenInput)}
                     disabled={md.busy !== 'idle' || !tokenInput.trim()}
-                    className="app-btn-primary w-full px-3 py-1.5 text-xs disabled:opacity-50"
+                    className="w-full rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs hover:bg-[var(--hover-1)]"
                   >
                     {md.busy === 'grades' ? t('gradesFetching') : t('gradesConnect')}
                   </button>

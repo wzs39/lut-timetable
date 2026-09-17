@@ -11,6 +11,17 @@ contextBridge.exposeInMainWorld('lutProxy', {
     }),
 })
 
+// Moodle SSO 登录桥：渲染端生成 launch URL（含 passport）→ 主进程独立
+// session 窗口完成 LUT SSO + Duo → token 经 lut-sso-result 事件回传。
+contextBridge.exposeInMainWorld('lutSso', {
+  start: (loginUrl) => ipcRenderer.invoke('lut-sso-start', loginUrl),
+  onResult: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('lut-sso-result', listener)
+    return () => ipcRenderer.removeListener('lut-sso-result', listener)
+  },
+})
+
 contextBridge.exposeInMainWorld('lutUpdate', {
   onUpdate: (callback) => {
     const listener = (_event, payload) => callback(payload)

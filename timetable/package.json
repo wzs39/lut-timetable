@@ -1,7 +1,7 @@
 {
   "name": "lut-timetable",
   "private": true,
-  "version": "0.2.13",
+  "version": "0.2.14",
   "description": "Desktop timetable app for LUT students with SISU and TimeEdit integration",
   "author": "LUT Timetable contributors",
   "type": "module",
@@ -46,6 +46,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
     "@capacitor/cli": "^8.5.1",
     "@capacitor/core": "^8.5.1",
     "@capacitor/filesystem": "^8.1.3",
