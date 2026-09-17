@@ -22,8 +22,11 @@ import ExternalLink from './ExternalLink'
 import TruncatedNote from './TruncatedNote'
 import Icon from './Icon'
 import CollapsiblePanel from './CollapsiblePanel'
+import AnnouncementsPanel from './AnnouncementsPanel'
 import { KEYS } from '../lib/storage'
 import { useCollapse } from '../lib/useCollapse'
+import { loadCachedAnnouncements } from '../lib/announcements'
+import { noticesForLessons, type LessonNotice } from '../lib/lessonAlerts'
 
 interface Props {
   lessons: Lesson[]
@@ -45,6 +48,33 @@ function fmtDuration(min: number, t: (k: string, p?: any) => string): string {
   return t('durationHM', { h: Math.floor(min / 60), m: min % 60 })
 }
 
+/** 课卡上的公告提示 chip：教室已变（含新教室号）/ 截止有变。 */
+function LessonNoticeChip({ notice }: { notice?: LessonNotice }) {
+  const { t } = useI18n()
+  if (!notice) return null
+  if (notice.kind === 'room-change') {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-[var(--line-due)] bg-[var(--tint-due)] px-1.5 py-px text-[10px] font-medium text-[var(--due)]"
+        title={notice.room ? t('noticeRoomChangedTo', { room: notice.room }) : t('noticeRoomChanged')}
+      >
+        <Icon name="pin" size={10} />
+        {notice.room
+          ? t('noticeRoomChangedShortTo', { room: notice.room })
+          : t('noticeRoomChangedShort')}
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-[var(--line-info)] bg-[var(--tint-info)] px-1.5 py-px text-[10px] font-medium text-[var(--info)]"
+      title={t('noticeDeadlineChanged')}
+    >
+      <Icon name="clock" size={10} /> {t('noticeDeadlineShort')}
+    </span>
+  )
+}
+
 /**
  * 今日视图: 按时间聚合今天的课程 + "下一节课"倒计时。
  * 每 30 秒刷新状态（即将上课 / 正在进行 / 已结束）。
@@ -61,6 +91,12 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
       .filter((l) => sameDay(new Date(l.start), nowDate))
       .sort((a, b) => a.start.localeCompare(b.start))
   }, [lessons, now])
+
+  // 教室变更/截止延期公告 → 课卡提示（从公告缓存读取，30 分钟内有效）
+  const notices = useMemo(() => {
+    const anns = loadCachedAnnouncements()
+    return noticesForLessons(anns, lessons)
+  }, [lessons, Math.floor(now / (15 * 60 * 1000))])
 
   const ongoing = today.find(
     (l) =>
@@ -312,6 +348,9 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
           </CollapsiblePanel>
         )}
 
+        {/* ---- 课程公告（Moodle News forum）---- */}
+        <AnnouncementsPanel />
+
         {/* ---- 今日截止任务 ---- */}
         {dueToday.length > 0 && (
           <section className="animate-modal-in app-card p-3">
@@ -321,7 +360,9 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 className="flex min-w-0 items-center gap-1.5 text-left"
                 title={t('toggleHint')}
               >
-                <span className="shrink-0 text-[var(--text-3)]"><Icon name={tasksOpen ? 'chevron-down' : 'chevron-right'} size={12} /></span>
+                <span className="collapse-chevron shrink-0 text-[var(--text-3)]" aria-hidden>
+                  <Icon name="chevron-down" size={12} />
+                </span>
                 <h3 className="app-badge-due truncate text-xs font-semibold inline-flex items-center gap-1.5">
                   <Icon name="clock" size={13} /> {t('dueTodayTitle', { n: dueToday.length })}
                 </h3>
@@ -333,7 +374,8 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 {t('dueGoAssign')} ›
               </button>
             </div>
-            {tasksOpen && (
+            <div className={`collapse-wrap${tasksOpen ? ' open' : ' is-closed'}`} inert={!tasksOpen}>
+              <div>
               <ul className="space-y-2">
               {dueToday.map((task) => {
                 const cc = task.course
@@ -403,7 +445,8 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 )
               })}
               </ul>
-            )}
+              </div>
+            </div>
           </section>
         )}
 
@@ -442,8 +485,9 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                           <div className="truncate font-medium" style={courseTextStyle(c)}>
                             {SOURCE_ICON[l.source]} {l.code ? `${l.code} · ` : ''}{displayTitle(l)}
                           </div>
-                          <div className="mt-0.5 truncate text-[11px] text-[var(--text-2)]">
-                            {l.location || '—'}
+                          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--text-2)]">
+                            <span className="truncate">{l.location || '—'}</span>
+                            <LessonNoticeChip notice={notices[l.id]} />
                           </div>
                           <LessonNote note={note} />
                         </div>
@@ -494,11 +538,14 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                           {l.code ? `${l.code} · ` : ''}
                           {displayTitle(l)}
                         </div>
-                        <div className="mt-0.5 text-[11px] text-[var(--text-2)] truncate">
-                          {l.location || '—'}
-                          {l.mergedSources && l.mergedSources.length > 1
-                            ? ' · +'
-                            : ''}
+                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--text-2)]">
+                          <span className="truncate">
+                            {l.location || '—'}
+                            {l.mergedSources && l.mergedSources.length > 1
+                              ? ' · +'
+                              : ''}
+                          </span>
+                          <LessonNoticeChip notice={notices[l.id]} />
                         </div>
                         <LessonNote note={note} />
                       </div>

@@ -36,14 +36,18 @@ export default function CollapsiblePanel({ storageKey, label, right, children }:
           title={t('toggleHint')}
           aria-expanded={open}
         >
-          <span className="shrink-0 text-[var(--text-3)]">
-            <Icon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
+          <span className="collapse-chevron shrink-0 text-[var(--text-3)]" aria-hidden>
+            <Icon name="chevron-down" size={12} />
           </span>
           <span className="min-w-0 truncate">{label}</span>
         </button>
         {right && <div className="shrink-0 pr-3">{right}</div>}
       </div>
-      {open && <div className="px-3 pb-2.5">{children}</div>}
+      <div className={`collapse-wrap${open ? ' open' : ' is-closed'}`} inert={!open}>
+        <div>
+          <div className="px-3 pb-2.5">{children}</div>
+        </div>
+      </div>
     </section>
   )
 }
