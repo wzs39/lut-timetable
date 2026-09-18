@@ -1,7 +1,7 @@
 import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Task } from './tasks'
 import { isOverdue } from './tasks'
-import { exactAlarmsEnabled } from './notifications'
+import { ensurePermission, exactAlarmsEnabled } from './notifications'
 
 /** Remind this long before the deadline (two reminders per task). */
 export const DUE_REMIND_BEFORE_H = [24, 1] as const
@@ -65,6 +65,10 @@ export async function refreshDueNotifications(
   texts: DueNotifTexts,
   locale?: string,
 ): Promise<void> {
+  // Gerbang izin yang sama dengan refreshNotifications: schedule() plugin
+  // NPE-fatal di thread native bila izin belum diberikan (Android 13+).
+  const granted = await ensurePermission()
+  if (!granted) return
   const now = Date.now()
   const wanted = wantedReminders(tasks, now)
 

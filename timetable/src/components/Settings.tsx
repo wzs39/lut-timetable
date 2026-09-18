@@ -4,7 +4,7 @@ import Icon from './Icon'
 import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
 import { buildIcs } from '../lib/ics'
 import { downloadBlob } from '../lib/download'
-import { exportBackup, importBackup } from '../lib/backup'
+import { exportBackup, importBackupDetail } from '../lib/backup'
 import { TYPE_META } from '../lib/lessonTypes'
 import { parseNoteKey, scopeText, type NotesMap } from '../lib/notes'
 import { useTheme } from '../theme'
@@ -334,8 +334,18 @@ export default function Settings({
                   const file = e.target.files?.[0]
                   if (!file) return
                   try {
-                    importBackup(await file.text())
-                    location.reload()
+                    const { written, skipped } = importBackupDetail(await file.text())
+                    if (skipped.length > 0) {
+                      // Tulis sebagian: jangan reload (biar pengguna lihat
+                      // pesannya), tampilkan key yang gagal.
+                      setImportError(t('importPartial', { keys: skipped.join(', ') }))
+                    } else {
+                      setImportError(t('importDone', { n: written }))
+                      // Beri React satu frame untuk melukis pesan sebelum
+                      // reload — di WebView native reload instan bisa
+                      // memotong paint dan tampak seperti aplikasi mati.
+                      setTimeout(() => location.reload(), 350)
+                    }
                   } catch {
                     setImportError(t('importFail'))
                   }

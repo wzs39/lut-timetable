@@ -49,12 +49,21 @@ export interface NotifTexts {
  * Sinkronkan notifikasi terjadwal dengan daftar pelajaran:
  * - jadwalkan pelajaran yang dimulai dalam window SCHEDULE_WINDOW_H
  * - batalkan notifikasi lama yang tidak lagi relevan
+ *
+ * GERBANG IZIN: bila izin notifikasi belum diberikan, kembalilah SEBELUM
+ * menyentuh plugin. LocalNotifications.schedule plugin v8 memanggil
+ * getPermissionState() di thread CapacitorPlugins dan NPE di sana mematikan
+ * SELURUH proses (FATAL EXCEPTION, tidak tertangkap .catch JS) — terjadi
+ * nyata saat impor backup dengan notif=true di Android 13+ yang belum
+ * memberi izin POST_NOTIFICATIONS.
  */
 export async function refreshNotifications(
   lessons: Lesson[],
   texts: NotifTexts,
   locale?: string,
 ): Promise<void> {
+  const granted = await ensurePermission()
+  if (!granted) return
   const now = Date.now()
   const windowMs = SCHEDULE_WINDOW_H * 3600 * 1000
 

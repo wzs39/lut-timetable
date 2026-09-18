@@ -32,18 +32,41 @@ export async function exportBackup(): Promise<void> {
 /**
  * Terapkan file backup; return jumlah key yang ditulis.
  * Key di luar registry tetap diterima agar backup lama tidak hilang.
+ * Satu key rusak TIDAK membatalkan import: dilewati dan dihitung sebagai
+ * gagal — data parsial lebih baik daripada tidak sama sekali, dan WebView
+ * native bisa kehabisan kuota per-key (lihat importBackupDetail).
  */
 export function importBackup(text: string): number {
+  const { written } = importBackupDetail(text)
+  return written
+}
+
+/**
+ * Versi detail dari importBackup: memisahkan error format (lempar),
+ * key yang ditulis, dan key yang dilewati (nilai non-string, atau
+ * setItem yang ditolak — kuota penuh di WebView native).
+ */
+export function importBackupDetail(text: string): {
+  written: number
+  skipped: string[]
+} {
   const file = JSON.parse(text) as BackupFile
   if (file.app !== 'lut-timetable' || file.version !== 1) {
     throw new Error('bad-format')
   }
-  let n = 0
+  let written = 0
+  const skipped: string[] = []
   for (const [k, v] of Object.entries(file.data ?? {})) {
-    if (typeof v === 'string') {
+    if (typeof v !== 'string') {
+      skipped.push(k)
+      continue
+    }
+    try {
       localStorage.setItem(k, v)
-      n++
+      written++
+    } catch {
+      skipped.push(k)
     }
   }
-  return n
+  return { written, skipped }
 }
