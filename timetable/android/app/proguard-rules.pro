@@ -32,6 +32,10 @@
 -keep class com.getcapacitor.JSObject { *; }
 -keep class com.getcapacitor.JSArray { *; }
 
+# AppWidget receivers are instantiated by class name from the manifest
+# (appwidget host process), so R8 must not rename or drop them.
+-keep class * extends android.appwidget.AppWidgetProvider { *; }
+
 # If your project uses WebView with JS, uncomment the following
 # and specify the fully qualified class name to the JavaScript interface
 # class:
@@ -46,3 +50,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# AppWidget receivers are instantiated by class name from the manifest
+# (appwidget host process), so R8 must not rename or drop them.
+-keep class * extends android.appwidget.AppWidgetProvider { *; }
