@@ -240,6 +240,21 @@ describe('mergeMoodleAssignments', () => {
     )
     expect(r.tasks[0].course).toBe('Unrelated Moodle Course')
   })
+
+  it('shortens an unmatched LUT long shortname to its leading course code', () => {
+    // 网课：不在课表里，shortname 是 LUT 长形态 → 应显示短代码（与 timeline 路径一致）
+    const r = mergeMoodleAssignments(
+      [],
+      [assignment({ course: 'BH60A7201 Blended teaching 31.8.2026-30.7.2027' })],
+      lessons,
+    )
+    expect(r.tasks[0].course).toBe('BH60A7201')
+  })
+
+  it('keeps timetable-matched code behaviour intact', () => {
+    const r = mergeMoodleAssignments([], [assignment()], lessons)
+    expect(r.tasks[0].course).toBe('CT60A4050')
+  })
 })
 
 describe('parseMoodleAssignments (round-trip via ICS)', () => {
@@ -265,3 +280,4 @@ describe('parseMoodleAssignments (round-trip via ICS)', () => {
     expect(parseMoodleAssignments(ics)).toHaveLength(0)
   })
 })
+

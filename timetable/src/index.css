@@ -38,7 +38,8 @@ body,
   --line: #2a2a2f; /* hairline borders           */
   --text-1: #e4e4e7; /* primary text               */
   --text-2: #a1a1aa; /* secondary text             */
-  --text-3: #71717a; /* muted labels               */
+  /* #71717a on surface-2 只有 3.44:1 — #8e8e99 达 4.52:1 */
+  --text-3: #8e8e99; /* muted labels               */
   --accent: #e7e5e4; /* primary button: warm white */
   --accent-text: #18181b; /* text on accent             */
 
@@ -108,7 +109,8 @@ body,
   --line: #e4e4e7;
   --text-1: #1c1c1f;
   --text-2: #52525b;
-  --text-3: #8b8b94;
+  /* #8b8b94 只有 2.99:1（WCAG 需 4.5）— #6a6a74 达 4.55:1 */
+  --text-3: #6a6a74;
   --accent: #1c1c1f;
   --accent-text: #fafafa;
   --hover-1: #ececef;

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { CourseGrades, GradeItem } from '../lib/grades'
 import { courseProjection, effectiveGrade } from '../lib/gradeCalc'
-import { courseColorByKey } from '../lib/colors'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
 
@@ -25,7 +24,9 @@ export default function GradeCourseCard({
   const [expanded, setExpanded] = useState(false)
 
   const proj = useMemo(() => courseProjection(c, overrides), [c, overrides])
-  const color = c.matched ? courseColorByKey(c.course) : null
+  // LUT tidak mengekspos bobot: meta memakai hitungan item, bukan persen.
+  const weighted = proj.coveredWeight > 0
+  const gradedCount = c.items.filter((it) => it.grade != null).length
 
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase()
@@ -58,20 +59,26 @@ export default function GradeCourseCard({
 
   return (
     <li className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2">
-      {/* Header: kode + proyeksi */}
+      {/* Header: kode + nama + nilai saat ini */}
       <div className="flex items-center justify-between gap-2">
-        {c.matched ? (
-          <button
-            onClick={() => onJumpToCourse?.(c.course)}
-            title={t('jumpToCourse')}
-            className="min-w-0 truncate font-mono text-[11px] font-semibold text-[var(--info)] hover:underline"
-            style={color ? undefined : undefined}
-          >
-            {c.course}
-          </button>
-        ) : (
-          <span className="min-w-0 truncate text-[11px] font-semibold">{c.course}</span>
-        )}
+        <span className="flex min-w-0 items-baseline gap-1.5">
+          {c.matched ? (
+            <button
+              onClick={() => onJumpToCourse?.(c.course)}
+              title={t('jumpToCourse')}
+              className="shrink-0 font-mono text-[11px] font-semibold text-[var(--info)] hover:underline"
+            >
+              {c.course}
+            </button>
+          ) : (
+            <span className="shrink-0 font-mono text-[11px] font-semibold">{c.course}</span>
+          )}
+          {c.courseTitle && (
+            <span className="min-w-0 truncate text-[11px] text-[var(--text-2)]" title={c.courseTitle}>
+              {c.courseTitle}
+            </span>
+          )}
+        </span>
         <span className="shrink-0 tabular-nums text-[11px] font-semibold text-[var(--text-1)]">
           <span title={t('gradeProjTitle')}>
             {proj.projected != null ? proj.projected.toFixed(1) : '—'}%
@@ -87,7 +94,9 @@ export default function GradeCourseCard({
       {/* Meta: bobot tercover + belum dinilai + toggle expand */}
       <div className="mt-1 flex items-center justify-between gap-2">
         <span className="min-w-0 truncate text-[10px] text-[var(--text-3)]">
-          {t('gradeCovered', { w: proj.coveredWeight.toFixed(0) })}
+          {weighted
+            ? t('gradeCovered', { w: proj.coveredWeight.toFixed(0) })
+            : t('gradeGradedOf', { g: gradedCount, n: c.items.length })}
           {proj.ungraded > 0 && ` · ${t('gradeUngraded', { n: proj.ungraded })}`}
         </span>
         <button

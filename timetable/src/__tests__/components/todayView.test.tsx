@@ -32,6 +32,12 @@ function buttonsMatching(re: RegExp): HTMLButtonElement[] {
   return [...document.querySelectorAll('button')].filter((b) => re.test(b.textContent || ''))
 }
 
+/** Tugas/ujian/pengumuman tinggal di tab 动态 — pindah dulu ke sana. */
+function openFeedTab() {
+  const feed = buttonsMatching(/动态/)[0]
+  if (feed) fireEvent.click(feed)
+}
+
 function renderToday(lessons: Lesson[], tasks: Task[]) {
   return render(
     <I18nProvider>
@@ -93,6 +99,7 @@ describe('TodayView', () => {
       ],
     )
 
+    openFeedTab()
     // t1 (kemarin) + t3 (hari ini tapi sudah lewat) = 2 terlambat
     expect(screen.getByText('2 项作业已逾期')).toBeTruthy()
     // hanya t2 yang masih bisa dikerjakan hari ini
@@ -107,9 +114,11 @@ describe('TodayView', () => {
       [task({ id: 't9', title: 'Done already', dueAt: at(14, 10), completed: true })],
     )
 
+    // hari tanpa pelajaran tetap mengatakan demikian di tab 课程 (banner)
+    expect(screen.getAllByText('今天没有课程').length).toBeGreaterThan(0)
+    openFeedTab()
     expect(screen.queryByText(/已逾期/)).toBeNull()
     expect(screen.queryByText(/今日截止/)).toBeNull()
-    expect(screen.getAllByText('今天没有课程').length).toBeGreaterThan(0)
     expect(screen.queryByText('Done already')).toBeNull()
   })
 
@@ -122,6 +131,7 @@ describe('TodayView', () => {
       ],
     )
 
+    openFeedTab()
     expect(screen.getByText('Tonight quiz')).toBeTruthy()
 
     fireEvent.click(buttonsMatching(/项作业已逾期/)[0])
@@ -152,5 +162,16 @@ describe('TodayView', () => {
 
     fireEvent.click(buttonsMatching(/CT60A0250/)[0])
     expect(onSelect).toHaveBeenCalledWith('l1')
+  })
+
+  it('remembers the active tab across mounts', () => {
+    renderToday([], [task({ id: 't1', title: 'Feed only', dueAt: at(15, 18) })])
+    openFeedTab()
+    expect(screen.getByText('Feed only')).toBeTruthy()
+    cleanup()
+
+    // mount baru → tab terakhir (动态) dipulihkan dari storage
+    renderToday([], [])
+    expect(buttonsMatching(/动态/)[0]?.getAttribute('aria-selected')).toBe('true')
   })
 })

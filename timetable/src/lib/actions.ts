@@ -1,7 +1,7 @@
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
 import { wsCall, validateGradesSource } from './grades'
-import { matchCourseCode, fetchEnrolledCourses } from './courses'
+import { matchCourseCode, extractCourseCode, fetchEnrolledCourses } from './courses'
 
 /**
  * Tugas dari Moodle timeline via webservice token — sumber KANONIS:
@@ -98,8 +98,8 @@ export function mergeActionEvents(
     feedIds.add(ev.id)
     const prev = byId.get(ev.id)
     // Semantik sama dengan merge ICS (moodle.ts): kode jadwal bila cocok,
-    // else pertahankan nama Moodle sebagai label teks biasa.
-    const course = matchCourseCode(ev.course, lessons) ?? ev.course
+    // else kode pendek dari shortname (label pendek), else nama asli.
+    const course = matchCourseCode(ev.course, lessons) ?? extractCourseCode(ev.course) ?? ev.course
     if (prev) {
       if (prev.title !== ev.title || prev.dueAt !== ev.dueAt || prev.course !== course || prev.modtype !== ev.modtype) updated++
       byId.set(ev.id, { ...prev, title: ev.title, dueAt: ev.dueAt, course, url: ev.url, modtype: ev.modtype, updatedAt: now })

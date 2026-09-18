@@ -23,12 +23,16 @@
             </intent-filter>
 
             <!-- Moodle SSO login kembali: launch.php mengarahkan ke
-                 lut-timetable://token=... setelah SSO+Duo selesai di browser. -->
+                 lut-timetable://token=... setelah SSO+Duo selesai di browser.
+                 moodlemobile:// (skema bawaan resmi) juga diterima karena
+                 situs bisa memaksa lewat tool_mobile | forcedurlscheme —
+                 token tetap diverifikasi md5(passport) milik kita. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="lut-timetable" />
+                <data android:scheme="moodlemobile" />
             </intent-filter>
 
         </activity>

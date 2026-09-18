@@ -2,6 +2,7 @@ import type { Lesson } from '../types'
 import { wsCall } from './grades'
 import { normalizeCourseCode } from './ics'
 import { readJson, writeJson, TRANSIENT_KEYS } from './storage'
+import { htmlToText } from './html'
 
 /**
  * Daftar kursus resmi pengguna (core_enrol_get_users_courses) — sumber
@@ -150,4 +151,30 @@ export function matchCourseCode(
     (l) => l.title.toLowerCase().includes(n) || n.includes(l.title.toLowerCase()),
   )
   return byTitle?.code
+}
+
+/**
+ * Kode kursus dari sebuah nama TANPA validasi jadwal — untuk label pendek
+ * di UI (mis. "BH60A7201 Blended teaching …" → "BH60A7201").
+ */
+export function extractCourseCode(name: string | undefined): string | undefined {
+  const m = name?.match(COURSE_CODE_RE)
+  return m?.[1]
+}
+
+/**
+ * Nama kursus manusiawi dari fullname Moodle. Format LUT:
+ * "BM20A9200 Mathematics A - Contact teaching, Lahti 31.8.2026-11.12.2026"
+ * → "Mathematics A" (potongan antara kode dan " - ").
+ */
+export function extractCourseTitle(fullname: string | undefined): string | undefined {
+  if (!fullname) return undefined
+  const name = htmlToText(fullname)
+  if (!name) return undefined
+  const noDate = name.replace(/\s*\d{1,2}\.\d{1,2}\.\d{4}\s*-\s*[\d.]+\s*$/, '')
+  const parts = noDate.split(/\s+-\s+/)
+  const head = (parts[0] ?? '').trim()
+  const code = extractCourseCode(head)
+  const title = code ? head.slice(code.length).trim() : head
+  return title || undefined
 }

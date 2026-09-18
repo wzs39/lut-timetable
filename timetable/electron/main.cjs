@@ -1,9 +1,16 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron')
+const { app, BrowserWindow, ipcMain, session, protocol } = require('electron')
 const path = require('node:path')
 const { autoUpdater } = require('electron-updater')
 const { attachExternalLinkHandling } = require('./external-links.cjs')
 
 const isDev = !app.isPackaged
+
+/** Skema SSO harus terdaftar privileged SEBELUM app ready agar navigasi ke
+ *  skema ini diproses internal Chromium (bukan diteruskan ke OS). */
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'lut-timetable', privileges: { standard: true, secure: true } },
+  { scheme: 'moodlemobile', privileges: { standard: true, secure: true } },
+])
 
 /** Satu-satunya sumber kebenaran untuk "URL milik aplikasi sendiri". */
 const DEV_URL = 'http://localhost:5210'
@@ -11,6 +18,25 @@ const DEV_URL = 'http://localhost:5210'
 function isInternalUrl(url) {
   return url.startsWith(isDev ? DEV_URL : 'file://')
 }
+
+/** Skema yang dianggap "milik alur SSO kami". Moodle launch.php biasanya
+ *  mengarah ke urlscheme yang kita kirim (lut-timetable), TETAPI situs bisa
+ *  memaksa scheme lain lewat tool_mobile | forcedurlscheme — LUT memaksa
+ *  'moodlemobile' (skema bawaan aplikasi resmi). Token dalam URL tetap
+ *  diverifikasi renderer lewat md5(passport) kami, jadi menerima skema
+ *  tambahan tidak melemahkan keamanan. */
+const SSO_SCHEMES = ['lut-timetable://', 'moodlemobile://']
+
+function isSsoLaunchUrl(url) {
+  return SSO_SCHEMES.some((s) => url.startsWith(s))
+}
+
+/** Penerima URL launch aktif (dipasang oleh handler lut-sso-start).
+ *  Skema diregistrasi lewat ses.protocol.handle pada sesi SSO sehingga
+ *  redirect launch.php ke moodlemobile:// / lut-timetable:// tertangkap
+ *  DI DALAM aplikasi — tidak pernah diteruskan ke OS (tanpa dialog
+ *  "pilih aplikasi", tanpa membuka aplikasi Moodle resmi). */
+let ssoLaunchCapture = null
 
 /** Ekstrak bagian token mentah (belum terverifikasi) dari URL launch.
  *  Verifikasi md5(passport) tetap di renderer yang memiliki passport. */
@@ -88,6 +114,80 @@ function broadcastUpdate(payload) {
   }
 }
 
+/* ------------- Moodle SSO login (default-browser flow, Duo-friendly) -------------
+ * Alur resmi Moodle: app membuka {WWWROOT}/admin/tool/mobile/launch.php di
+ * BROWSER DEFAULT OS (bukan browser terpasang — pengguna login + Duo di
+ * browser yang sudah dipercayanya), lalu launch.php mengarahkan ke skema
+ * token. Skema diregistrasi sebagai handler OS (app.setAsDefaultProtocolClient
+ * untuk 'lut-timetable' DAN 'moodlemobile' — LUT memaksa skema resmi lewat
+ * tool_mobile | forcedurlscheme) sehingga redirect kembali KE aplikasi ini,
+ * bukan ke aplikasi Moodle resmi. Token diverifikasi renderer lewat
+ * md5(passport); passport satu kali pakai disimpan renderer.
+ *
+ * Argumen CLI dari OS (Windows: lut-timetable://... / moodlemobile://...
+ * sebagai argv; macOS: open-url event) diteruskan ke renderer lewat
+ * lut-sso-result. Tanpa jendela login terpasang, tanpa dialog "pilih
+ * aplikasi" — skema sudah dimiliki aplikasi ini. */
+
+/** Kirim URL launch ke renderer (dipakai CLI argv & open-url). */
+function deliverSsoUrl(url) {
+  const token = rawTokenFromLaunchUrl(url)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('lut-sso-result', token ? { ok: true, token } : { ok: false, error: 'invalid' })
+  }
+}
+
+/** Windows: instance kedua diluncurkan OS dengan URL skema sebagai argv. */
+const gotSingleLock = app.requestSingleInstanceLock()
+if (!gotSingleLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_e, argv) => {
+    const url = argv.find((a) => isSsoLaunchUrl(a))
+    if (url) deliverSsoUrl(url)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
+
+/** macOS: deep link datang lewat open-url. */
+app.on('open-url', (e, url) => {
+  e.preventDefault()
+  if (isSsoLaunchUrl(url)) deliverSsoUrl(url)
+})
+
+/** Daftarkan kedua skema sebagai milik aplikasi ini di OS.
+ *  Dev (electron .) dan prod (exe terpasang) sama-sama didaftarkan. */
+function registerSsoProtocols() {
+  if (process.defaultApp) {
+    // Dev: OS akan menjalankan "electron.exe ." — argumen kedua adalah path app.
+    for (const scheme of ['lut-timetable', 'moodlemobile']) {
+      try { app.setAsDefaultProtocolClient(scheme, process.execPath, [path.resolve(process.argv[1])]) } catch { /* non-Windows dev */ }
+    }
+  } else {
+    for (const scheme of ['lut-timetable', 'moodlemobile']) {
+      app.setAsDefaultProtocolClient(scheme)
+    }
+  }
+}
+
+ipcMain.handle('lut-sso-start', async (event, loginUrl) => {
+  const wc = event.sender
+  // Buka di browser DEFAULT OS — bukan jendela terpasang. Duo berjalan
+  // di lingkungan yang sudah dipercaya pengguna.
+  try {
+    const { shell } = require('electron')
+    await shell.openExternal(loginUrl)
+  } catch (e) {
+    wc.send('lut-sso-result', { ok: false, error: 'open-failed: ' + String(e) })
+    return
+  }
+  // Tidak ada jendela, tidak ada session sementara: token kembali lewat
+  // protokol OS (second-instance / open-url) -> deliverSsoUrl.
+})
+
 function setupAutoUpdater() {
   // electron-updater hanya berfungsi di app terpaket (butuh app-update.yml).
   if (isDev) return
@@ -118,51 +218,6 @@ function setupAutoUpdater() {
     setImmediate(() => autoUpdater.quitAndInstall())
   })
 
-  /* ------------- Moodle SSO login (browser flow, Duo-friendly) -------------
-   * Jendela BrowserWindow dengan SESSION BARU (cookie terpisah) membuka
-   * launch.php — URL DIBUAT RENDERER bersama passport-nya. Pengguna
-   * menyelesaikan LUT SSO + Duo di dalamnya; redirect ke
-   * lut-timetable://token=... dicegah dari navigasi, token mentahnya
-   * dikirim ke renderer untuk verifikasi checksum passport. Sesi dibuang
-   * setelah selesai agar tidak ada jejak login tersisa di disk. */
-  ipcMain.handle('lut-sso-start', async (event, loginUrl) => {
-    const wc = event.sender
-    const ses = session.fromPartition('lut-sso-' + Date.now())
-    let win = null
-    let settled = false
-    const finish = (result) => {
-      if (settled) return
-      settled = true
-      try { win?.destroy() } catch { /* already gone */ }
-      ses.clearStorageData().catch(() => {})
-      wc.send('lut-sso-result', result)
-    }
-    return await new Promise((resolve) => {
-      win = new BrowserWindow({
-        width: 480,
-        height: 720,
-        title: 'Moodle Login',
-        webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true },
-      })
-      win.webContents.on('will-navigate', (e, url) => {
-        if (url.startsWith('lut-timetable://')) {
-          e.preventDefault()
-          finish({ ok: true, token: rawTokenFromLaunchUrl(url) })
-          resolve()
-        }
-      })
-      win.on('closed', () => {
-        if (!settled) {
-          settled = true
-          ses.clearStorageData().catch(() => {})
-          wc.send('lut-sso-result', { ok: false, error: 'cancelled' })
-        }
-        resolve()
-      })
-      win.loadURL(loginUrl)
-    })
-  })
-
   // 手动检查更新：结果通过 update-status 事件回传给渲染层。
   ipcMain.handle('lut-update-check', async () => {
     try {
@@ -180,6 +235,7 @@ function setupAutoUpdater() {
 }
 
 app.whenReady().then(() => {
+  registerSsoProtocols()
   setupAutoUpdater()
   createWindow()
 

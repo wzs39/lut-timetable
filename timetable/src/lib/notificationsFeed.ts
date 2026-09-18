@@ -1,13 +1,21 @@
 import { wsCall, validateGradesSource } from './grades'
 import { KEYS, readJson, writeJson } from './storage'
+import { htmlToText } from './html'
 
 /**
- * Pusat notifikasi Moodle (core_message_get_notifications) — aliran bacaan:
- * umpan balik dinilai, pengingat tenggat, balasan forum, pesan admin.
+ * Pusat notifikasi Moodle — aliran bacaan: umpan balik dinilai, pengingat
+ * tenggat, balasan forum, pesan admin.
  *
- * Filter: 30 hari terakhir, terbaru dulu, maks 30. Cache 30 menit +
- * read-state lokal (markRead) agar "belum dibaca" tetap bekerja offline.
+ * Fungsi: core_message_get_messages(type='notifications') — core_message_get_notifications
+ * TIDAK berada dalam whitelist layanan mobile LUT (invalidrecord). Responsnya
+ * berbentuk { messages: [...] }; field sama dengan varian get_notifications
+ * (subject, fullmessagehtml, contexturl, timecreated, customdata JSON
+ * berisi courseid). Filter: 30 hari terakhir, terbaru dulu, maks 30.
+ * Cache 30 menit + read-state lokal (markRead) agar "belum dibaca" tetap
+ * bekerja offline.
  */
+
+export type NotificationKind = 'forum' | 'submission' | 'quiz' | 'receipt' | 'system'
 
 export interface MoodleNotification {
   /** `ntf-<id>` — stabil antar sinkron. */
@@ -23,6 +31,8 @@ export interface MoodleNotification {
   /** Pengirim (nama) bila ada. */
   from?: string
   courseid?: number
+  /** Kategori untuk filter UI (dari URL modul / customdata). */
+  kind: NotificationKind
 }
 
 interface RawNotification {
@@ -36,24 +46,41 @@ interface RawNotification {
   userfromfullname?: string
   userfrom?: { fullname?: string }
   courseid?: number
+  /** core_message_get_messages: courseid tersembunyi di customdata JSON. */
+  customdata?: string | { courseid?: number; cmid?: number }
 }
 
-/** Buang HTML + ratakan spasi. */
+/** Buang HTML + ratakan spasi (owner: lib/html). */
 function plainText(html: string | undefined): string | undefined {
-  if (!html) return undefined
-  const text = html
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/<\/(p|div|li|h\d)>/gi, ' ')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim()
-  return text || undefined
+  return htmlToText(html)
+}
+
+/**
+ * Kategori notifikasi dari sinyal nyata LUT (murni, dapat diuji):
+ *  - URL modul: /mod/forum/ (diskusi), /mod/assign/ (tugas), /mod/quiz/ (kuis)
+ *  - customdata: discussionid / assignmentid / quizid / messagetype
+ *  - Subjek kwitansi pengiriman dari assign (bentuk LUT nyata:
+ *    "You have submitted your assignment submission for …", template standar
+ *    "Submission receipt (…)") = tidak ada info baru → 'receipt'
+ *    (UI: tersembunyi bawaan).
+ * Sisanya → 'system' (pengingat admin, dsb.).
+ */
+const RECEIPT_SUBJECT_RE = /^(submission receipt( \()|you have submitted your assignment submission)/i
+
+export function classifyNotification(
+  url: string | undefined,
+  customdata: Record<string, unknown> | null,
+  subject?: string,
+): NotificationKind {
+  const u = url ?? ''
+  const cd = customdata ?? {}
+  if (u.includes('/mod/quiz/') || 'quizid' in cd) return 'quiz'
+  if (u.includes('/mod/assign/') || 'assignmentid' in cd) {
+    if (subject && RECEIPT_SUBJECT_RE.test(subject.trim())) return 'receipt'
+    return 'submission'
+  }
+  if (u.includes('/mod/forum/') || 'discussionid' in cd) return 'forum'
+  return 'system'
 }
 
 /** Pesan mentah → MoodleNotification (bila sah). */
@@ -64,26 +91,44 @@ export function parseNotification(
   if (n.id == null || !n.subject) return null
   const time = n.timecreated ? new Date(n.timecreated * 1000).toISOString() : undefined
   const id = `ntf-${n.id}`
+  // customdata: JSON string ATAU objek — berisi courseid notifikasi kursus.
+  let cd: { courseid?: number } | null = null
+  if (typeof n.customdata === 'string') {
+    try { cd = JSON.parse(n.customdata) as { courseid?: number } } catch { cd = null }
+  } else if (n.customdata && typeof n.customdata === 'object') {
+    cd = n.customdata
+  }
   // Sudah-baca = server bilang read ATAU pengguna pernah membukanya di app
   // (readSet lokal menimpa "belum dibaca" server; offline-safe).
   const read = n.read === true || n.read === 1 || (readSet?.has(id) ?? false)
+  const url = n.contexturl?.replace(/&amp;/g, '&')
   return {
     id,
-    subject: n.subject.trim(),
+    subject: htmlToText(n.subject) || '',
     body: plainText(n.fullmessagehtml ?? n.fullmessage),
-    url: n.contexturl?.replace(/&amp;/g, '&'),
+    url,
     read,
     time,
     from: n.userfromfullname ?? n.userfrom?.fullname ?? undefined,
-    courseid: n.courseid,
+    courseid: n.courseid ?? cd?.courseid,
+    kind: classifyNotification(url, cd as Record<string, unknown> | null, n.subject),
   }
 }
 
 export function parseNotifications(response: unknown, readSet: Set<string> | null = null): MoodleNotification[] {
-  const list = (response as { notifications?: RawNotification[] })?.notifications
-  if (!Array.isArray(list)) return []
+  // core_message_get_messages membungkus di { messages: [...] };
+  // terima juga bentuk array mentah / { notifications: [...] } untuk tes.
+  const res = response as { messages?: unknown[]; notifications?: unknown[] } | null
+  const list = Array.isArray(response)
+    ? (response as unknown[])
+    : Array.isArray(res?.messages)
+      ? res.messages
+      : Array.isArray(res?.notifications)
+        ? res.notifications
+        : null
+  if (!list) return []
   const out: MoodleNotification[] = []
-  for (const n of list) {
+  for (const n of list as RawNotification[]) {
     const parsed = parseNotification(n, readSet)
     if (parsed) out.push(parsed)
   }
@@ -91,12 +136,30 @@ export function parseNotifications(response: unknown, readSet: Set<string> | nul
   return out.slice(0, 30)
 }
 
-/** Jumlah notifikasi belum dibaca — murni, dipakai badge navigasi. */
+/**
+ * Jumlah notifikasi belum dibaca — murni, dipakai badge navigasi.
+ * Kwitansi pengiriman ('receipt', disembunyikan bawaan di UI) tidak ikut
+ * dihitung: badge harus mencerminkan apa yang benar-benar terlihat.
+ */
 export function countUnread(list: readonly MoodleNotification[] | null): number {
   if (!list) return 0
   let n = 0
-  for (const item of list) if (!item.read) n++
+  for (const item of list) if (!item.read && item.kind !== 'receipt') n++
   return n
+}
+
+/**
+ * Belum-dibaca per kategori (murni) — untuk badge chip filter di UI.
+ * Berbeda dari countUnread: kategori receipt IKUT dihitung di sini (chip
+ * receipt memang menampilkannya); pemanggil memutuskan pakai yang mana.
+ */
+export function unreadByKind(
+  list: readonly MoodleNotification[] | null,
+): Record<NotificationKind, number> {
+  const out: Record<NotificationKind, number> = { forum: 0, submission: 0, quiz: 0, receipt: 0, system: 0 }
+  if (!list) return out
+  for (const item of list) if (!item.read) out[item.kind]++
+  return out
 }
 
 /* ----------------------- read-state + cache lokal ----------------------- */
@@ -132,7 +195,11 @@ export function loadCachedNotifications(): MoodleNotification[] | null {
   try {
     const raw = readJson<{ fetchedAt: number; items: MoodleNotification[] } | null>(cacheKey(), null)
     if (raw && Array.isArray(raw.items) && Date.now() - raw.fetchedAt <= CACHE_TTL) {
-      return raw.items
+      // Migration: cache lama sebelum kolom `kind` ada — isi dari URL.
+      return raw.items.map((it) => ({
+        ...it,
+        kind: it.kind ?? classifyNotification(it.url, null),
+      }))
     }
   } catch {
     /* non-fatal */
@@ -161,11 +228,26 @@ export async function fetchNotifications(
   const readSet = loadReadIds()
   try {
     const { token, userid } = await validateGradesSource(src)
-    const res = await wsCall<unknown>(token, 'core_message_get_notifications', {
-      userid,
-      limit: 30,
-    })
-    const list = parseNotifications(res, readSet)
+    // Dua panggilan: belum dibaca + sudah dibaca (field read tidak dikirim
+    // untuk type='notifications'); gabungkan, urutkan, potong 30.
+    const [unread, read] = await Promise.all([
+      wsCall<{ messages?: unknown[] }>(token, 'core_message_get_messages', {
+        useridto: userid,
+        type: 'notifications',
+        read: 0,
+        limitnum: 20,
+      }).catch(() => null),
+      wsCall<{ messages?: unknown[] }>(token, 'core_message_get_messages', {
+        useridto: userid,
+        type: 'notifications',
+        read: 1,
+        limitnum: 20,
+      }).catch(() => null),
+    ])
+    const list = parseNotifications(
+      { notifications: [...(unread?.messages ?? []), ...(read?.messages ?? [])] },
+      readSet,
+    )
     if (list.length > 0 || !cached) saveCachedNotifications(list)
     return list.length > 0 ? list : cached ?? []
   } catch {

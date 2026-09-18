@@ -120,6 +120,16 @@ async function fetchChain(
   const keyOf = opts.cacheKeyOf ?? cacheKey
   const cached = loadCached(keyOf(url), opts.ttlMs)
 
+  /** Respons error Moodle ({ exception: ... }) tidak boleh masuk cache —
+   *  kalau ter-cache, error "Invalid parameter" bertahan 2 jam walau
+   *  permintaan berikutnya sudah benar (terjadi nyata saat grade call
+   *  berubah ke per-course). Simpan hanya respons sukses. */
+  const cacheable = (text: string): boolean => {
+    const t = text.trimStart()
+    if (t.startsWith('{') && /"exception"/.test(t.slice(0, 200))) return false
+    return true
+  }
+
   if (Capacitor.isNativePlatform()) {
     try {
       const res = await CapacitorHttp.get({
@@ -130,7 +140,7 @@ async function fetchChain(
       })
       if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
       const text = typeof res.data === 'string' ? res.data : String(res.data)
-      saveCached(keyOf(url), text)
+      if (cacheable(text)) saveCached(keyOf(url), text)
       return text
     } catch (error) {
       if (cached) return cached.text
@@ -141,7 +151,7 @@ async function fetchChain(
   if (hasLutBridge()) {
     try {
       const text = await fetchViaElectron(url, { headers: { Accept: opts.accept } })
-      saveCached(keyOf(url), text)
+      if (cacheable(text)) saveCached(keyOf(url), text)
       return text
     } catch (error) {
       if (cached) return cached.text
@@ -173,7 +183,7 @@ async function fetchChain(
   for (const attempt of attempts) {
     try {
       const text = await attempt()
-      saveCached(keyOf(url), text)
+      if (cacheable(text)) saveCached(keyOf(url), text)
       return text
     } catch (e) {
       errors.push(e)
