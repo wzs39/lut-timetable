@@ -4,4 +4,10 @@
     <string name="title_activity_main">LUT Timetable</string>
     <string name="package_name">dev.lut.timetable</string>
     <string name="custom_url_scheme">dev.lut.timetable</string>
+
+    <string name="widget_title">LUT Timetable · Today</string>
+    <string name="widget_no_lessons">No lessons today</string>
+    <string name="widget_empty_title">LUT Timetable</string>
+    <string name="widget_empty_body">Open the app once to load the widget</string>
+    <string name="widget_week_count">%1$d lessons this week</string>
 </resources>

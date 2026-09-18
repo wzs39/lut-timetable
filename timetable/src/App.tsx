@@ -58,7 +58,11 @@ function AppInner({
 }) {
   const { lang, locale, setLang, t } = useI18n()
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
-  const [view, setView] = useState<'today' | 'week' | 'assign' | 'moodle'>('today')
+  const [view, setView] = useState<'today' | 'week' | 'assign' | 'moodle'>(() => {
+    // Windows 跳转列表 / 深链入口：#/view/today|week|assign|moodle
+    const m = /^#\/view\/(today|week|assign|moodle)$/.exec(location.hash)
+    return (m?.[1] as 'today' | 'week' | 'assign' | 'moodle') || 'today'
+  })
   /** 作业页进入时预置的分组筛选（Moodle 时间线卡片跳转用） */
   const [assignFilter, setAssignFilter] = useState<'overdue' | 'due7' | 'later'>('overdue')
   const [selectedId, setSelectedId] = useState<string | null>(null)

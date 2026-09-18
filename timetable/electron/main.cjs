@@ -106,6 +106,16 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
+  // 跳转列表启动参数：加载后把视图 hash 写入（web 侧 hashchange 消费）。
+  const viewArg = process.argv.find((a) => a.startsWith('--open-view='))
+  if (viewArg) {
+    const view = viewArg.split('=')[1]
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.executeJavaScript(
+        `location.hash = '#/view/${view}'`,
+      ).catch(() => {})
+    })
+  }
 }
 
 function broadcastUpdate(payload) {
@@ -237,6 +247,7 @@ function setupAutoUpdater() {
 app.whenReady().then(() => {
   registerSsoProtocols()
   setupAutoUpdater()
+  setupJumpList()
   createWindow()
 
   app.on('activate', () => {
@@ -247,3 +258,28 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+/** Windows 跳转列表：任务栏右键直达三大视图（hash 导航，web 侧已有
+ *  hashchange 消费者）。非 Windows 平台是 no-op。 */
+function setupJumpList() {
+  if (process.platform !== 'win32' || typeof app.setJumpList !== 'function') return
+  const icon = path.join(process.resourcesPath || '', 'icon.ico')
+  const view = (name, title, desc) => ({
+    type: 'task',
+    title,
+    description: desc,
+    program: process.execPath,
+    args: [`--open-view=${name}`],
+    iconPath: icon,
+    iconIndex: 0,
+  })
+  try {
+    app.setJumpList([
+      view('today', '今日', '打开今日视图'),
+      view('week', '周视图', '打开周视图'),
+      view('assignments', '作业', '打开作业与任务'),
+    ])
+  } catch {
+    // 跳转列表是锦上添花——失败不影响应用。
+  }
+}
