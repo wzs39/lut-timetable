@@ -398,6 +398,10 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 truncate text-xs font-medium text-[var(--text-1)]">
                           {task.id.startsWith('moodle:') && <span className="mr-1 inline-flex align-[-2px]" title="Moodle"><Icon name="assignment" size={11} /></span>}
+                          {task.modtype === 'quiz' && (
+                            /* 测验与作业不同：有时间窗、要进 Moodle 作答，单独徽标区分。 */
+                            <span className="app-badge mr-1 align-[-2px] text-[10px]" title={t('quizBadgeTitle')}>{t('quizBadge')}</span>
+                          )}
                           {task.title}
                         </div>
                         {leftMin != null && (

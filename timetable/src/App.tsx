@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Lesson, SyncSource } from './types'
 import { useTimetable } from './hooks/useTimetable'
+import { useMoodleData } from './hooks/useMoodleData'
 import { MoodleProvider } from './hooks/useMoodleData'
 import WeekGrid from './components/WeekGrid'
 import TodayView from './components/TodayView'
@@ -11,6 +12,7 @@ import ConflictCheck from './components/ConflictCheck'
 import NotificationManager from './components/NotificationManager'
 import Settings from './components/Settings'
 import AssignmentsView from './components/AssignmentsView'
+import MoodleView from './components/MoodleView'
 import {
   ensureTranslatorSession,
   loadTranslatorUrl,
@@ -24,7 +26,7 @@ import { checkApkUpdate } from './lib/apkUpdate'
 import ExternalLink from './components/ExternalLink'
 import Icon from './components/Icon'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
-import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber } from './lib/date'
+import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber, findCourseTarget } from './lib/date'
 import {
   loadNotes,
   noteForLesson,
@@ -33,6 +35,17 @@ import {
   saveNote,
   type NotesMap,
 } from './lib/notes'
+
+/** Belum-dibaca Moodle → badge di tab navigasi (nol bila tak ada). */
+function MoodleUnreadBadge() {
+  const { unread } = useMoodleData()
+  if (unread <= 0) return null
+  return (
+    /* .app-badge 携带自己的 bg/fg 对，选中/未选中两态都可读（同作业徽章）。
+       不另引入 info 色：未读语义由「出现在 Moodle tab 上」本身传达。 */
+    <span className="app-badge ml-1 font-semibold tabular-nums">{unread > 9 ? '9+' : unread}</span>
+  )
+}
 
 function AppInner({
   tasks,
@@ -45,7 +58,9 @@ function AppInner({
 }) {
   const { lang, locale, setLang, t } = useI18n()
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
-  const [view, setView] = useState<'today' | 'week' | 'assign'>('today')
+  const [view, setView] = useState<'today' | 'week' | 'assign' | 'moodle'>('today')
+  /** 作业页进入时预置的分组筛选（Moodle 时间线卡片跳转用） */
+  const [assignFilter, setAssignFilter] = useState<'overdue' | 'due7' | 'later'>('overdue')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDupResolver, setShowDupResolver] = useState(false)
   const [showBatchFilter, setShowBatchFilter] = useState(false)
@@ -154,6 +169,19 @@ function AppInner({
   const dupCount = removableCount(dupGroups)
   const pendingTaskCount = pendingTasks(tasks).length
 
+  /** Lompat ke minggu kemunculan berikutnya dari kode kursus + pilih sesinya.
+   *  Satu pemilik untuk ketiga view (today/moodle/assign). */
+  const jumpToCourse = useCallback(
+    (code: string) => {
+      const target = findCourseTarget(tt.visibleLessons, code)
+      if (!target) return
+      setWeekStart(startOfWeek(new Date(target.start)))
+      setView('week')
+      setSelectedId(target.id)
+    },
+    [tt.visibleLessons],
+  )
+
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
   const isCurrentWeek = useMemo(
     () => sameDay(startOfWeek(new Date()), weekStart),
@@ -213,6 +241,14 @@ function AppInner({
                    选中（accent 底、accent-text 继承）和未选中两种状态下都可读。 */
                 <span className="app-badge ml-1 font-semibold tabular-nums">{pendingTaskCount}</span>
               )}
+            </button>
+            <button
+              onClick={() => setView('moodle')}
+              aria-pressed={view === 'moodle'}
+              title={t('moodleNav')}
+            >
+              <span className="inline-flex items-center gap-2"><Icon name="book" size={15} /><span className="hidden sm:inline"> {t('moodleNav')}</span></span>
+              <MoodleUnreadBadge />
             </button>
           </div>
           {view === 'week' && (
@@ -388,20 +424,7 @@ function AppInner({
               onSelect={setSelectedId}
               notes={notes}
               tasks={tasks}
-              onJumpToCourse={(code) => {
-                const target = tt.visibleLessons
-                  .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
-                  .sort((a, b) => a.start.localeCompare(b.start))
-                  .find((l) => new Date(l.end).getTime() >= Date.now()) ??
-                  tt.visibleLessons
-                    .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
-                    .sort((a, b) => b.start.localeCompare(a.start))[0]
-                if (target) {
-                  setWeekStart(startOfWeek(new Date(target.start)))
-                  setView('week')
-                  setSelectedId(target.id)
-                }
-              }}
+              onJumpToCourse={jumpToCourse}
               onOpenAssignments={() => setView('assign')}
             />
           )}
@@ -413,27 +436,26 @@ function AppInner({
               notes={notes}
             />
           )}
+          {view === 'moodle' && (
+            <MoodleView
+              tasks={tasks}
+              lessons={tt.lessons}
+              onJumpToCourse={jumpToCourse}
+              onOpenAssignments={(filter) => {
+                setAssignFilter(filter)
+                setView('assign')
+              }}
+              onOpenSettings={() => setShowSettings(true)}
+            />
+          )}
           {view === 'assign' && (
             <AssignmentsView
               tasks={tasks}
               lessons={tt.lessons}
               onChange={(next) => setTasks(saveTasks(next))}
-              onOpenSettings={() => setShowSettings(true)}
-              onJumpToCourse={(code) => {
-                // 跳到该课程下一次出现的周视图，并选中那节课
-                const target = tt.visibleLessons
-                  .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
-                  .sort((a, b) => a.start.localeCompare(b.start))
-                  .find((l) => new Date(l.end).getTime() >= Date.now()) ??
-                  tt.visibleLessons
-                    .filter((l) => l.code && l.code.toUpperCase().startsWith(code.toUpperCase()))
-                    .sort((a, b) => b.start.localeCompare(a.start))[0]
-                if (target) {
-                  setWeekStart(startOfWeek(new Date(target.start)))
-                  setView('week')
-                  setSelectedId(target.id)
-                }
-              }}
+              key={assignFilter}
+              initialFilter={assignFilter}
+              onJumpToCourse={jumpToCourse}
             />
           )}
           </div>

@@ -18,7 +18,6 @@ import { QUICK_LINKS } from '../lib/quickLinks'
 import { useMoodleData } from '../hooks/useMoodleData'
 import ExternalLink from './ExternalLink'
 import TruncatedNote from './TruncatedNote'
-import GradeCourseCard from './GradeCourseCard'
 import Icon from './Icon'
 
 interface Props {
@@ -27,15 +26,16 @@ interface Props {
   onChange: (tasks: Task[]) => void
   /** 跳转到该课程的日历位置（点击课程代码时） */
   onJumpToCourse?: (code: string) => void
-  onOpenSettings: () => void
   onClose?: () => void
+  /** 进入页面时预置的分组筛选（如从 Moodle 时间线卡片跳转） */
+  initialFilter?: Group | 'all'
 }
 
 type Group = 'overdue' | 'due7' | 'later' | 'nodue' | 'done'
 
 const GROUP_ORDER: Group[] = ['overdue', 'due7', 'later', 'nodue', 'done']
 
-export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCourse, onOpenSettings, onClose }: Props) {
+export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCourse, onClose, initialFilter }: Props) {
   const { t, locale } = useI18n()
   const md = useMoodleData()
   const [title, setTitle] = useState('')
@@ -46,12 +46,11 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // 搜索 + 分组筛选
+  // 搜索 + 分组筛选（initialFilter 仅作初值：Moodle 时间线卡片 → 预置筛选）
   const [q, setQ] = useState('')
-  const [groupFilter, setGroupFilter] = useState<Group | 'all'>('all')
+  const [groupFilter, setGroupFilter] = useState<Group | 'all'>(initialFilter ?? 'all')
 
   // 折叠抽屉（默认收起，避免堆满一屏）
-  const [showMoodleCard, setShowMoodleCard] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [showLinks, setShowLinks] = useState(false)
 
@@ -154,7 +153,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
           </div>
           <div className="flex shrink-0 gap-1.5">
             <button
-              onClick={() => { setShowAddForm((o) => !o); setShowMoodleCard(false) }}
+              onClick={() => setShowAddForm((o) => !o)}
               className="app-btn-primary px-2.5 min-h-9 text-xs"
               title={t('taskAdd')}
             >
@@ -203,74 +202,6 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
             {t('tasksShowCompleted')}
           </label>
         </div>
-
-        {/* ---- 收纳抽屉：Moodle（纯信息 + 数据操作） ---- */}
-        <section className="app-card">
-          <button
-            onClick={() => setShowMoodleCard((o) => !o)}
-            title={t('toggleHint')}
-            className="flex w-full items-center justify-between px-3 py-2.5"
-          >
-            <span className="text-xs font-semibold text-[var(--text-1)] inline-flex items-center gap-1.5">
-              <Icon name="assignment" size={13} /> {t('moodleTitle')}
-              {md.grades && md.grades.length > 0 && (
-                <span className="ml-1 app-badge px-1.5 py-0.5 text-[10px]">{md.grades.length}</span>
-              )}
-            </span>
-            <span className="text-[var(--text-3)] inline-flex"><Icon name={showMoodleCard ? 'chevron-down' : 'chevron-right'} size={12} /></span>
-          </button>
-          {showMoodleCard && (
-            <div className="border-t border-[var(--line)] p-3">
-              {md.connected ? (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={() => void md.syncNow()}
-                      disabled={md.busy !== 'idle'}
-                      className="app-btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
-                    >
-                      {md.busy === 'sync' ? t('moodleSyncing') : t('moodleSyncNow')}
-                    </button>
-                    {md.token && (
-                      <>
-                        <button
-                          onClick={() => void md.refreshGrades()}
-                          disabled={md.busy !== 'idle'}
-                          className="app-btn px-3 py-1.5 text-xs disabled:opacity-50"
-                        >
-                          {md.busy === 'grades' ? t('gradesFetching') : t('gradesRefresh')}
-                        </button>
-                        <button
-                          onClick={() => void md.syncSubmissions()}
-                          disabled={md.busy !== 'idle'}
-                          className="app-btn px-3 py-1.5 text-xs disabled:opacity-50"
-                        >
-                          {md.busy === 'subs' ? t('subSyncing') : t('subSyncNow')}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  {md.message && <p className="text-[11px] text-[var(--text-2)]">{md.message}</p>}
-                  {md.grades && md.grades.length > 0 && (
-                    <ul className="space-y-2">
-                      {md.grades.map((c) => (
-                        <GradeCourseCard key={c.courseId ?? c.course} c={c} onJumpToCourse={onJumpToCourse} />
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-[11px] text-[var(--text-3)]">{t('moodleCta')}</p>
-                  <button onClick={onOpenSettings} className="app-btn-primary w-full px-3 py-1.5 text-xs">
-                    <span className="inline-flex items-center justify-center gap-1.5"><Icon name="settings" size={12} /> {t('openSettings')}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-
 
         {/* ---- 收纳抽屉：手动添加任务 ---- */}
         {showAddForm && (

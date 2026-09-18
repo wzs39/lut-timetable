@@ -305,7 +305,8 @@ body {
   color: var(--text-1);
   background: var(--surface-2);
 }
-.app-seg > button[aria-pressed='true'] {
+.app-seg > button[aria-pressed='true'],
+.app-seg > button[aria-selected='true'] {
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 500;

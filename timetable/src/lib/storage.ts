@@ -30,10 +30,14 @@ export const KEYS = {
   todayRoomsOpen: 'tt_today_rooms_open',
   todayExamsOpen: 'tt_today_exams_open',
   todayAnnouncementsOpen: 'tt_today_announcements_open',
+  moodleSection: 'tt_moodle_section',
+  moodleNewsOpen: 'tt_moodle_news_open',
   lang: 'tt_lang',
   theme: 'tt_theme',
   autosync: 'tt_autosync',
   notif: 'tt_notif',
+  ntfRead: 'tt_ntf_read_v1',
+  ntfCache: 'tt_ntf_cache_v1',
 } as const
 
 export type StorageKey = (typeof KEYS)[keyof typeof KEYS]

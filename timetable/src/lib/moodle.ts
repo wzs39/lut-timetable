@@ -1,6 +1,6 @@
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
-import { parseIcs } from './ics'
+import { extractCourseCode, parseIcs } from './ics'
 import { fetchIcsText } from './fetchIcs'
 import { KEYS, readJson, writeJson, removeKey } from './storage'
 import { matchCourseCode } from './courses'
@@ -58,13 +58,23 @@ export function normalizeMoodleUrl(raw: string): string | null {
   }
 }
 
-/** Course name from CATEGORIES, else first line of DESCRIPTION. */
+/**
+ * Course name from CATEGORIES, else first line of DESCRIPTION.
+ * CATEGORIES on LUT Moodle looks like "BH60A7201 Blended teaching 31.8.2026-30.7.2027";
+ * keep only the leading course code when one is present so task labels stay
+ * short (online courses have no timetable match, so this label IS the name).
+ */
 function courseNameOf(e: {
   description?: string
   categories?: string
 }): string | undefined {
   const fromCategories = e.categories?.split(',')[0]?.trim()
-  if (fromCategories) return fromCategories
+  if (fromCategories) {
+    // Leading LUT course code (e.g. "CT60A4500 Blended teaching ..." -> "CT60A4500")
+    const code = extractCourseCode(fromCategories)
+    if (code && fromCategories.toUpperCase().startsWith(code.toUpperCase())) return code
+    return fromCategories
+  }
   return e.description?.split('\n')[0]?.trim() || undefined
 }
 

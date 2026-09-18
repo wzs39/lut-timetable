@@ -1,5 +1,5 @@
 import { wsCall, loadGradesSource } from './grades'
-import { fetchEnrolledCourses } from './courses'
+import { fetchEnrolledCourses, loadEnrolledCourses } from './courses'
 import { fetchMoodleWebService } from './fetchIcs'
 import { readJson, writeJson, TRANSIENT_KEYS } from './storage'
 
@@ -166,7 +166,7 @@ export async function fetchAnnouncements(
     // dari daftar enrol bila respons kosong.
     let forums = forumsRes?.forums ?? []
     if (forums.length === 0) {
-      const enrol = await import('./courses').then((m) => m.loadEnrolledCourses())
+      const enrol = loadEnrolledCourses()
       const ids = (enrol ?? []).map((c) => c.courseid)
       if (ids.length === 0) return cached ?? []
       const retry = await wsCall<{ forums?: ForumInfo[] }>(
