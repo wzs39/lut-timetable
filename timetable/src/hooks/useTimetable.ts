@@ -18,6 +18,7 @@ import {
   clearHiddenKeys,
 } from '../lib/store'
 import { KEYS } from '../lib/storage'
+import { pushWidgetData } from '../lib/widgetData'
 import { useI18n } from '../i18n'
 import { ensurePermission } from '../lib/notifications'
 
@@ -52,6 +53,7 @@ export function useTimetable() {
   }, [lessons])
 
   useEffect(() => saveLessons(lessons), [lessons])
+  useEffect(() => void pushWidgetData(lessons), [lessons])
   useEffect(() => saveSources(sources), [sources])
   useEffect(() => localStorage.setItem(LS_AUTOSYNC, String(autoSync)), [autoSync])
   useEffect(() => localStorage.setItem(LS_NOTIF, String(notifEnabled)), [notifEnabled])
