@@ -1,7 +1,7 @@
 {
   "name": "lut-timetable",
   "private": true,
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "Desktop timetable app for LUT students with SISU and TimeEdit integration",
   "author": "LUT Timetable contributors",
   "type": "module",

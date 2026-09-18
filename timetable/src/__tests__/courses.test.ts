@@ -80,3 +80,18 @@ describe('matchCourseCode priority chain', () => {
     expect(matchCourseCode('   ', lessons, null)).toBeUndefined()
   })
 })
+
+// Nama manusiawi dari fullname LUT.
+describe('extractCourseTitle', () => {
+  it('extracts the title between code and " - " separator', async () => {
+    const { extractCourseTitle } = await import('../lib/courses')
+    expect(extractCourseTitle('BM20A9200 Mathematics A - Contact teaching, Lahti 31.8.2026-11.12.2026')).toBe('Mathematics A')
+    expect(extractCourseTitle('KE00BX35 English Pronunciation - Online teaching non-stop, KE00BX35-3018 31.8.2026-16.5.2027')).toBe('English Pronunciation')
+  })
+
+  it('decodes entities and handles missing title', async () => {
+    const { extractCourseTitle } = await import('../lib/courses')
+    expect(extractCourseTitle('KE00DA03 English for the Hebei University of Technology - Contact teaching (LUT) Lahti, P1&amp;2 KE00DA03-3015 31.8.2026-13.12.2026')).toBe('English for the Hebei University of Technology')
+    expect(extractCourseTitle(undefined)).toBeUndefined()
+  })
+})

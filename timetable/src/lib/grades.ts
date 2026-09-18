@@ -1,7 +1,8 @@
 import type { Lesson } from '../types'
 import { KEYS, readJson, writeJson, removeKey } from './storage'
 import { fetchMoodleWebService, moodleCredsFromUrl } from './fetchIcs'
-import { matchCourseCode, fetchEnrolledCourses } from './courses'
+import { matchCourseCode, extractCourseCode, extractCourseTitle, fetchEnrolledCourses } from './courses'
+import { htmlToText } from './html'
 
 /**
  * Nilai Moodle (moodle.lut.fi) per mata kuliah, via Mobile web service:
@@ -43,8 +44,10 @@ export interface GradeItem {
 }
 
 export interface CourseGrades {
-  /** Kode kursus LUT bila cocok dengan jadwal, else nama kursus Moodle. */
+  /** Kode kursus LUT bila cocok dengan jadwal, else kode pendek Moodle. */
   course: string
+  /** Nama manusiawi dari fullname Moodle (mis. "Mathematics A"). */
+  courseTitle?: string
   /** true bila `course` adalah kode dari jadwal (bisa diklik/diwarnai). */
   matched: boolean
   items: GradeItem[]
@@ -111,7 +114,8 @@ export async function wsCall<T>(
 function toPercent(raw: unknown, grademax: unknown): number | null {
   const g = typeof raw === 'number' ? raw : Number(raw)
   const m = typeof grademax === 'number' ? grademax : Number(grademax)
-  if (!Number.isFinite(g) || !Number.isFinite(m) || m <= 0) return null
+  // graderaw null = item belum dinilai — BUKAN nol.
+  if (raw == null || !Number.isFinite(g) || !Number.isFinite(m) || m <= 0) return null
   return Math.round((g / m) * 1000) / 10
 }
 
@@ -124,14 +128,18 @@ function ratioToPercent(v: unknown): number | null {
 
 function buildItems(raw: RawGradeItem[]): GradeItem[] {
   return raw.map((it) => ({
-    name: it.itemname?.trim() || '—',
+    name: htmlToText(it.itemname) || '—',
     grade: toPercent(it.graderaw, it.grademax),
     max: typeof it.grademax === 'number' && it.grademax > 0 ? it.grademax : null,
     classAvg: toPercent(it.gradeaverage ?? it.average, it.grademax),
+    // Bobot: weightraw (rasio 0–1, Moodle 4.x) > weight (persen). Baris
+    // kategori/course tanpa nama tidak ikut sebagai item penilaian.
     weight:
-      typeof it.weight === 'number' && it.weight > 0
-        ? Math.round(it.weight * 1000) / 10
-        : null,
+      typeof it.weightraw === 'number' && it.weightraw > 0
+        ? Math.round(it.weightraw * 1000) / 10
+        : typeof it.weight === 'number' && it.weight > 0
+          ? Math.round(it.weight * 10) / 10
+          : null,
     feedback: it.feedback?.trim() || undefined,
   }))
 }
@@ -140,10 +148,14 @@ function buildItems(raw: RawGradeItem[]): GradeItem[] {
 
 interface RawGradeItem {
   itemname?: string
-  graderaw?: number | string
+  itemtype?: string
+  graderaw?: number | string | null
   grademax?: number | string
   gradeaverage?: number | string
   average?: number | string
+  /** Moodle 4.x: proporsi bobot 0–1 (mis. 0.07143 = 7.14%). */
+  weightraw?: number | string
+  /** Alternatif lama: bobot langsung dalam persen. */
   weight?: number | string
   feedback?: string
 }
@@ -159,11 +171,28 @@ export function parseGradeItems(response: unknown): CourseGrades[] {
   const byId = (response as { usergrades?: unknown[] })?.usergrades
   if (!Array.isArray(byId)) return []
   const out: CourseGrades[] = []
-  for (const c of byId as RawCourseGrades[]) {
-    const items = buildItems(c.gradeitems ?? [])
+  for (const c of byId as (RawCourseGrades & { gradeitems?: (RawGradeItem & { itemtype?: string })[] })[]) {
+    const rawItems = c.gradeitems ?? []
+    // Baris total resmi Moodle: itemtype 'course' (raw 24/112 = 21.43%,
+    // item belum dinilai dihitung 0 dalam bobotnya). Ini "nilai saat ini"
+    // otoritatif untuk kursus berbobot.
+    const courseRow = rawItems.find((it) => it.itemtype === 'course')
+    const items = buildItems(rawItems.filter((it) => it !== courseRow))
     if (items.length === 0) continue
-    // Rata-rata keseluruhan: usergrade bisa berupa rasio 0–1 (weighted total).
-    const avg = ratioToPercent(c.usergrade?.grade ?? c.usergrade?.rawgrade)
+    // Urutan prioritas rata-rata:
+    //  1. usergrade (rasio 0–1) bila server mengirim
+    //  2. baris 'course' (graderaw/grademax baris total)
+    //  3. fallback: rata-rata sederhana item yang sudah dinilai
+    let avg = ratioToPercent(c.usergrade?.grade ?? c.usergrade?.rawgrade)
+    if (avg == null && courseRow?.grademax != null) {
+      avg = toPercent(courseRow.graderaw, courseRow.grademax)
+    }
+    if (avg == null) {
+      const graded = items.filter((it) => it.grade != null) as (GradeItem & { grade: number })[]
+      if (graded.length > 0) {
+        avg = Math.round((graded.reduce((s, it) => s + it.grade, 0) / graded.length) * 10) / 10
+      }
+    }
     out.push({
       course: '',
       matched: false,
@@ -202,25 +231,50 @@ export async function fetchGrades(
 ): Promise<CourseGrades[]> {
   const userid =
     src.userid ?? (await validateGradesToken(src.token))
-  // Pra-fetch daftar enrol resmi (cache 24 jam) — jangkar pencocokan kursus.
-  await fetchEnrolledCourses({ token: src.token, userid }).catch(() => null)
-  const report = await wsCall<{ usergrades?: unknown[] }>(
-    src.token,
-    'gradereport_user_get_grade_items',
-    { userid },
+  // Pra-fetch daftar enrol resmi (cache 24 jam) — jangkar pencocokan kursus
+  // DAN sumber courseid untuk pemanggilan per-kursus.
+  const enrol = await fetchEnrolledCourses({ token: src.token, userid }).catch(() => [])
+  // LUT (Moodle 4.x): gradereport_user_get_grade_items tanpa courseid
+  // menjawab invalidparameter — panggil PER KURSUS dari daftar enrol.
+  // Panggilan paralel terbatas agar tidak membanjiri server.
+  const courseIds = (enrol ?? []).map((c) => c.courseid)
+  const reports = await Promise.all(
+    courseIds.map(async (courseid) => {
+      try {
+        return await wsCall<{ usergrades?: unknown[] }>(
+          src.token,
+          'gradereport_user_get_grade_items',
+          { userid, courseid },
+        )
+      } catch {
+        return null // satu kursus gagal tidak boleh mematikan semuanya
+      }
+    }),
   )
+  const report = { usergrades: reports.flatMap((r) => (r as { usergrades?: unknown[] })?.usergrades ?? []) }
   const parsed = parseGradeItems(report)
   if (parsed.length === 0) throw { kind: 'empty' } as GradesError
 
   // Cocokkan ke jadwal lewat matcher tunggal (courses.ts): daftar enrol
   // resmi → kode-regex → judul. Semua domain sinkron memakai logika ini.
+  // Nama kursus: payload LUT tidak mengirim displaytext — shortname enrol
+  // adalah sumber otoritatif (token pertamanya memang kode kursus).
+  const nameById = new Map((enrol ?? []).map((e) => [e.courseid, e]))
   for (const c of parsed) {
-    const label = displayNameFor(c, report)
+    const ec = nameById.get(c.courseId ?? -1)
+    const label = ec?.shortname || ec?.fullname || displayNameFor(c, report)
+    // Judul manusiawi dari fullname ("BM20A9200 Mathematics A - …" →
+    // "Mathematics A"); shortname saja tidak punya judul.
+    c.courseTitle = extractCourseTitle(ec?.fullname) ?? extractCourseTitle(label)
     c.course = label
     const code = matchCourseCode(label, lessons)
     if (code) {
       c.course = code
       c.matched = true
+    } else {
+      // Tanpa kecocokan jadwal: tampilkan kode pendek bila ada (judul penuh
+      // di courseTitle), bukan "BH60A7201 Blended teaching 31.8.2026-30.7.2027".
+      c.course = extractCourseCode(label) ?? label
     }
   }
   const byCourse = new Map<string, CourseGrades>()

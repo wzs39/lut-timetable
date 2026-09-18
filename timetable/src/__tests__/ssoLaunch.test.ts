@@ -4,6 +4,7 @@ import {
   decodeLaunchUrl,
   md5,
   newPassport,
+  MOODLE_DEFAULT_SCHEME,
   URL_SCHEME,
   WWWROOT,
 } from '../lib/ssoLaunch'
@@ -98,5 +99,17 @@ describe('ssoLaunch', () => {
     expect(decodeLaunchUrl(`${URL_SCHEME}://token=${b64}/`, { passport: PASSPORT_A })).toEqual({
       token: TOKEN,
     })
+  })
+
+  it('accepts the moodlemobile:// scheme (site-forced via tool_mobile|forcedurlscheme)', () => {
+    const b64 = btoa(`${CHECK_A}:::${TOKEN}`)
+    expect(decodeLaunchUrl(`moodlemobile://token=${b64}`, { passport: PASSPORT_A })).toEqual({
+      token: TOKEN,
+    })
+    expect(decodeLaunchUrl(`${MOODLE_DEFAULT_SCHEME}://token=${b64}/`, { passport: PASSPORT_A })).toEqual({
+      token: TOKEN,
+    })
+    // Unknown scheme stays rejected.
+    expect(decodeLaunchUrl(`evil://token=${b64}`, { passport: PASSPORT_A })).toBeNull()
   })
 })

@@ -76,7 +76,8 @@ export async function coldStartLaunchUrl(): Promise<string | null> {
     const { App } = await import('@capacitor/app')
     const launch = await App.getLaunchUrl()
     const url = launch?.url ?? ''
-    return url.startsWith('lut-timetable://') ? url : null
+    // Situs bisa memaksa scheme bawaan resmi (forcedurlscheme) — terima keduanya.
+    return url.startsWith('lut-timetable://') || url.startsWith('moodlemobile://') ? url : null
   } catch {
     return null
   }

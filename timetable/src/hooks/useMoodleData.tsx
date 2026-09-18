@@ -343,7 +343,9 @@ export function MoodleProvider({
           return
         }
         setSsoState('pending')
-        setSsoMessage(t('ssoWindowHint'))
+        // 登录发生在系统默认浏览器（Electron main 用 shell.openExternal 打开），
+        // token 经 OS 协议回调（second-instance/open-url）→ lut-sso-result。
+        setSsoMessage(t('ssoBrowserHint'))
         const off = bridge.onResult((r) => {
           off()
           if (r?.ok && r.token) {

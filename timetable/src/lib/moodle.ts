@@ -1,9 +1,9 @@
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
-import { extractCourseCode, parseIcs } from './ics'
+import { parseIcs } from './ics'
 import { fetchIcsText } from './fetchIcs'
 import { KEYS, readJson, writeJson, removeKey } from './storage'
-import { matchCourseCode } from './courses'
+import { matchCourseCode, extractCourseCode } from './courses'
 
 /**
  * Moodle calendar (moodle.lut.fi) → assignments.
@@ -172,7 +172,9 @@ export function mergeMoodleAssignments(
     const id = `moodle:${a.uid}`
     feedIds.add(id)
     const prev = byId.get(id)
-    const course = matchCourseCode(a.course, lessons) ?? a.course
+    // Sama dengan jalur timeline (actions.ts): kode jadwal bila cocok,
+    // else kode pendek dari shortname (label pendek), else nama asli.
+    const course = matchCourseCode(a.course, lessons) ?? extractCourseCode(a.course) ?? a.course
     if (prev) {
       if (prev.title !== a.title || prev.dueAt !== a.dueAt || prev.course !== course) updated++
       byId.set(id, { ...prev, title: a.title, dueAt: a.dueAt, startAt: a.startAt, course, url: a.url, updatedAt: now })

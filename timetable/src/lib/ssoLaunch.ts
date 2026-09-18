@@ -23,7 +23,15 @@ export const LAUNCH_PATH = '/admin/tool/mobile/launch.php'
 export const WWWROOT = 'https://moodle.lut.fi'
 /** Skema kustom aplikasi; terdaftar di AndroidManifest (Android) dan
  *  protokol di electron/main.cjs (desktop). */
+/** Skema yang diterima sebagai callback SSO. Utamanya milik kita
+ *  (lut-timetable), tetapi situs Moodle bisa memaksa scheme bawaan aplikasi
+ *  resmi lewat tool_mobile | forcedurlscheme (LUT: 'moodlemobile').
+ *  Token tetap diverifikasi md5(passport) milik kita, jadi skema tambahan
+ *  tidak melemahkan keamanan — passport hanya ada di penyimpanan kita. */
 export const URL_SCHEME = 'lut-timetable'
+/** Skema bawaan aplikasi Moodle resmi (dipaksa beberapa situs). */
+export const MOODLE_DEFAULT_SCHEME = 'moodlemobile'
+const LAUNCH_SCHEMES = [URL_SCHEME, MOODLE_DEFAULT_SCHEME]
 
 /* ------------------------------- md5 -------------------------------
  * Implementasi md5 mandiri (RFC 1321) — ~60 baris, tanpa dependensi.
@@ -161,10 +169,11 @@ export function decodeLaunchUrl(
   opts: { passport?: string; wwwroot?: string; scheme?: string } = {},
 ): LaunchToken | null {
   try {
-    const scheme = opts.scheme ?? URL_SCHEME
-    const prefix = `${scheme}://token=`
-    if (!url.startsWith(prefix)) return null
-    const b64 = url.slice(prefix.length).replace(/\/+$/, '')
+    // opts.scheme (tes saja) menambah skema kandidat; keduanya selalu diterima.
+    const schemes = opts.scheme ? [...LAUNCH_SCHEMES, opts.scheme] : LAUNCH_SCHEMES
+    const prefixMatch = schemes.map((s) => `${s}://token=`).find((p) => url.startsWith(p))
+    if (!prefixMatch) return null
+    const b64 = url.slice(prefixMatch.length).replace(/\/+$/, '')
     if (!b64) return null
     const payload = base64ToUtf8(b64)
     const parts = payload.split(':::')

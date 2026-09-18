@@ -93,10 +93,104 @@ export function courseProjection(
   gradedWeight: number
 } {
   const { value, coveredWeight } = weightedEstimate(c.items, overrides)
+  // LUT nyata tidak mengekspos bobot item (semua null) → weightedEstimate
+  // selalu null. Fallback: rata-rata sederhana item yang ikut dihitung
+  // (sudah dinilai memakai nilai asli, what-if override tetap dihormati,
+  // item belum dinilai tanpa override dikecualikan).
+  if (value == null && coveredWeight === 0) {
+    let num = 0
+    let n = 0
+    for (let i = 0; i < c.items.length; i++) {
+      const g = effectiveGrade(c.items[i], overrides[i])
+      if (g == null) continue
+      num += g
+      n++
+    }
+    return {
+      projected: n > 0 ? num / n : null,
+      coveredWeight: 0,
+      ungraded: ungradedCount(c.items),
+      gradedWeight: 0,
+    }
+  }
   return {
     projected: value,
     coveredWeight,
     ungraded: ungradedCount(c.items),
     gradedWeight: gradedWeight(c.items),
   }
+}
+
+/* ------------------------- sorting & filtering ------------------------- */
+
+/** Urutan daftar kursus di segmen nilai. */
+export type GradeSort = 'code' | 'grade-asc' | 'grade-desc' | 'ungraded' | 'matched'
+
+/** Banyak item belum dinilai (berbobot ATAU tanpa bobot) pada satu kursus. */
+export function ungradedTotal(c: CourseGrades): number {
+  return c.items.filter((it) => it.grade == null).length
+}
+
+/**
+ * Urutkan daftar CourseGrades. Stabil: kunci sekunder selalu kode kursus,
+ * sehingga urutan tidak lompat-lompat antar render.
+ */
+export function sortGrades(
+  list: readonly CourseGrades[],
+  sort: GradeSort,
+): CourseGrades[] {
+  const byCode = (a: CourseGrades, b: CourseGrades) =>
+    a.course.localeCompare(b.course)
+  const arr = [...list]
+  switch (sort) {
+    case 'grade-asc':
+      // null (belum ada nilai) paling akhir
+      arr.sort((a, b) => {
+        const av = a.average
+        const bv = b.average
+        if (av == null && bv == null) return byCode(a, b)
+        if (av == null) return 1
+        if (bv == null) return -1
+        return av - bv || byCode(a, b)
+      })
+      break
+    case 'grade-desc':
+      arr.sort((a, b) => {
+        const av = a.average
+        const bv = b.average
+        if (av == null && bv == null) return byCode(a, b)
+        if (av == null) return 1
+        if (bv == null) return -1
+        return bv - av || byCode(a, b)
+      })
+      break
+    case 'ungraded':
+      // paling banyak item belum dinilai dulu — fokus ke mana harus berusaha
+      arr.sort((a, b) => ungradedTotal(b) - ungradedTotal(a) || byCode(a, b))
+      break
+    case 'matched':
+      // yang cocok jadwal dulu (bisa lompat ke kalender), lalu kode
+      arr.sort((a, b) => Number(b.matched) - Number(a.matched) || byCode(a, b))
+      break
+    default:
+      arr.sort(byCode)
+  }
+  return arr
+}
+
+/** Filter daftar kursus (kata kunci nama/kode, ATAU status kecocokan). */
+export function filterGrades(
+  list: readonly CourseGrades[],
+  opts: { q?: string; only?: 'matched' | 'unmatched' | null },
+): CourseGrades[] {
+  const kw = opts.q?.trim().toLowerCase()
+  return list.filter((c) => {
+    if (opts.only === 'matched' && !c.matched) return false
+    if (opts.only === 'unmatched' && c.matched) return false
+    if (kw) {
+      const hay = `${c.course} ${c.courseTitle ?? ''}`.toLowerCase()
+      if (!hay.includes(kw)) return false
+    }
+    return true
+  })
 }

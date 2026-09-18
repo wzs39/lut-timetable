@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { useMoodleData } from '../../hooks/useMoodleData'
-import type { MoodleNotification } from '../../lib/notificationsFeed'
+import type { MoodleNotification, NotificationKind } from '../../lib/notificationsFeed'
+import { unreadByKind } from '../../lib/notificationsFeed'
 import { openExternal } from '../../lib/openExternal'
 import Icon from '../Icon'
+
+const KINDS: readonly (NotificationKind | 'all')[] = ['all', 'forum', 'submission', 'quiz', 'receipt', 'system']
+const KIND_KEY: Record<NotificationKind, string> = {
+  forum: 'notifKindForum',
+  submission: 'notifKindSubmission',
+  quiz: 'notifKindQuiz',
+  receipt: 'notifKindReceipt',
+  system: 'notifKindSystem',
+}
 
 export default function NotificationsSection() {
   const { t, locale } = useI18n()
@@ -35,6 +45,29 @@ export default function NotificationsSection() {
     if (!n.read) markNotificationRead(n.id)
   }
 
+  const [filter, setFilter] = useState<NotificationKind | 'all'>('all')
+  // 回执默认隐藏：一条可展开的收纳条 + 计数（选择持久化到 storage）。
+  const [showReceipts, setShowReceipts] = useState(false)
+  const counts = useMemo(() => {
+    const c: Record<NotificationKind | 'all', number> = { all: notifications?.length ?? 0, forum: 0, submission: 0, quiz: 0, receipt: 0, system: 0 }
+    for (const n of notifications ?? []) c[n.kind]++
+    return c
+  }, [notifications])
+  const shown = useMemo(
+    () =>
+      (filter === 'all' ? notifications : notifications?.filter((n) => n.kind === filter) ?? null)?.filter(
+        (n) => showReceipts || n.kind !== 'receipt',
+      ) ?? null,
+    [notifications, filter, showReceipts],
+  )
+  const receiptsHidden = (counts.receipt ?? 0) > 0 && !showReceipts && (filter === 'all' || filter === 'receipt')
+  // 未读按分类细分：chip 上的蓝色徽标（回执 chip 也计，见 unreadByKind）。
+  const unread = useMemo(() => unreadByKind(notifications), [notifications])
+  const unreadTotal = useMemo(
+    () => Object.values(unread).reduce((a, b) => a + b, 0),
+    [unread],
+  )
+
   if (notifications === null) {
     return <p className="py-8 text-center text-xs text-[var(--text-3)]">{t('notifLoading')}</p>
   }
@@ -49,8 +82,30 @@ export default function NotificationsSection() {
           <span className="inline-flex items-center gap-1"><Icon name="restore" size={11} /> {t('notifRefresh')}</span>
         </button>
       </div>
+      {counts.all > 1 && (
+        <div className="app-seg flex flex-wrap" role="tablist">
+          {KINDS.map((k) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={filter === k}
+              onClick={() => setFilter(k)}
+              className="px-2 py-1 text-[11px]"
+            >
+              {t(k === 'all' ? 'notifAll' : KIND_KEY[k])} {counts[k] > 0 && (
+                <span className="tabular-nums text-[var(--text-3)]">{counts[k]}</span>
+              )}
+              {(k === 'all' ? unreadTotal : unread[k]) > 0 && (
+                <span className="ml-0.5 rounded-full border border-[var(--line-info)] bg-[var(--tint-info)] px-1.5 py-px text-[9px] font-semibold leading-none tabular-nums text-[var(--info)]">
+                  {k === 'all' ? unreadTotal : unread[k]}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
       <ul className="space-y-1.5">
-        {notifications.map((n) => (
+        {(shown ?? []).map((n) => (
           <li
             key={n.id}
             className={
@@ -91,6 +146,9 @@ export default function NotificationsSection() {
                   )}
                 </div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-3)]">
+                  <span className="rounded bg-[var(--surface-1)] px-1 py-px text-[9px] font-medium text-[var(--text-2)]">
+                    {t(KIND_KEY[n.kind])}
+                  </span>
                   {n.from && <span className="truncate">{n.from}</span>}
                   {n.time && (
                     <span className="tabular-nums">
@@ -104,6 +162,22 @@ export default function NotificationsSection() {
           </li>
         ))}
       </ul>
+      {receiptsHidden && (
+        <button
+          onClick={() => setShowReceipts(true)}
+          className="app-btn w-full px-2 py-1 text-[11px] text-[var(--text-3)]"
+        >
+          {t('notifReceiptsHidden').replace('{n}', String(counts.receipt))}
+        </button>
+      )}
+      {showReceipts && counts.receipt > 0 && (
+        <button
+          onClick={() => setShowReceipts(false)}
+          className="app-btn w-full px-2 py-1 text-[11px] text-[var(--text-3)]"
+        >
+          {t('notifReceiptsShowLess')}
+        </button>
+      )}
     </div>
   )
 }

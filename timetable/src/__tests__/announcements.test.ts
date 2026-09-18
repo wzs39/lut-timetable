@@ -87,3 +87,17 @@ describe('mergeAnnouncementLists', () => {
     expect(mergeAnnouncementLists([many])).toHaveLength(20)
   })
 })
+
+// LUT nyata: subject mengandung entitas HTML yang belum didekode.
+describe('htmlToExcerpt / subject entity decoding', () => {
+  it('decodes &amp; in subject and excerpt', async () => {
+    const { parseDiscussions } = await import('../lib/announcements')
+    const out = parseDiscussions(
+      [{ id: 9, subject: 'Submit &amp; Review', timemodified: Math.floor(Date.now() / 1000), message: 'A &amp; B' }],
+      undefined,
+      'CT60A4050',
+    )
+    expect(out[0].subject).toBe('Submit & Review')
+    expect(out[0].excerpt).toBe('A & B')
+  })
+})

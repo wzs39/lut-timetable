@@ -33,7 +33,7 @@ function wsResponse() {
             graderaw: 9,
             grademax: 10,
             gradeaverage: 7.5,
-            weight: 0.2,
+            weightraw: 0.2,
             feedback: 'Good start',
           },
           {
@@ -42,7 +42,7 @@ function wsResponse() {
             graderaw: 42,
             grademax: 50,
             gradeaverage: 35,
-            weight: 0.8,
+            weightraw: 0.8,
           },
         ],
       },
@@ -115,5 +115,73 @@ describe('fetchGrades course matching (via parse + matchCode path)', () => {
     const parsed: CourseGrades[] = parseGradeItems(wsResponse())
     expect(parsed.every((c) => c.courseId != null)).toBe(true)
     expect(parsed.every((c) => c.matched === false)).toBe(true)
+  })
+})
+
+// LUT nyata (v0.2.16+): usergrades TIDAK punya usergrade/displaytext,
+// item tanpa bobot. Rata-rata harus fallback ke rata-rata item bernilai.
+describe('parseGradeItems — LUT real payload shape', () => {
+  const realShape = {
+    usergrades: [
+      {
+        courseid: 30361,
+        gradeitems: [
+          { itemname: 'Quiz: Honor code', graderaw: 5, grademax: 5, itemtype: 'mod' },
+          { itemname: 'MOOC certificate', graderaw: null, grademax: 2, itemtype: 'mod' },
+        ],
+      },
+    ],
+  }
+
+  it('computes overall average from graded items when usergrade is absent', () => {
+    const [c] = parseGradeItems(realShape)
+    expect(c.average).toBe(100) // hanya Quiz yang bernilai (5/5)
+    expect(c.items[0].grade).toBe(100)
+    expect(c.items[1].grade).toBeNull() // belum dinilai
+    expect(c.items[0].weight).toBeNull() // LUT tidak mengirim bobot
+  })
+
+  it('keeps average null when nothing is graded', () => {
+    const [c] = parseGradeItems({
+      usergrades: [
+        { courseid: 1, gradeitems: [{ itemname: 'X', graderaw: null, grademax: 8 }] },
+      ],
+    })
+    expect(c.average).toBeNull()
+  })
+})
+
+// Bentuk LUT nyata: weightraw rasio 0–1 + baris total 'course' + tanpa usergrade.
+describe('parseGradeItems — LUT weightraw + course total row', () => {
+  const lut = {
+    usergrades: [
+      {
+        courseid: 30565,
+        gradeitems: [
+          { itemname: 'Week 1 homework', itemtype: 'manual', graderaw: 8, grademax: 8, weightraw: 0.07143 },
+          { itemname: 'Week 2 homework', itemtype: 'manual', graderaw: 8, grademax: 8, weightraw: 0.07143 },
+          { itemname: 'Week 4 homework', itemtype: 'manual', graderaw: null, grademax: 8, weightraw: 0.07143 },
+          { itemtype: 'course', graderaw: 16, grademax: 24, weightraw: 0.21429 },
+        ],
+      },
+    ],
+  }
+
+  it('reads weight from weightraw ratio (0.07143 → 7.1%)', () => {
+    const [c] = parseGradeItems(lut)
+    expect(c.items[0].weight).toBeCloseTo(7.1, 1)
+  })
+
+  it('uses the official course-total row as the current grade', () => {
+    const [c] = parseGradeItems(lut)
+    expect(c.average).toBeCloseTo(66.7, 1) // 16/24 — belum dinilai dihitung 0
+    // Baris total TIDAK ikut sebagai item penilaian.
+    expect(c.items.map((i) => i.name)).toEqual(['Week 1 homework', 'Week 2 homework', 'Week 4 homework'])
+  })
+
+  it('excludes the course row from weighted estimate so projection stays what-if', () => {
+    const [c] = parseGradeItems(lut)
+    // Dua item dinilai penuh dari tiga berbobot → proyeksi 66.7 (2×7.14/3×7.14…)
+    expect(c.items).toHaveLength(3)
   })
 })
