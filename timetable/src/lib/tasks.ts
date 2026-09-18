@@ -13,6 +13,8 @@ export interface Task {
   note?: string
   /** Link to the source page (Moodle assignment) when known. */
   url?: string
+  /** Modul Moodle sumber: 'assign' | 'quiz' — untuk badge jenis tugas. */
+  modtype?: string
   completed: boolean
   createdAt: string
   updatedAt: string
@@ -106,6 +108,31 @@ export function dueWithin(tasks: Task[], hours: number, now = new Date()): Task[
 export function msUntilDue(task: Task, now = new Date()): number | null {
   if (!task.dueAt) return null
   return new Date(task.dueAt).getTime() - now.getTime()
+}
+
+/**
+ * Bucket penghitung gaya Timeline resmi Moodle: overdue / today / 7d / 30d.
+ * Murni: `nowMs` disuntik (biasanya dari useNow). Tugas selesai & tanpa
+ * deadline tidak masuk bucket mana pun.
+ */
+export function timelineBuckets(
+  tasks: Task[],
+  nowMs: number,
+): { overdue: number; today: number; week: number; month: number } {
+  const endOfToday = new Date(nowMs)
+  endOfToday.setHours(23, 59, 59, 999)
+  const week = nowMs + 7 * 24 * 3600 * 1000
+  const month = nowMs + 30 * 24 * 3600 * 1000
+  const b = { overdue: 0, today: 0, week: 0, month: 0 }
+  for (const task of tasks) {
+    if (task.completed || !task.dueAt) continue
+    const ts = new Date(task.dueAt).getTime()
+    if (ts < nowMs) b.overdue++
+    else if (ts <= endOfToday.getTime()) b.today++
+    else if (ts <= week) b.week++
+    else if (ts <= month) b.month++
+  }
+  return b
 }
 
 export function courseOptions(lessons: Lesson[]): string[] {

@@ -23,6 +23,23 @@ export function sameDay(a: Date, b: Date): boolean {
   )
 }
 
+/**
+ * Cari pelajaran berikutnya untuk kode kursus (pembanding awalan, tidak
+ * peka huruf besar/kecil): sesi yang belum selesai paling awal, else sesi
+ * terakhir yang sudah lewat. Dipakai satu pemilik lompatan-to-jadwal di App.
+ */
+export function findCourseTarget(lessons: Lesson[], code: string): Lesson | undefined {
+  const prefix = code.toUpperCase()
+  const matches = lessons.filter((l) => l.code && l.code.toUpperCase().startsWith(prefix))
+  return (
+    matches
+      .slice()
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .find((l) => new Date(l.end).getTime() >= Date.now()) ??
+    matches.slice().sort((a, b) => b.start.localeCompare(a.start))[0]
+  )
+}
+
 export function lessonsInRange(lessons: Lesson[], from: Date, to: Date): Lesson[] {
   const fromMs = from.getTime()
   const toMs = to.getTime()

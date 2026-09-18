@@ -101,8 +101,8 @@ export function mergeActionEvents(
     // else pertahankan nama Moodle sebagai label teks biasa.
     const course = matchCourseCode(ev.course, lessons) ?? ev.course
     if (prev) {
-      if (prev.title !== ev.title || prev.dueAt !== ev.dueAt || prev.course !== course) updated++
-      byId.set(ev.id, { ...prev, title: ev.title, dueAt: ev.dueAt, course, url: ev.url, updatedAt: now })
+      if (prev.title !== ev.title || prev.dueAt !== ev.dueAt || prev.course !== course || prev.modtype !== ev.modtype) updated++
+      byId.set(ev.id, { ...prev, title: ev.title, dueAt: ev.dueAt, course, url: ev.url, modtype: ev.modtype, updatedAt: now })
       continue
     }
     const legacyEventId = ev.id.slice('moodle-act:'.length)
@@ -117,6 +117,7 @@ export function mergeActionEvents(
         dueAt: ev.dueAt,
         course: course ?? legacy.course,
         url: ev.url,
+        modtype: ev.modtype,
         updatedAt: now,
       })
     } else {
@@ -127,6 +128,7 @@ export function mergeActionEvents(
         course,
         dueAt: ev.dueAt,
         url: ev.url,
+        modtype: ev.modtype,
         completed: false,
         createdAt: now,
         updatedAt: now,

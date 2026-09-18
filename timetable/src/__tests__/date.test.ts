@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isoWeekNumber, formatWeekRange, nextLessonDay, startOfWeek } from '../lib/date'
+import { isoWeekNumber, formatWeekRange, nextLessonDay, startOfWeek, findCourseTarget } from '../lib/date'
 import type { Lesson } from '../types'
 
 describe('isoWeekNumber', () => {
@@ -61,5 +61,43 @@ describe('formatWeekRange', () => {
 
   it('always starts on the Monday of the week', () => {
     expect(formatWeekRange(startOfWeek(new Date(2026, 8, 10)), 'en-US').startsWith('Mon')).toBe(true)
+  })
+})
+
+describe('findCourseTarget', () => {
+  const lesson = (id: string, code: string, start: string): Lesson => ({
+    id,
+    source: 'sisu',
+    title: 'Test',
+    code,
+    start,
+    end: start,
+  })
+
+  const lessons = [
+    lesson('past', 'CT60A0250', '2026-09-01T08:00:00.000Z'),
+    lesson('future1', 'CT60A0250', '2026-09-25T08:00:00.000Z'),
+    lesson('future2', 'CT60A0250', '2026-09-28T10:00:00.000Z'),
+    lesson('other', 'BM20A9200', '2026-09-20T08:00:00.000Z'),
+  ]
+
+  it('returns the earliest upcoming session for the course prefix (case-insensitive)', () => {
+    const target = findCourseTarget(lessons, 'ct60a0250')
+    expect(target?.id).toBe('future1')
+  })
+
+  it('falls back to the latest past session when nothing is upcoming', () => {
+    const pastOnly = lessons.filter((l) => l.id !== 'future1' && l.id !== 'future2')
+    const target = findCourseTarget(pastOnly, 'CT60A0250')
+    expect(target?.id).toBe('past')
+  })
+
+  it('matches by prefix, so a longer stored code still matches a short query', () => {
+    const withLongCode = [lesson('long', 'CT60A0250-2026', '2026-09-30T08:00:00.000Z')]
+    expect(findCourseTarget(withLongCode, 'ct60a0250')?.id).toBe('long')
+  })
+
+  it('returns undefined for a code with no lessons', () => {
+    expect(findCourseTarget(lessons, 'XX00A0000')).toBeUndefined()
   })
 })

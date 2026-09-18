@@ -1,4 +1,4 @@
-import { KEYS, readString, writeString, removeKey } from './storage'
+import { readString, writeString, removeKey } from './storage'
 
 /**
  * Alur login SSO Moodle (dipakai aplikasi resmi saat MFA/SSO aktif):
@@ -193,5 +193,3 @@ export function pendingPassportAgeMs(): number | null {
   // alur berjalan (dibuat maksimal beberapa menit lalu secara praktis).
   return peekPassport() ? 0 : null
 }
-
-export const KEYS_REF = KEYS

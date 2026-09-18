@@ -115,6 +115,35 @@ describe('assignmentFromEvent', () => {
     expect(a!.dueAt).toBe('2026-09-16T16:00:00.000Z')
   })
 
+  it('collapses a LUT CATEGORIES string to the bare course code (online courses)', () => {
+    // Real-world shape: online courses never match the timetable, so this
+    // short label is what the user sees on every task card.
+    const a = assignmentFromEvent({
+      uid: 'u-online',
+      summary: 'Attendance',
+      categories: 'KE00DA03 Contact teaching (LUT) Lahti, P1&2 KE00DA03-3015',
+      start: new Date('2026-09-17T11:00:00.000Z'),
+      end: new Date('2026-09-17T13:00:00.000Z'),
+    })
+    expect(a!.course).toBe('KE00DA03')
+    // Span event: the session time is preserved as startAt.
+    expect(a!.startAt).toBe('2026-09-17T11:00:00.000Z')
+    expect(a!.dueAt).toBe('2026-09-17T13:00:00.000Z')
+  })
+
+  it('keeps non-code course names intact', () => {
+    const a = assignmentFromEvent({
+      uid: 'u2',
+      summary: 'Essay due',
+      categories: 'Climate.now course, 2026',
+      start: new Date('2026-09-20T10:00:00.000Z'),
+      end: new Date('2026-09-20T10:15:00.000Z'),
+    })
+    // "Climate.now" matches the code regex partially — the guard requires
+    // the label to START with the code, so the full name survives.
+    expect(a!.course).toBe('Climate.now course')
+  })
+
   it('falls back to the first description line for the course', () => {
     const a = assignmentFromEvent({
       uid: 'u1',

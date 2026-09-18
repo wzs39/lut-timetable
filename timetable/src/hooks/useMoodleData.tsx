@@ -22,8 +22,16 @@ import {
   fetchSubmissionStatus,
   type SubmissionStatus,
 } from '../lib/submissions'
+import { fetchEnrolledCourses } from '../lib/courses'
 import { fetchActionEvents, mergeActionEvents } from '../lib/actions'
 import { fetchAnnouncements } from '../lib/announcements'
+import {
+  countUnread,
+  fetchNotifications,
+  loadCachedNotifications,
+  markRead,
+  type MoodleNotification,
+} from '../lib/notificationsFeed'
 import {
   runSsoFlow,
   androidSsoHooks,
@@ -57,6 +65,14 @@ export interface MoodleData {
   subStatus: ReadonlyMap<string, SubmissionStatus>
   busy: 'idle' | 'sync' | 'grades' | 'subs'
   message: string | null
+  /** Aliran notifikasi Moodle (satu pemilik: provider ini) */
+  notifications: MoodleNotification[] | null
+  /** Belum dibaca — badge navigasi */
+  unread: number
+  /** Tandai satu notifikasi dibaca (lokal persist, offline-safe) */
+  markNotificationRead: (id: string) => void
+  /** Ambil ulang aliran notifikasi (force melewati cache 30 menit) */
+  refreshNotifications: (force?: boolean) => Promise<void>
   setIcsUrl: (url: string) => boolean
   disconnectIcs: () => void
   connectToken: (token: string) => Promise<boolean>
@@ -97,6 +113,7 @@ export function MoodleProvider({
   const [subMap, setSubMap] = useState<Map<string, SubmissionStatus>>(new Map())
   const [busy, setBusy] = useState<MoodleData['busy']>('idle')
   const [message, setMessage] = useState<string | null>(null)
+  const [notifications, setNotifications] = useState<MoodleNotification[] | null>(() => loadCachedNotifications())
 
   /* ---------------- Background auto-refresh (30 min tick) ----------------
    * Satu owner: interval tunggal di provider. Setiap tick menyegarkan nilai,
@@ -130,7 +147,23 @@ export function MoodleProvider({
         if (r.archived > 0) onTasks(r.tasks)
       } catch { /* silent */ }
       try {
+        // Daftar enrol (cache 24 jam) — dipanaskan di latar belakang agar
+        // tab Kursus terbuka instan. fetchEnrolledCourses sendiri yang
+        // memutuskan cache segar vs jaringan.
+        await fetchEnrolledCourses(tk)
+      } catch { /* silent */ }
+      try {
+        // Timeline → tasks: tugas baru muncul TANPA tekan sinkron manual.
+        const events = await fetchActionEvents(tk)
+        const r = mergeActionEvents(tasksRef.current, events, lessonsRef.current)
+        if (r.added > 0 || r.updated > 0) onTasks(r.tasks)
+      } catch { /* silent */ }
+      try {
         await fetchAnnouncements(tk)
+      } catch { /* silent */ }
+      try {
+        const list = await fetchNotifications(tk)
+        setNotifications(list)
       } catch { /* silent */ }
     } finally {
       inFlightRef.current = false
@@ -390,6 +423,21 @@ export function MoodleProvider({
     }
   }, [busy, token, lessons, gradesErrMsg, t, timeStr])
 
+  const markNotificationRead = useCallback((id: string) => {
+    markRead(id)
+    setNotifications((prev) =>
+      prev?.map((n) => (n.id === id ? { ...n, read: true } : n)) ?? prev,
+    )
+  }, [])
+
+  const refreshNotifications = useCallback(
+    async (force = false) => {
+      const tk = loadGradesSource()
+      setNotifications(await fetchNotifications(tk, { force }))
+    },
+    [],
+  )
+
   const syncSubmissions = useCallback(async () => {
     if (busy !== 'idle' || !token) return
     setBusy('subs')
@@ -450,6 +498,10 @@ export function MoodleProvider({
       subStatus: subMap,
       busy,
       message,
+      notifications,
+      unread: countUnread(notifications),
+      markNotificationRead,
+      refreshNotifications,
       setIcsUrl,
       disconnectIcs,
       connectToken,
@@ -461,7 +513,7 @@ export function MoodleProvider({
       refreshGrades,
       syncSubmissions,
     }),
-    [ics, token, grades, subMap, busy, message, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions],
+    [ics, token, grades, subMap, busy, message, notifications, markNotificationRead, refreshNotifications, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

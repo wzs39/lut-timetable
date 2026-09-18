@@ -3,6 +3,54 @@ import { useI18n } from '../i18n'
 import Icon from './Icon'
 import ExternalLink from './ExternalLink'
 import CollapsiblePanel from './CollapsiblePanel'
+
+/**
+ * Daftar pengumuman polos (kartu per posting). Dipakai AnnouncementsPanel
+ * (TodayView) dan MoodleView — satu pemilik tampilan daftar pengumuman.
+ */
+export function AnnouncementsList({ items }: { items: Announcement[] }) {
+  const { locale } = useI18n()
+  return (
+    <ul className="space-y-1.5">
+      {items.map((a) => (
+        <li
+          key={a.id}
+          className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              {a.url ? (
+                <ExternalLink
+                  href={a.url}
+                  className="block truncate text-xs font-medium text-[var(--info)] hover:underline"
+                  title={a.subject}
+                >
+                  {a.subject}
+                </ExternalLink>
+              ) : (
+                <span className="block truncate text-xs font-medium">{a.subject}</span>
+              )}
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-3)]">
+                {a.course && <span className="font-mono">{a.course}</span>}
+                {a.postedAt && (
+                  <span className="tabular-nums">
+                    {new Date(a.postedAt).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
+                  </span>
+                )}
+                {a.author && <span className="truncate">{a.author}</span>}
+              </div>
+              {a.excerpt && (
+                <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[var(--text-2)]">
+                  {a.excerpt}
+                </p>
+              )}
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )
+}
 import { KEYS } from '../lib/storage'
 import {
   currentAnnouncementSource,
@@ -17,7 +65,7 @@ import {
  * Tanpa token → panel tidak dirender (fitur opsional, tidak mengganggu).
  */
 export default function AnnouncementsPanel() {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const src = currentAnnouncementSource()
   const [items, setItems] = useState<Announcement[] | null>(() => loadCachedAnnouncements())
   const [busy, setBusy] = useState(false)
@@ -77,46 +125,7 @@ export default function AnnouncementsPanel() {
       {items !== null && items.length === 0 && (
         <p className="text-[11px] text-[var(--text-3)]">{t('announcementsEmpty')}</p>
       )}
-      {items !== null && items.length > 0 && (
-        <ul className="space-y-1.5">
-          {items.map((a) => (
-            <li
-              key={a.id}
-              className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  {a.url ? (
-                    <ExternalLink
-                      href={a.url}
-                      className="block truncate text-xs font-medium text-[var(--info)] hover:underline"
-                      title={a.subject}
-                    >
-                      {a.subject}
-                    </ExternalLink>
-                  ) : (
-                    <span className="block truncate text-xs font-medium">{a.subject}</span>
-                  )}
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-3)]">
-                    {a.course && <span className="font-mono">{a.course}</span>}
-                    {a.postedAt && (
-                      <span className="tabular-nums">
-                        {new Date(a.postedAt).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
-                      </span>
-                    )}
-                    {a.author && <span className="truncate">{a.author}</span>}
-                  </div>
-                  {a.excerpt && (
-                    <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[var(--text-2)]">
-                      {a.excerpt}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+      {items !== null && items.length > 0 && <AnnouncementsList items={items} />}
     </CollapsiblePanel>
   )
 }

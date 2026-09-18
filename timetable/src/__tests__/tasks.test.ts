@@ -7,6 +7,7 @@ import {
   isOverdue,
   pendingTasks,
   sortTasks,
+  timelineBuckets,
   updateTask,
   type Task,
 } from '../lib/tasks'
@@ -117,5 +118,54 @@ describe('task persistence and mutations', () => {
       note: 'Upload PDF',
       completed: true,
     })
+  })
+})
+
+describe('timelineBuckets', () => {
+  // Fixed anchor: 2026-09-17 12:00 local time.
+  const NOW = new Date(2026, 8, 17, 12, 0, 0).getTime()
+  const at = (dayOffset: number, hour = 12): string =>
+    new Date(2026, 8, 17 + dayOffset, hour, 0, 0).toISOString()
+
+  const task = (title: string, dueAt?: string, completed = false): Task => ({
+    id: title,
+    title,
+    dueAt,
+    completed,
+    createdAt: new Date(NOW).toISOString(),
+    updatedAt: new Date(NOW).toISOString(),
+  })
+
+  it('buckets by overdue / today / week / month', () => {
+    // Earlier-today deadlines already past NOW count as overdue (ts < now);
+    // 'today' holds NOW..end-of-today only.
+    const buckets = timelineBuckets(
+      [
+        task('past', at(-2)),
+        task('earlier-today', at(0, 6)),
+        task('later-today', at(0, 20)),
+        task('in-3-days', at(3)),
+        task('in-20-days', at(20)),
+      ],
+      NOW,
+    )
+    expect(buckets).toEqual({ overdue: 2, today: 1, week: 1, month: 1 })
+  })
+
+  it('excludes completed and no-due tasks', () => {
+    const buckets = timelineBuckets(
+      [task('done-past', at(-1), true), task('no-due'), task('open', at(1))],
+      NOW,
+    )
+    expect(buckets).toEqual({ overdue: 0, today: 0, week: 1, month: 0 })
+  })
+
+  it('tasks beyond 30 days are unbucketed', () => {
+    const buckets = timelineBuckets(
+      [task('d5', at(5)), task('d31', at(31)), task('d29', at(29))],
+      NOW,
+    )
+    // d5 → week, d29 → month, d31（同钟点 > NOW+30d）→ 不进任何桶
+    expect(buckets).toEqual({ overdue: 0, today: 0, week: 1, month: 1 })
   })
 })
