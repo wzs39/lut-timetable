@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { useMoodleData } from '../../hooks/useMoodleData'
 import type { MoodleNotification, NotificationKind } from '../../lib/notificationsFeed'
-import { unreadByKind } from '../../lib/notificationsFeed'
+import { unreadByKind, notificationCourses } from '../../lib/notificationsFeed'
+import { loadEnrolledCourses, extractCourseCode } from '../../lib/courses'
 import { openExternal } from '../../lib/openExternal'
 import Icon from '../Icon'
 
@@ -46,6 +47,8 @@ export default function NotificationsSection() {
   }
 
   const [filter, setFilter] = useState<NotificationKind | 'all'>('all')
+  // 课程筛选：null = 全部课程。courseid 来自通知 payload/customdata。
+  const [courseFilter, setCourseFilter] = useState<number | null>(null)
   // 回执默认隐藏：一条可展开的收纳条 + 计数（选择持久化到 storage）。
   const [showReceipts, setShowReceipts] = useState(false)
   const counts = useMemo(() => {
@@ -55,10 +58,10 @@ export default function NotificationsSection() {
   }, [notifications])
   const shown = useMemo(
     () =>
-      (filter === 'all' ? notifications : notifications?.filter((n) => n.kind === filter) ?? null)?.filter(
-        (n) => showReceipts || n.kind !== 'receipt',
-      ) ?? null,
-    [notifications, filter, showReceipts],
+      (filter === 'all' ? notifications : notifications?.filter((n) => n.kind === filter) ?? null)
+        ?.filter((n) => showReceipts || n.kind !== 'receipt')
+        ?.filter((n) => courseFilter == null || n.courseid === courseFilter) ?? null,
+    [notifications, filter, showReceipts, courseFilter],
   )
   const receiptsHidden = (counts.receipt ?? 0) > 0 && !showReceipts && (filter === 'all' || filter === 'receipt')
   // 未读按分类细分：chip 上的蓝色徽标（回执 chip 也计，见 unreadByKind）。
@@ -67,6 +70,13 @@ export default function NotificationsSection() {
     () => Object.values(unread).reduce((a, b) => a + b, 0),
     [unread],
   )
+  // 按课程分组（有 courseid 的通知），课程名映射自 enrol 缓存。
+  const courses = useMemo(() => notificationCourses(notifications), [notifications])
+  const courseNames = useMemo(() => {
+    const m = new Map<number, string>()
+    for (const c of loadEnrolledCourses() ?? []) m.set(c.courseid, c.shortname)
+    return m
+  }, [courses]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (notifications === null) {
     return <p className="py-8 text-center text-xs text-[var(--text-3)]">{t('notifLoading')}</p>
@@ -102,6 +112,45 @@ export default function NotificationsSection() {
               )}
             </button>
           ))}
+        </div>
+      )}
+      {courses.length > 1 && (
+        <div className="flex flex-wrap gap-1">
+          {courses.map(({ courseid, count, unread }) => {
+            const name = courseNames.get(courseid)
+            const label = (name && (extractCourseCode(name) ?? name)) || `Course ${courseid}`
+            const active = courseFilter === courseid
+            return (
+              <button
+                key={courseid}
+                onClick={() => setCourseFilter(active ? null : courseid)}
+                aria-pressed={active}
+                className={
+                  'inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition ' +
+                  (active
+                    ? 'border-[var(--info)] bg-[var(--tint-info)] text-[var(--info)]'
+                    : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-2)] hover:border-[var(--line-info)]')
+                }
+                title={name ?? String(courseid)}
+              >
+                <span className="truncate">{label}</span>
+                <span className="tabular-nums text-[var(--text-3)]">{count}</span>
+                {unread > 0 && (
+                  <span className="rounded-full border border-[var(--line-info)] bg-[var(--tint-info)] px-1 text-[9px] font-semibold leading-none tabular-nums text-[var(--info)]">
+                    {unread}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+          {courseFilter != null && (
+            <button
+              onClick={() => setCourseFilter(null)}
+              className="inline-flex items-center rounded-full border border-[var(--line)] px-2 py-0.5 text-[10px] text-[var(--text-3)] hover:text-[var(--text-1)]"
+            >
+              {t('notifAll')}
+            </button>
+          )}
         </div>
       )}
       <ul className="space-y-1.5">

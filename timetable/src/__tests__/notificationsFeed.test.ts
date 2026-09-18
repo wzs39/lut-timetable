@@ -113,3 +113,28 @@ describe('unreadByKind', () => {
     expect(unreadByKind([])).toEqual({ forum: 0, submission: 0, quiz: 0, receipt: 0, system: 0 })
   })
 })
+
+describe('notificationCourses (per-course grouping)', () => {
+  const mk = (id: string, courseid: number | undefined, read: boolean): MoodleNotification => ({
+    id, subject: id, body: '', read, kind: 'forum', courseid,
+  })
+
+  it('groups by courseid with unread-first stable ordering', async () => {
+    const { notificationCourses } = await import('../lib/notificationsFeed')
+    const out = notificationCourses([
+      mk('a', 111, true), mk('b', 111, false),
+      mk('c', 222, false), mk('d', 222, false), mk('e', 222, true),
+      mk('no-course', undefined, false),
+    ])
+    expect(out).toEqual([
+      { courseid: 222, count: 3, unread: 2 },
+      { courseid: 111, count: 2, unread: 1 },
+    ])
+  })
+
+  it('returns [] for null/empty and for notifications without courseid', async () => {
+    const { notificationCourses } = await import('../lib/notificationsFeed')
+    expect(notificationCourses(null)).toEqual([])
+    expect(notificationCourses([mk('x', undefined, false)])).toEqual([])
+  })
+})

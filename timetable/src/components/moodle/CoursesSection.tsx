@@ -84,7 +84,7 @@ export default function CoursesSection({
               {pending > 0 && <span>{t('coursesPending', { n: pending })}</span>}
               {avg != null && (
                 <span className="tabular-nums" title={t('gradeMoodleAvg')}>
-                  {t('gradeProjTitle')}: {avg.toFixed(0)}%
+                  {t('coursesAvg')} {avg.toFixed(0)}%
                 </span>
               )}
             </div>

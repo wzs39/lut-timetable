@@ -83,6 +83,13 @@ export function classifyNotification(
   return 'system'
 }
 
+/** courseid bisa datang sebagai string dari customdata JSON — normalkan. */
+function toNumId(v: unknown): number | undefined {
+  if (v == null) return undefined
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
 /** Pesan mentah → MoodleNotification (bila sah). */
 export function parseNotification(
   n: RawNotification,
@@ -110,7 +117,9 @@ export function parseNotification(
     read,
     time,
     from: n.userfromfullname ?? n.userfrom?.fullname ?? undefined,
-    courseid: n.courseid ?? cd?.courseid,
+    // courseid: LUT 把它放在 customdata JSON（字符串形态）——统一归一为数字，
+    // 否则与 enrol 列表的数字 courseid 对不上（Map 键/严格等全部错位）。
+    courseid: toNumId(n.courseid ?? cd?.courseid),
     kind: classifyNotification(url, cd as Record<string, unknown> | null, n.subject),
   }
 }
@@ -153,6 +162,30 @@ export function countUnread(list: readonly MoodleNotification[] | null): number 
  * Berbeda dari countUnread: kategori receipt IKUT dihitung di sini (chip
  * receipt memang menampilkannya); pemanggil memutuskan pakai yang mana.
  */
+/**
+ * Kelompok per kursus (murni) — untuk chip filter kursus di UI.
+ * Hanya kursus yang punya notifikasi; urut: belum-dibaca terbanyak dulu,
+ * lalu jumlah terbanyak, lalu courseid (stabil antar-render).
+ */
+export function notificationCourses(
+  list: readonly MoodleNotification[] | null,
+): Array<{ courseid: number; count: number; unread: number }> {
+  const map = new Map<number, { count: number; unread: number }>()
+  for (const n of list ?? []) {
+    // Cache lama menyimpan courseid sebagai string — koersikan agar
+    // pengelompokan cocok dengan courseid angka di daftar enrol.
+    const cid = toNumId(n.courseid)
+    if (cid == null) continue
+    const e = map.get(cid) ?? { count: 0, unread: 0 }
+    e.count++
+    if (!n.read) e.unread++
+    map.set(cid, e)
+  }
+  return [...map.entries()]
+    .map(([courseid, v]) => ({ courseid, ...v }))
+    .sort((a, b) => b.unread - a.unread || b.count - a.count || a.courseid - b.courseid)
+}
+
 export function unreadByKind(
   list: readonly MoodleNotification[] | null,
 ): Record<NotificationKind, number> {
@@ -195,10 +228,13 @@ export function loadCachedNotifications(): MoodleNotification[] | null {
   try {
     const raw = readJson<{ fetchedAt: number; items: MoodleNotification[] } | null>(cacheKey(), null)
     if (raw && Array.isArray(raw.items) && Date.now() - raw.fetchedAt <= CACHE_TTL) {
-      // Migration: cache lama sebelum kolom `kind` ada — isi dari URL.
+      // Migration: cache lama sebelum kolom `kind` ada — isi dari URL;
+      // courseid lama berbentuk string — normalkan ke angka agar filter
+      // dan pengelompokan cocok dengan courseid angka daftar enrol.
       return raw.items.map((it) => ({
         ...it,
         kind: it.kind ?? classifyNotification(it.url, null),
+        courseid: toNumId(it.courseid),
       }))
     }
   } catch {

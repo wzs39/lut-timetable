@@ -42,7 +42,10 @@ export default function CourseContentsToggle({
   }, [open])
 
   return (
-    <div className="w-full">
+    // display: contents：在 flex 行（CoursesSection <li>）里让按钮和展开面板
+    // 成为 <li> 的直接 flex 项——按钮 shrink-0 留在行内，面板 basis-full 换行
+    // 占满。此前根节点 w-full 会抢占整行宽度，把课程名挤成 1 字宽竖排。
+    <div className="contents">
       <button
         onClick={() => setOpen((o) => !o)}
         className="app-btn-ghost shrink-0 px-1.5 py-1"
@@ -51,7 +54,7 @@ export default function CourseContentsToggle({
         <Icon name={open ? 'chevron-up' : 'chevron-down'} size={12} />
       </button>
       {open && (
-        <div className="animate-modal-in mt-2 w-full">
+        <div className="animate-modal-in order-last w-full basis-full">
           {busy && !sections && <p className="py-2 text-center text-[11px] text-[var(--text-3)]">{t('contentsLoading')}</p>}
           {!busy && !sections && <p className="py-2 text-center text-[11px] text-[var(--text-3)]">{t('contentsEmpty')}</p>}
           {sections && sections.length === 0 && (
