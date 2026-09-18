@@ -139,7 +139,14 @@ async function fetchChain(
         connectTimeout: 10000,
       })
       if (res.status >= 400) throw new Error(`HTTP ${res.status}`)
-      const text = typeof res.data === 'string' ? res.data : String(res.data)
+      // CapacitorHttp mem-parse respons application/json otomatis menjadi
+      // objek. String(obj) menghasilkan "[object Object]" dan JSON.parse
+      // selalu gagal (bug nyata: login SSO di Android -> "invalid JSON
+      // from core_webservice_get_site_info"). Re-serialize agar aman.
+      const text =
+        typeof res.data === 'string'
+          ? res.data
+          : JSON.stringify(res.data)
       if (cacheable(text)) saveCached(keyOf(url), text)
       return text
     } catch (error) {
