@@ -28,9 +28,11 @@ describe('buildWidgetPayload', () => {
       ],
       NOW,
     )
-    expect(p.items).toHaveLength(2)
+    expect(p.items).toHaveLength(2) // payload selalu per-sesi; merge dilakukan native
     expect(p.items[0].s).toBe('08:00')
+    expect(p.items[0].e).toBe('10:00')
     expect(p.items[1].s).toBe('12:00')
+    expect(p.items[1].e).toBe('14:00')
     expect(p.items[0].name).toBe('BM20A9200') // kode menang atas judul
     expect(p.date).toBe('2026-09-18')
   })
@@ -73,5 +75,50 @@ describe('buildWidgetPayload', () => {
     expect(empty.items).toEqual([])
     expect(empty.weekCount).toBe(0)
     expect(empty.next).toBeNull()
+  })
+
+  it('per-sesi TANPA merge: sesi paralel & sesi berturut sama-sama tampil', () => {
+    const p = buildWidgetPayload(
+      [
+        // CT60A0250 tiga sesi paralel "pilih salah satu" (pola nyata LUT)
+        lesson('2026-09-18T08:00:00', '2026-09-18T10:00:00', 'CT60A0250', 'Fundamentals of Programming', 'NIE73_B101'),
+        lesson('2026-09-18T14:00:00', '2026-09-18T16:00:00', 'CT60A0250', 'Fundamentals of Programming', 'NIE73_B101'),
+        lesson('2026-09-18T17:00:00', '2026-09-18T19:00:00', 'CT60A0250', 'Fundamentals of Programming', 'NIE73_B101'),
+        // dua sesi HDD5020 sambung (12-14, 14-16)
+        lesson('2026-09-18T12:00:00', '2026-09-18T14:00:00', 'HDD5020', 'Foundations of Information Processing', 'M19_AUD1B'),
+        lesson('2026-09-18T14:00:00', '2026-09-18T16:00:00', 'HDD5020', 'Foundations of Information Processing', 'M19_AUD1B'),
+      ],
+      NOW,
+    )
+    expect(p.items).toHaveLength(5)
+    expect(p.items.filter((i) => i.name === 'CT60A0250')).toHaveLength(3)
+    // epoch ms tersedia untuk penanda NOW di sisi native
+    expect(p.items[0].sms).toBe(new Date('2026-09-18T08:00:00').getTime())
+    expect(p.items[0].ems).toBe(new Date('2026-09-18T10:00:00').getTime())
+    // nama kursus penuh dibawa (segmen pertama judul)
+    expect(p.items[0].title).toBe('Fundamentals of Programming')
+  })
+})
+
+describe('nextStartMs (countdown anchor)', () => {
+  it('is the epoch ms of the next unfinished lesson today', () => {
+    const now = new Date('2026-09-19T09:00:00.000Z') // 12:00 Helsinki
+    const lessons = [
+      { id: 'a', source: 'manual' as const, title: 'Done', start: '2026-09-19T06:00:00.000Z', end: '2026-09-19T08:00:00.000Z' },
+      { id: 'b', source: 'manual' as const, title: 'Running', start: '2026-09-19T08:00:00.000Z', end: '2026-09-19T10:00:00.000Z' },
+      { id: 'c', source: 'manual' as const, title: 'Later', start: '2026-09-19T13:00:00.000Z', end: '2026-09-19T15:00:00.000Z' },
+    ]
+    const p = buildWidgetPayload(lessons, now)
+    expect(p.nextStartMs).toBe(new Date('2026-09-19T08:00:00.000Z').getTime())
+  })
+
+  it('is null when nothing remains today', () => {
+    const now = new Date('2026-09-19T20:00:00.000Z')
+    const lessons = [
+      { id: 'a', source: 'manual' as const, title: 'Over', start: '2026-09-19T06:00:00.000Z', end: '2026-09-19T08:00:00.000Z' },
+    ]
+    const p = buildWidgetPayload(lessons, now)
+    expect(p.nextStartMs).toBeNull()
+    expect(p.next).toBeNull()
   })
 })
