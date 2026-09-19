@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, session, protocol } = require('electron')
 const path = require('node:path')
+const fs = require('node:fs')
 const { autoUpdater } = require('electron-updater')
 const { attachExternalLinkHandling } = require('./external-links.cjs')
 
@@ -204,6 +205,18 @@ function setupAutoUpdater() {
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
+  // Diferensial download (blockmap) membuat file sementara; matikan pemakaian
+  // ulang cache lama yang sudah terpasang agar pending/ tidak menumpuk.
+  try {
+    const updaterCache = path.join(app.getPath('appData'), app.name + '-updater', 'pending')
+    const staleMs = 7 * 24 * 3600 * 1000
+    for (const f of fs.readdirSync(updaterCache)) {
+      const p = path.join(updaterCache, f)
+      try {
+        if (Date.now() - fs.statSync(p).mtimeMs > staleMs) fs.rmSync(p, { force: true })
+      } catch { /* file terkunci (installer berjalan) — coba lagi berikutnya */ }
+    }
+  } catch { /* direktori belum ada — normal di install baru */ }
 
   autoUpdater.on('update-available', (info) =>
     broadcastUpdate({ type: 'update-available', version: String(info.version) }),
@@ -249,6 +262,35 @@ app.whenReady().then(() => {
   setupAutoUpdater()
   setupJumpList()
   createWindow()
+
+  // Shudio lama versi (Cache/Code Cache WebView) tumbuh tanpa batas; versi
+  // baru TIDAK otomatis menghapus cache lama (user data dipertahankan).
+  // Bersihkan cache HTTP/Shader >30 hari sekali seumur versi agar memori
+  // disk tidak membengkak — data pengguna (localStorage) tidak disentuh.
+  try {
+    const marker = path.join(app.getPath('userData'), 'cache-swept-' + app.getVersion())
+    if (!fs.existsSync(marker)) {
+      fs.writeFileSync(marker, new Date().toISOString())
+      const cutoff = Date.now() - 30 * 24 * 3600 * 1000
+      for (const dir of ['Cache', 'Code Cache', 'GPUCache', 'DawnGraphiteCache', 'DawnWebGPUCache']) {
+        const p = path.join(app.getPath('userData'), dir)
+        try {
+          if (fs.existsSync(p)) {
+            for (const f of fs.readdirSync(p)) {
+              const fp = path.join(p, f)
+              try { if (fs.statSync(fp).mtimeMs < cutoff) fs.rmSync(fp, { recursive: true, force: true }) } catch { /* locked */ }
+            }
+          }
+        } catch { /* non-fatal */ }
+      }
+      // Marker versi lama ikut dibuang (satu marker per versi cukup)
+      for (const f of fs.readdirSync(app.getPath('userData'))) {
+        if (f.startsWith('cache-swept-') && f !== 'cache-swept-' + app.getVersion()) {
+          try { fs.rmSync(path.join(app.getPath('userData'), f), { force: true }) } catch { /* locked */ }
+        }
+      }
+    }
+  } catch { /* non-fatal: pembersihan tidak boleh blok startup */ }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

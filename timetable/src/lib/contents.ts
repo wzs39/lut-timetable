@@ -96,9 +96,16 @@ interface RawCompletionStatus {
 /**
  * completion status → Map<cmid, state>. State 0 tetap dimasukkan agar modul
  * tanpa tanda bisa dibedakan dari "belum dinilai pelacakan".
+ *
+ * PENTING: respons WS memakai field `statuses` (bukan `statuslist`) —
+ * salah baca field dulu menghasilkan map kosong dan UI jatuh ke
+ * `contents.completion` yang sebenarnya TIPE PELACAKAN (0 none / 1 manual /
+ * 2 automatic), bukan status selesai — inilah yang membuat modul tak selesai
+ * tampak tercentang.
  */
 export function parseCompletionStatus(response: unknown): Map<number, number> {
-  const list = (response as { statuslist?: RawCompletionStatus[] })?.statuslist
+  const body = response as { statuses?: RawCompletionStatus[]; statuslist?: RawCompletionStatus[] }
+  const list = Array.isArray(body?.statuses) ? body.statuses : Array.isArray(body?.statuslist) ? body.statuslist : undefined
   const map = new Map<number, number>()
   if (!Array.isArray(list)) return map
   for (const s of list) {
@@ -117,9 +124,39 @@ export function mergeCompletion(
     ...s,
     modules: s.modules.map((m) => ({
       ...m,
-      completion: completion.get(m.id) ?? m.completion,
+      completion: completion.get(m.id),
     })),
   }))
+}
+
+/* ------------------------- manual completion toggle ------------------------- */
+
+/**
+ * Tandai/batal tandai aktivitas SELESAI secara manual (klik pengguna).
+ * WS: core_completion_update_activity_completion_status_manually
+ *   params: cmid (int) + completed (bool) — NAMA PARAM `completed`, bukan
+ *   `completionstate` (salah nama → invalid_parameter).
+ * Hanya aktivitas dengan pelacakan MANUAL (tracking=1) yang bisa ditandai;
+ * otomatis (2) ditolak server — pemanggil UI menyembunyikan toggle untuk itu.
+ * Token null / gagal → false (UI tetap responsif, cache di-refresh terpisah).
+ */
+export async function markActivityCompletion(
+  src: { token: string; userid?: number } | null,
+  cmid: number,
+  completed: boolean,
+): Promise<boolean> {
+  if (!src?.token) return false
+  try {
+    const { token } = await validateGradesSource(src)
+    const res = await wsCall<{ status?: boolean }>(
+      token,
+      'core_completion_update_activity_completion_status_manually',
+      { cmid, completed: completed ? 1 : 0 },
+    )
+    return res?.status === true
+  } catch {
+    return false
+  }
 }
 
 /* ----------------------------- cache + fetch ----------------------------- */

@@ -99,6 +99,9 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     const now = Date.now()
     const week = now + 7 * 24 * 3600 * 1000
     const kw = q.trim().toLowerCase()
+    // 全量分组（与筛选无关）：计数器用它；渲染时再按 groupFilter 过滤。
+    // 若在这里就按 groupFilter 过滤，选中某组后其余 chip 的计数全部归零
+    // （groups.get(g) 对被过滤掉的组返回空数组）。
     const map = new Map<Group, Task[]>()
     for (const task of sortTasks(tasks)) {
       if (kw) {
@@ -111,12 +114,10 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
       else if (task.dueAt && new Date(task.dueAt).getTime() <= week) g = 'due7'
       else if (task.dueAt) g = 'later'
       else g = 'nodue'
-      if (groupFilter !== 'all' && groupFilter !== g) continue
-      if (g === 'done' && !showCompleted) continue
       push(map, g, task)
     }
     return map
-  }, [tasks, showCompleted, q, groupFilter])
+  }, [tasks, q])
 
   const groupLabel: Record<Group, string> = {
     overdue: t('assignOverdue'),
@@ -165,13 +166,19 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
           </div>
         </div>
 
-        {/* 搜索框：始终可见 */}
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={t('assignSearchPh')}
-          className="app-input"
-        />
+        {/* 搜索框 + 显示已完成：同行（窄屏不再和筛选 chips 抢宽度） */}
+        <div className="flex items-center gap-2">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={t('assignSearchPh')}
+            className="app-input min-w-0 flex-1"
+          />
+          <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-2)]">
+            <input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} className="accent-sky-500" />
+            {t('tasksShowCompleted')}
+          </label>
+        </div>
 
         {/* 分组筛选 chips */}
         <div className="flex flex-wrap gap-1.5">
@@ -197,10 +204,6 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
               </button>
             )
           })}
-          <label className="ml-auto flex items-center gap-1.5 text-[11px] text-[var(--text-2)]">
-            <input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} className="accent-sky-500" />
-            {t('tasksShowCompleted')}
-          </label>
         </div>
 
         {/* ---- 收纳抽屉：手动添加任务 ---- */}
@@ -286,6 +289,9 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
           <div className="space-y-4">
             {GROUP_ORDER.map((g) => {
               const items = groups.get(g) ?? []
+              // 渲染层过滤：groupFilter 非 all 时只显示选中组；done 组跟随 showCompleted
+              if (groupFilter !== 'all' && groupFilter !== g) return null
+              if (g === 'done' && !showCompleted) return null
               if (items.length === 0) return null
               return (
                 <section key={g}>

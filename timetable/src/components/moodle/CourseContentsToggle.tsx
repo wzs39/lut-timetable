@@ -6,7 +6,7 @@ import {
   type CourseSection,
 } from '../../lib/contents'
 import Icon from '../Icon'
-import CourseContentsTree from './CourseContentsTree'
+import CourseContentsTree, { setContentsTokenSource } from './CourseContentsTree'
 
 /** Expand/collapse tombol konten kursus + pohon kontennya (lazy fetch). */
 export default function CourseContentsToggle({
@@ -17,6 +17,9 @@ export default function CourseContentsToggle({
   token: { token: string; userid?: number } | null
 }) {
   const { t } = useI18n()
+  // Tree memanggil markActivityCompletion lewat holder ini (hindari prop
+  // drilling token ke tiap node).
+  setContentsTokenSource(token)
   const [open, setOpen] = useState(false)
   const [sections, setSections] = useState<CourseSection[] | null>(() => loadCachedContents(courseId))
   const [busy, setBusy] = useState(false)
@@ -61,7 +64,12 @@ export default function CourseContentsToggle({
             <p className="py-2 text-center text-[11px] text-[var(--text-3)]">{t('contentsEmpty')}</p>
           )}
           {sections && sections.length > 0 && (
-            <CourseContentsTree sections={sections} onRefresh={() => void load(true)} busy={busy} />
+            <CourseContentsTree
+              sections={sections}
+              onRefresh={() => void load(true)}
+              busy={busy}
+              onToggleComplete={() => void load(true)}
+            />
           )}
         </div>
       )}

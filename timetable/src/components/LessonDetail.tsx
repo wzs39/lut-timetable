@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useExitAnimation } from '../lib/useExitAnimation'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
 import { resolveSisuCourseUrl } from '../lib/sisuCourse'
+import { loadIdentityIndex } from '../lib/courseIdentity'
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
 import { formatDay, formatTime } from '../lib/date'
@@ -65,6 +66,13 @@ export default function LessonDetail({
   const [sisuState, setSisuState] = useState<'idle' | 'loading' | 'notfound'>('idle')
   const [noteEdit, setNoteEdit] = useState(false)
   const [noteText, setNoteText] = useState('')
+
+  // Tabel identitas: kode jadwal → courseid Moodle (tulis saat enrol sync).
+  // Ada barisnya → tautan langsung ke halaman kursus, tanpa pencarian SISU.
+  const moodleCourseId = useMemo(
+    () => (lesson.code ? loadIdentityIndex().idForCode(lesson.code) : null),
+    [lesson.code],
+  )
 
   const isMerged = (lesson.mergedSources?.length ?? 0) > 1
   const sourceNote = isMerged
@@ -338,6 +346,14 @@ export default function LessonDetail({
                 )}
               </dl>
 
+              {moodleCourseId && (
+                <ExternalLink
+                  href={`https://moodle.lut.fi/course/view.php?id=${moodleCourseId}`}
+                  className="block text-[11px] text-[var(--info)] hover:text-[var(--info)] hover:underline"
+                >
+                  {t('viewMoodleCourse')}
+                </ExternalLink>
+              )}
               {lesson.code && (
                 <button
                   onClick={openSisu}

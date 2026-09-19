@@ -1,6 +1,38 @@
 import { Capacitor } from '@capacitor/core'
 import { fetchText } from './fetchIcs'
 
+/**
+ * Buang APK lama hasil unduhan update sebelumnya.
+ *
+ * Dua lokasi:
+ *  1. App cache (Directory.Cache) — bila unduhan lewat jalur in-app (masa depan).
+ *  2. Public Download/ — bila unduhan lewat browser eksternal (jalur sekarang).
+ *     File milik Download Provider; delete langsung akan gagal diam-diam di
+ *     Android 11+ (scoped storage). Pemilik file adalah sistem, jadi satu-satunya
+ *     cara tanpa dialog adalah MANAGE_EXTERNAL_STORAGE (izin besar, tidak layak
+ *     untuk satu file APK).
+ *
+ * Keputusan: HANYA bersihkan app cache di sini. APK di Download/ dibiarkan —
+ * meminta izin storage luas demi 1 MB APK justru merugikan privasi & trust.
+ * Pengguna dapat menghapusnya dari Files app bila perlu (dokumen di summary).
+ */
+export async function maybeCleanOldApks(): Promise<void> {
+  if (Capacitor.getPlatform() !== 'android') return
+  try {
+    const { Filesystem, Directory } = await import('@capacitor/filesystem')
+    const r = await Filesystem.readdir({ path: '', directory: Directory.Cache })
+    for (const f of r.files) {
+      if (f.name.toLowerCase().endsWith('.apk')) {
+        try { await Filesystem.deleteFile({ path: f.name, directory: Directory.Cache }) } catch { /* locked */ }
+      }
+    }
+  } catch { /* cache kosong / plugin absent — no-op */ }
+  try {
+    const bridge = (window as unknown as { Capacitor?: { Plugins?: { lutWidget?: { cleanOldApks?: () => Promise<{ removed: number }> } } } }).Capacitor?.Plugins?.lutWidget
+    await bridge?.cleanOldApks?.()
+  } catch { /* native bridge absent — no-op */ }
+}
+
 /** Where APK updates are published (GitHub Releases). */
 const RELEASES_API =
   'https://api.github.com/repos/wzs39/lut-timetable/releases/latest'

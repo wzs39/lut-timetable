@@ -5,6 +5,7 @@ import { fetchIcsText } from './fetchIcs'
 import { KEYS, readJson, writeJson, removeKey } from './storage'
 import { matchCourseCode, extractCourseCode } from './courses'
 import { loadIdentityIndex } from './courseIdentity'
+import { fetchActivityUrls } from './actions'
 
 /**
  * Moodle calendar (moodle.lut.fi) → assignments.
@@ -227,6 +228,31 @@ export async function syncMoodle(
 ): Promise<{ tasks: Task[]; added: number; updated: number }> {
   const ics = await fetchIcsText(src.url)
   const assignments = parseMoodleAssignments(ics)
+  // Upgrade URL tugas ICS: halaman event kalender → halaman aktivitas modul.
+  // Hanya event yang BELUM dimigrasi ke timeline (action source sudah punya
+  // URL resminya sendiri). Kegagalan lookup tidak memblokir sinkron.
+  const pending = assignments.filter((a) => {
+    const eventId = a.uid.match(/^(\d+)@moodle\.lut\.fi$/i)?.[1]
+    return eventId && !tasks.some((t) => t.id === `moodle-act:${eventId}`)
+  })
+  if (pending.length > 0) {
+    try {
+      const token = readJson<{ token?: string } | null>(KEYS.gradesSource, null)?.token
+      if (token) {
+        const urls = await fetchActivityUrls(
+          token,
+          pending
+            .map((a) => Number(a.uid.match(/^(\d+)@moodle\.lut\.fi$/i)?.[1]))
+            .filter((n): n is number => Number.isFinite(n)),
+        )
+        for (const a of assignments) {
+          const eventId = a.uid.match(/^(\d+)@moodle\.lut\.fi$/i)?.[1]
+          const upgraded = eventId ? urls.get(Number(eventId)) : undefined
+          if (upgraded) a.url = upgraded
+        }
+      }
+    } catch { /* URL kalender tetap dipakai */ }
+  }
   const result = mergeMoodleAssignments(tasks, assignments, lessons)
   saveMoodleSource({
     ...src,

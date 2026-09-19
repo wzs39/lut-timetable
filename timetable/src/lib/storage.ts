@@ -21,6 +21,7 @@ export const KEYS = {
   conflictDismissed: 'tt_conflict_dismissed',
   tasks: 'tt_tasks_v1',
   courseIdentity: 'tt_course_identity_v1',
+  eventCmidCache: 'tt_event_cmid_v1',
   moodleSource: 'tt_moodle_source_v1',
   gradesSource: 'tt_grades_source_v1',
   gradesSort: 'tt_grades_sort',

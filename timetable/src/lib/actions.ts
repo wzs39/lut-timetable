@@ -1,6 +1,7 @@
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
 import { wsCall, validateGradesSource } from './grades'
+import { KEYS, readJson, writeJson } from './storage'
 import { matchCourseCode, extractCourseCode } from './courses'
 import { loadIdentityIndex } from './courseIdentity'
 
@@ -45,6 +46,90 @@ interface RawActionEvent {
 
 /** Modul yang dianggap "tugas" (punya deadline & bisa dikerjakan). */
 const ASSIGNMENT_MODULES = new Set(['assign', 'quiz'])
+
+/**
+ * Upgrade URL tugas ICS (`calendar/view.php?event=N`) → halaman aktivitas
+ * (`mod/<mod>/view.php?id=<cmid>`); event tanpa modul (maintenance dsb.)
+ * diarahkan ke halaman kursus Moodle-nya.
+ *
+ * Sumber: `core_calendar_get_calendar_event_by_id` PER EVENT — responsnya
+ * membawa `url` aktivitas siap-pakai dengan cmid SEBENAR (terverifikasi di
+ * LUT: event quiz 4672733 → url id=2193942, sama dengan action URL resmi).
+ * PENTING: `core_calendar_get_calendar_events` (bentuk jamak) TIDAK bisa
+ * dipakai — `instance`-nya id tabel modul (mis. quiz 91185), bukan cmid;
+ * URL darinya menghasilkan "Can't find data record in database".
+ * Hasil di-cache permanen (URL aktivitas tidak berubah) sehingga biaya
+ * 1-call-per-event hanya dibayar sekali seumur event.
+ */
+export async function fetchActivityUrls(
+  token: string,
+  eventIds: number[],
+): Promise<Map<number, string>> {
+  const out = new Map<number, string>()
+  const cache = readJson<Record<string, string>>(KEYS.eventCmidCache, {})
+  let cacheDirty = false
+  const pending: number[] = []
+  for (const id of eventIds) {
+    const hit = cache[String(id)]
+    if (hit) out.set(id, hit)
+    else pending.push(id)
+  }
+
+  for (const eventId of pending) {
+    try {
+      const res = await wsCall<{
+        event?: {
+          id?: number
+          modulename?: string
+          url?: string
+          course?: { id?: number } | null
+        }
+      }>(token, 'core_calendar_get_calendar_event_by_id', { eventid: eventId })
+      const ev = res.event
+      if (!ev) continue
+      // url = halaman aktivitas (cmid benar); bila kosong (event tanpa
+      // modul, mis. maintenance) → halaman kursus pemilik event.
+      const url =
+        ev.url && ev.url.includes('/mod/')
+          ? ev.url
+          : ev.course?.id != null
+            ? `https://moodle.lut.fi/course/view.php?id=${ev.course.id}`
+            : undefined
+      if (url) {
+        out.set(eventId, url)
+        cache[String(eventId)] = url
+        cacheDirty = true
+      }
+    } catch {
+      // Event gagal di-resolve → biarkan tanpa upgrade (URL kalender lama).
+    }
+  }
+  if (cacheDirty) writeJson(KEYS.eventCmidCache, cache)
+  return out
+}
+
+/**
+ * Terapkan hasil fetchActivityUrls ke task ICS lama yang masih menempel
+ * halaman event kalender. Task manual & timeline (moodle-act:) tak tersentuh.
+ */
+export function upgradeIcsTaskUrls(
+  tasks: Task[],
+  urls: Map<number, string>,
+): { tasks: Task[]; upgraded: number } {
+  if (urls.size === 0) return { tasks, upgraded: 0 }
+  const now = new Date().toISOString()
+  let upgraded = 0
+  const next = tasks.map((t) => {
+    const eventId = Number(t.id.match(/^moodle:(\d+)@moodle\.lut\.fi$/i)?.[1])
+    const target = Number.isFinite(eventId) ? urls.get(eventId) : undefined
+    if (target && t.url !== target) {
+      upgraded++
+      return { ...t, url: target, updatedAt: now }
+    }
+    return t
+  })
+  return { tasks: next, upgraded }
+}
 
 /** Filter event timeline: hanya yang punya action URL + modul tugas. */
 export function parseActionEvents(response: unknown): ActionEvent[] {

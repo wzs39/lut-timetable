@@ -56,7 +56,7 @@ export default function CoursesSection({
       {rows.map(({ c, code, pending, avg, color }) => (
         <li
           key={c.courseid}
-          className="flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2"
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2"
         >
           <span
             className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -65,7 +65,7 @@ export default function CoursesSection({
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              {code && onJumpToCourse ? (
+              {code && onJumpToCourse && (
                 <button
                   onClick={() => onJumpToCourse(code)}
                   className="shrink-0 font-mono text-[11px] font-semibold text-[var(--info)] hover:underline"
@@ -73,8 +73,6 @@ export default function CoursesSection({
                 >
                   {code}
                 </button>
-              ) : (
-                <span className="shrink-0 font-mono text-[11px] font-semibold">{c.shortname}</span>
               )}
               <span className="min-w-0 truncate text-[11px] text-[var(--text-2)]" title={c.fullname}>
                 {c.fullname}

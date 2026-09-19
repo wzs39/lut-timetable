@@ -23,7 +23,7 @@ import { useI18n } from './i18n'
 import { loadTasks, pendingTasks, saveTasks, type Task } from './lib/tasks'
 import { useDelayedUnmount } from './lib/useExitAnimation'
 import { checkApkUpdate } from './lib/apkUpdate'
-import ExternalLink from './components/ExternalLink'
+import { maybeCleanOldApks } from './lib/apkUpdate'
 import Icon from './components/Icon'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
 import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber, findCourseTarget } from './lib/date'
@@ -583,12 +583,22 @@ function AppInner({
               </button>
             )}
             {updateState.kind === 'available' && updateState.apkUrl && (
-              <ExternalLink
+              <a
                 href={updateState.apkUrl}
+                download="app-release.apk"
+                onClick={() => {
+                  // Unduhan lama di Download/ (APK versi sebelumnya) dibuang:
+                  // installed APK tidak terpakai lagi & memakan storage.
+                  try {
+                    const cds = (window as unknown as { caches?: CacheStorage }).caches
+                    void cds?.keys?.()
+                  } catch { /* noop */ }
+                  void maybeCleanOldApks()
+                }}
                 className="inline-flex items-center gap-1.5 rounded bg-white text-[var(--text-3)] px-3 min-h-9 font-medium"
               >
                 <Icon name="external" size={13} /> {t('updateGetApk')}
-              </ExternalLink>
+              </a>
             )}
             <button
               className="opacity-80 transition hover:opacity-100"

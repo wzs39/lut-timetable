@@ -31,10 +31,10 @@
         "nsis",
         "msi"
       ]
-    },
-    "nsis": {
-      "oneClick": true
-    },
+    }, "nsis": {
+ "oneClick": true,
+ "deleteAppDataOnUninstall": true
+ },
     "publish": [
       {
         "provider": "github",

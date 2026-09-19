@@ -54,7 +54,14 @@ export function domainCacheKey(name: string, scope?: string | number): string {
   return TRANSIENT_KEYS.icsCachePrefix + (scope == null ? name : `${name}_${scope}`)
 }
 
-/* ------------------------------- run pattern ------------------------------ */
+/**
+ * Dedup in-flight per cacheKey: panggilan konkuren untuk domain yang sama
+ * berbagi SATU Promise network — manual refresh + background sync (atau dua
+ * komponen yang mount bersamaan) tidak lagi mendobrak endpoint yang sama
+ * dua kali. Map dihapus saat Promise selesai (sukses/gagal) supaya kegagalan
+ * tidak pernah di-cache: percobaan berikutnya boleh mencoba jaringan lagi.
+ */
+const inFlight = new Map<string, Promise<unknown>>()
 
 /**
  * Pola bawaan lima domain:
@@ -79,10 +86,31 @@ export async function syncDomain<T>(opts: {
   const cached = readCache(opts.cacheKey, opts.ttlMs, opts.load)
   if (!opts.force && cached) return cached
   if (!opts.src?.token) return cached ?? []
+
+  const existing = inFlight.get(opts.cacheKey)
+  if (existing) {
+    try {
+      return (await existing) as T[]
+    } catch {
+      return cached ?? []
+    }
+  }
+  const src = opts.src
+  const p = (async (): Promise<T[]> => {
+    try {
+      // Jaringan dipanggil lewat microtask: inFlight.set di bawah pasti
+      // terdaftar sebelum call pertama berjalan, jadi finally tidak pernah
+      // menghapus sebelum set (aman bahkan untuk network yang sync-throw).
+      const list = await Promise.resolve().then(() => opts.network(src))
+      if (list.length > 0 || opts.keepWhenEmpty || cached === null) opts.save(list)
+      return list.length > 0 ? list : cached ?? []
+    } finally {
+      inFlight.delete(opts.cacheKey)
+    }
+  })()
+  inFlight.set(opts.cacheKey, p)
   try {
-    const list = await opts.network(opts.src)
-    if (list.length > 0 || opts.keepWhenEmpty || cached === null) opts.save(list)
-    return list.length > 0 ? list : cached ?? []
+    return await p
   } catch {
     return cached ?? []
   }

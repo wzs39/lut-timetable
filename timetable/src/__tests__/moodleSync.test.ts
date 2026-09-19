@@ -158,6 +158,92 @@ describe('syncDomain', () => {
     })
     expect(h2.saved()).toEqual([]) // keepWhenEmpty persists the empty list
   })
+  it('concurrent calls for the same domain share ONE network promise', async () => {
+    const key = domainCacheKey('dedup1')
+    let networkCalls = 0
+    let release!: (v: number[]) => void
+    const gate = new Promise<number[]>((res) => {
+      release = res
+    })
+    const opts = {
+      cacheKey: key,
+      ttlMs: 30_000,
+      load: (r: { items: number[] }) => r.items,
+      save: () => {},
+      src: { token: 't' },
+      force: true,
+      network: async () => {
+        networkCalls++
+        return gate
+      },
+    }
+    const a = syncDomain<number>(opts)
+    const b = syncDomain<number>(opts)
+    await new Promise((r) => setTimeout(r, 0)) // flush microtasks: shared call has dialed once
+    expect(networkCalls).toBe(1) // second caller joined, did not re-dial
+    release([5])
+    expect(await a).toEqual([5])
+    expect(await b).toEqual([5])
+
+    // Map cleaned after settle → a later call dials the network again
+    await syncDomain<number>({
+      ...opts,
+      network: async () => {
+        networkCalls++
+        return [6]
+      },
+    })
+    expect(networkCalls).toBe(2)
+  })
+
+  it('failure is never cached: joiners fall back to cache, next call retries network', async () => {
+    const key = domainCacheKey('dedup2')
+    writeCache(key, [7])
+    let networkCalls = 0
+    let fail = true
+    const opts = {
+      cacheKey: key,
+      ttlMs: 30_000,
+      load: (r: { items: number[] }) => r.items,
+      save: () => {},
+      src: { token: 't' },
+      force: true,
+      network: async () => {
+        networkCalls++
+        if (fail) throw new Error('boom')
+        return [9]
+      },
+    }
+    const a = syncDomain<number>(opts)
+    const b = syncDomain<number>(opts)
+    // both joiners of the failed shared promise fall back to their own cache
+    expect(await a).toEqual([7])
+    expect(await b).toEqual([7])
+    fail = false
+    const c = await syncDomain<number>(opts)
+    expect(c).toEqual([9]) // retried instead of being stuck on a cached failure
+    expect(networkCalls).toBe(2)
+  })
+
+  it('different domains never share an in-flight promise', async () => {
+    let calls = 0
+    const mk = (name: string) => ({
+      cacheKey: domainCacheKey(name),
+      ttlMs: 30_000,
+      load: (r: { items: number[] }) => r.items,
+      save: () => {},
+      src: { token: 't' },
+      force: true,
+      network: async () => {
+        calls++
+        return [calls]
+      },
+    })
+    const [x, y] = await Promise.all([syncDomain<number>(mk('da')), syncDomain<number>(mk('db'))])
+    expect(calls).toBe(2)
+    expect(x).toEqual([1])
+    expect(y).toEqual([2])
+  })
 })
 
 function writeJsonDirect(key: string, value: unknown): void {
