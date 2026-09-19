@@ -18,12 +18,33 @@ export interface WidgetPayload {
   updatedAt: number
   /** tanggal lokal (yyyy-mm-dd) yang digambarkan payload */
   date: string
-  /** pelajaran hari ini, urut waktu: [start, code|title, location, end] */
-  items: { s: string; e: string; name: string; room: string }[]
+  /**
+   * Pelajaran hari ini urut waktu, SATU sesi satu entri — tanpa
+   * penggabungan: sesi paralel "pilih salah satu" dan kelas berurutan
+   * sama-sama ditampilkan. `sms/ems` (epoch ms) dipakai native untuk
+   * menandai sesi yang sedang berlangsung saat render.
+   */
+  items: {
+    /** hh:mm mulai (tampilan) */
+    s: string
+    /** hh:mm selesai (tampilan) */
+    e: string
+    /** kode kursus, fallback judul */
+    name: string
+    /** nama kursus ringkas (segmen pertama judul SISU) */
+    title: string
+    room: string
+    /** epoch ms mulai — native menandai NOW bila now ∈ [sms, ems) */
+    sms: number
+    /** epoch ms selesai */
+    ems: number
+  }[]
   /** jumlah pelajaran minggu ini */
   weekCount: number
   /** judul pelajaran berikutnya yang belum selesai (opsional) */
   next?: { name: string; room: string; at: string } | null
+  /** epoch ms mulai kelas berikutnya — widget menghitung mundur sendiri. */
+  nextStartMs?: number | null
 }
 
 function localDate(d: Date): string {
@@ -56,6 +77,7 @@ export function buildWidgetPayload(
     return t >= weekStart && t < weekEnd
   }).length
   const upcoming = today.find((l) => new Date(l.end) > now)
+
   return {
     updatedAt: now.getTime(),
     date: day,
@@ -63,7 +85,10 @@ export function buildWidgetPayload(
       s: hm(l.start),
       e: hm(l.end),
       name: l.code || l.title,
+      title: (l.title || '').split(' · ')[0] || '',
       room: l.location || '—',
+      sms: new Date(l.start).getTime(),
+      ems: new Date(l.end).getTime(),
     })),
     weekCount,
     next: upcoming
@@ -73,6 +98,7 @@ export function buildWidgetPayload(
           at: hm(upcoming.start),
         }
       : null,
+    nextStartMs: upcoming ? new Date(upcoming.start).getTime() : null,
   }
 }
 
@@ -85,8 +111,26 @@ export async function pushWidgetData(lessons: Lesson[]): Promise<void> {
       key: PREF_KEY,
       value: JSON.stringify(buildWidgetPayload(lessons)),
     })
-    // TODO native bridge: minta widget refresh (setAnimationFrame pending)
+    await refreshWidgets()
   } catch {
     // Widget adalah bonus — kegagalan push tidak boleh mengganggu app.
+  }
+}
+
+/**
+ * Minta Android menggambar ulang widget sekarang. Tanpa ini widget hanya
+ * diperbarui tiap updatePeriodMillis (30 menit) — pelajaran "hari ini" bisa
+ * basi berjam-jam setelah sinkron. Gagal senyap: widget tetap di-refresh
+ * sistem pada periode berikutnya.
+ */
+export async function refreshWidgets(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    const bridge = (Capacitor as unknown as {
+      Plugins?: { WidgetBridge?: { refresh: () => Promise<{ updated: number }> } }
+    }).Plugins?.WidgetBridge
+    await bridge?.refresh()
+  } catch {
+    // Widget adalah bonus.
   }
 }

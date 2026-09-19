@@ -194,3 +194,52 @@ describe('applySubmissionStatus', () => {
     expect(note1.match(/\[Moodle\]/g)?.length).toBe(1) // no re-tag
   })
 })
+
+describe('assign deep-link backfill', () => {
+  it('parseAssignments extracts cmid', () => {
+    const meta = parseAssignments({
+      courses: [
+        {
+          shortname: 'CT60A4050',
+          assignments: [{ id: 11, name: 'IHA1', cmid: 321, duedate: 1790000000 }],
+        },
+      ],
+    })
+    expect(meta[0].cmid).toBe(321)
+  })
+
+  it('applySubmissionStatus backfills /mod/assign/view.php URL over the calendar fallback', () => {
+    const key = taskMatchKey({ title: 'IHA1', dueAt: new Date(1790000000 * 1000).toISOString() })
+    const status = new Map([[key, { state: 'submitted' as const }]])
+    const urlByKey = new Map([[key, 'https://moodle.lut.fi/mod/assign/view.php?id=321']])
+    const tasks = [
+      {
+        id: 'moodle:ev1',
+        title: 'IHA1',
+        dueAt: new Date(1790000000 * 1000).toISOString(),
+        url: 'https://moodle.lut.fi/calendar/view.php?event=42', // ICS 回退
+        completed: false,
+      } as unknown as Task,
+    ]
+    const r = applySubmissionStatus(tasks, status, urlByKey)
+    expect(r.tasks[0].url).toBe('https://moodle.lut.fi/mod/assign/view.php?id=321')
+  })
+
+  it('does not overwrite a real mod-page URL', () => {
+    const key = taskMatchKey({ title: 'IHA2', dueAt: new Date(1790000000 * 1000).toISOString() })
+    const status = new Map([[key, { state: 'submitted' as const }]])
+    const urlByKey = new Map([[key, 'https://moodle.lut.fi/mod/assign/view.php?id=321']])
+    const real = 'https://moodle.lut.fi/mod/assign/view.php?id=999&action=editsubmission'
+    const tasks = [
+      {
+        id: 'moodle:ev2',
+        title: 'IHA2',
+        dueAt: new Date(1790000000 * 1000).toISOString(),
+        url: real, // timeline action url — 已是课内页
+        completed: false,
+      } as unknown as Task,
+    ]
+    const r = applySubmissionStatus(tasks, status, urlByKey)
+    expect(r.tasks[0].url).toBe(real)
+  })
+})

@@ -6,10 +6,10 @@ import {
   parseNotice,
   extractCourseCode,
 } from '../lib/lessonAlerts'
-import type { Announcement } from '../lib/announcements'
+import type { AlertSource } from '../lib/lessonAlerts'
 import type { Lesson } from '../types'
 
-const ann = (over: Partial<Announcement>): Announcement => ({
+const ann = (over: Partial<AlertSource>): AlertSource => ({
   id: 'forum-1',
   subject: 'Notice',
   ...over,

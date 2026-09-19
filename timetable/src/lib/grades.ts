@@ -1,7 +1,9 @@
 import type { Lesson } from '../types'
 import { KEYS, readJson, writeJson, removeKey } from './storage'
 import { fetchMoodleWebService, moodleCredsFromUrl } from './fetchIcs'
-import { matchCourseCode, extractCourseCode, extractCourseTitle, fetchEnrolledCourses } from './courses'
+import { matchCourseCode, extractCourseCode, extractCourseTitle } from './courses'
+import { loadIdentityIndex } from './courseIdentity'
+import { primeEnrolAnchor } from './moodleSync'
 import { htmlToText } from './html'
 
 /**
@@ -231,9 +233,10 @@ export async function fetchGrades(
 ): Promise<CourseGrades[]> {
   const userid =
     src.userid ?? (await validateGradesToken(src.token))
-  // Pra-fetch daftar enrol resmi (cache 24 jam) — jangkar pencocokan kursus
-  // DAN sumber courseid untuk pemanggilan per-kursus.
-  const enrol = await fetchEnrolledCourses({ token: src.token, userid }).catch(() => [])
+  // Daftar enrol resmi: jangkar pencocokan DAN sumber courseid per-kursus.
+  // Satu titik lewat moodleSync.primeEnrolAnchor (jadwal ikut → identitas
+  // termutakhirkan). Enrol juga sudah dipanaskan backgroundRefresh — cache.
+  const enrol = await primeEnrolAnchor({ token: src.token, userid }, lessons)
   // LUT (Moodle 4.x): gradereport_user_get_grade_items tanpa courseid
   // menjawab invalidparameter — panggil PER KURSUS dari daftar enrol.
   // Panggilan paralel terbatas agar tidak membanjiri server.
@@ -259,6 +262,9 @@ export async function fetchGrades(
   // resmi → kode-regex → judul. Semua domain sinkron memakai logika ini.
   // Nama kursus: payload LUT tidak mengirim displaytext — shortname enrol
   // adalah sumber otoritatif (token pertamanya memang kode kursus).
+  // Identitas kursus: tabel persisten ditulis fetchEnrolledCourses di atas —
+  // baca dari sini tanpa menghitung ulang heuristik per domain.
+  const identity = loadIdentityIndex()
   const nameById = new Map((enrol ?? []).map((e) => [e.courseid, e]))
   for (const c of parsed) {
     const ec = nameById.get(c.courseId ?? -1)
@@ -266,8 +272,9 @@ export async function fetchGrades(
     // Judul manusiawi dari fullname ("BM20A9200 Mathematics A - …" →
     // "Mathematics A"); shortname saja tidak punya judul.
     c.courseTitle = extractCourseTitle(ec?.fullname) ?? extractCourseTitle(label)
-    c.course = label
-    const code = matchCourseCode(label, lessons)
+    // Kode: O(1) dari tabel identitas; fallback heuristik lama hanya bila
+    // baris identitas belum ada (enrol pertama kali gagal, dsb.).
+    const code = identity.codeFor(c.courseId) ?? matchCourseCode(label, lessons)
     if (code) {
       c.course = code
       c.matched = true

@@ -4,6 +4,7 @@ import { parseIcs } from './ics'
 import { fetchIcsText } from './fetchIcs'
 import { KEYS, readJson, writeJson, removeKey } from './storage'
 import { matchCourseCode, extractCourseCode } from './courses'
+import { loadIdentityIndex } from './courseIdentity'
 
 /**
  * Moodle calendar (moodle.lut.fi) → assignments.
@@ -155,6 +156,10 @@ export function parseMoodleAssignments(ics: string): MoodleAssignment[] {
  * - Local changes (completed) survive re-syncs; title/due follow the feed.
  * - Moodle tasks absent from the feed are removed (full re-sync semantics).
  * - Manual user tasks are never touched.
+ * - Event yang SUDAH dimigrasi ke timeline (moodle-act:<eventId> ada di
+ *   daftar) TIDAK dihidupkan kembali: mergeActionEvents menghapus task ICS
+ *   saat mengambil alih, dan ICS feed masih memuat event yang sama — tanpa
+ *   set ini task-nya bolak-balik hidup-mati tiap sync bergantian.
  */
 export function mergeMoodleAssignments(
   existing: Task[],
@@ -165,16 +170,30 @@ export function mergeMoodleAssignments(
   const next = [...existing]
   const byId = new Map(next.map((t) => [t.id, t]))
   const feedIds = new Set<string>()
+  const actionOwned = new Set(
+    next
+      .filter((t) => t.id.startsWith('moodle-act:'))
+      .map((t) => t.id.slice('moodle-act:'.length)),
+  )
   let added = 0
   let updated = 0
 
   for (const a of assignments) {
+    const eventId = a.uid.match(/^(\d+)@moodle\.lut\.fi$/i)?.[1]
+    if (eventId && actionOwned.has(eventId)) {
+      actionOwned.delete(eventId) // sudah tercakup, bukan duplikat
+      continue
+    }
     const id = `moodle:${a.uid}`
     feedIds.add(id)
     const prev = byId.get(id)
-    // Sama dengan jalur timeline (actions.ts): kode jadwal bila cocok,
-    // else kode pendek dari shortname (label pendek), else nama asli.
-    const course = matchCourseCode(a.course, lessons) ?? extractCourseCode(a.course) ?? a.course
+    // Kode jadwal: O(1) dari tabel identitas (nama Moodle → kode); heuristik
+    // lama hanya fallback bila baris identitas belum ada.
+    const course =
+      loadIdentityIndex().forName(a.course)?.code ??
+      matchCourseCode(a.course, lessons) ??
+      extractCourseCode(a.course) ??
+      a.course
     if (prev) {
       if (prev.title !== a.title || prev.dueAt !== a.dueAt || prev.course !== course) updated++
       byId.set(id, { ...prev, title: a.title, dueAt: a.dueAt, startAt: a.startAt, course, url: a.url, updatedAt: now })

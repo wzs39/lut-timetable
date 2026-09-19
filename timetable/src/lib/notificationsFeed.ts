@@ -1,5 +1,6 @@
 import { wsCall, validateGradesSource } from './grades'
 import { KEYS, readJson, writeJson } from './storage'
+import { readCache, writeCache, syncDomain } from './moodleSync'
 import { htmlToText } from './html'
 
 /**
@@ -224,31 +225,41 @@ export function markRead(id: string): void {
   }
 }
 
+/**
+ * Notifikasi → sumber peringatan pelajaran (lessonAlerts). Satu-satunya
+ * jembatan data: pengumuman forum kini tiba sebagai notifikasi 'forum',
+ * jadi kartu "ruangan berubah" memakai aliran yang sama dengan halaman
+ * Notifikasi — tidak ada pipeline forum terpisah lagi.
+ */
+export function notificationsAsAlertSources(
+  list: MoodleNotification[] | null | undefined,
+): Array<{ id: string; subject: string; excerpt?: string; course?: string; postedAt?: string }> {
+  if (!list) return []
+  return list.map((n) => ({
+    id: n.id,
+    subject: n.subject,
+    excerpt: n.body,
+    course: undefined,
+    postedAt: n.time,
+  }))
+}
+
 export function loadCachedNotifications(): MoodleNotification[] | null {
-  try {
-    const raw = readJson<{ fetchedAt: number; items: MoodleNotification[] } | null>(cacheKey(), null)
-    if (raw && Array.isArray(raw.items) && Date.now() - raw.fetchedAt <= CACHE_TTL) {
-      // Migration: cache lama sebelum kolom `kind` ada — isi dari URL;
-      // courseid lama berbentuk string — normalkan ke angka agar filter
-      // dan pengelompokan cocok dengan courseid angka daftar enrol.
-      return raw.items.map((it) => ({
-        ...it,
-        kind: it.kind ?? classifyNotification(it.url, null),
-        courseid: toNumId(it.courseid),
-      }))
-    }
-  } catch {
-    /* non-fatal */
-  }
-  return null
+  // Migration in the picker: cache lama sebelum kolom `kind` ada — isi dari
+  // URL; courseid lama berbentuk string — normalkan ke angka.
+  return readCache<MoodleNotification>(cacheKey(), CACHE_TTL, (raw) =>
+    Array.isArray(raw.items)
+      ? raw.items.map((it) => ({
+          ...it,
+          kind: it.kind ?? classifyNotification(it.url, null),
+          courseid: toNumId(it.courseid),
+        }))
+      : null,
+  )
 }
 
 function saveCachedNotifications(items: MoodleNotification[]): void {
-  try {
-    writeJson(cacheKey(), { fetchedAt: Date.now(), items })
-  } catch {
-    /* non-fatal */
-  }
+  writeCache(cacheKey(), items)
 }
 
 /** Ambil notifikasi (cache → jaringan). Token null → cache / []. */
@@ -256,37 +267,43 @@ export async function fetchNotifications(
   src: { token: string; userid?: number } | null,
   opts: { force?: boolean } = {},
 ): Promise<MoodleNotification[]> {
-  const cached = loadCachedNotifications()
-  if (!opts.force) {
-    if (cached) return cached
-  }
-  if (!src?.token) return cached ?? []
-  const readSet = loadReadIds()
-  try {
-    const { token, userid } = await validateGradesSource(src)
-    // Dua panggilan: belum dibaca + sudah dibaca (field read tidak dikirim
-    // untuk type='notifications'); gabungkan, urutkan, potong 30.
-    const [unread, read] = await Promise.all([
-      wsCall<{ messages?: unknown[] }>(token, 'core_message_get_messages', {
-        useridto: userid,
-        type: 'notifications',
-        read: 0,
-        limitnum: 20,
-      }).catch(() => null),
-      wsCall<{ messages?: unknown[] }>(token, 'core_message_get_messages', {
-        useridto: userid,
-        type: 'notifications',
-        read: 1,
-        limitnum: 20,
-      }).catch(() => null),
-    ])
-    const list = parseNotifications(
-      { notifications: [...(unread?.messages ?? []), ...(read?.messages ?? [])] },
-      readSet,
-    )
-    if (list.length > 0 || !cached) saveCachedNotifications(list)
-    return list.length > 0 ? list : cached ?? []
-  } catch {
-    return cached ?? []
-  }
+  return syncDomain<MoodleNotification>({
+    cacheKey: cacheKey(),
+    ttlMs: CACHE_TTL,
+    load: (raw) =>
+      Array.isArray(raw.items)
+        ? raw.items.map((it) => ({
+            ...it,
+            kind: it.kind ?? classifyNotification(it.url, null),
+            courseid: toNumId(it.courseid),
+          }))
+        : null,
+    save: saveCachedNotifications,
+    src,
+    force: opts.force,
+    network: async (s) => {
+      const readSet = loadReadIds()
+      const { token, userid } = await validateGradesSource(s)
+      // Dua panggilan: belum dibaca + sudah dibaca (field read tidak
+      // dikirim untuk type='notifications'); gabungkan, urutkan, potong 30.
+      const [unread, read] = await Promise.all([
+        wsCall<{ messages?: unknown[] }>(token, 'core_message_get_messages', {
+          useridto: userid,
+          type: 'notifications',
+          read: 0,
+          limitnum: 20,
+        }).catch(() => null),
+        wsCall<{ messages?: unknown[] }>(token, 'core_message_get_messages', {
+          useridto: userid,
+          type: 'notifications',
+          read: 1,
+          limitnum: 20,
+        }).catch(() => null),
+      ])
+      return parseNotifications(
+        { notifications: [...(unread?.messages ?? []), ...(read?.messages ?? [])] },
+        readSet,
+      )
+    },
+  })
 }

@@ -22,9 +22,8 @@ import {
   fetchSubmissionStatus,
   type SubmissionStatus,
 } from '../lib/submissions'
-import { fetchEnrolledCourses } from '../lib/courses'
+import { primeEnrolAnchor } from '../lib/moodleSync'
 import { fetchActionEvents, mergeActionEvents } from '../lib/actions'
-import { fetchAnnouncements } from '../lib/announcements'
 import {
   countUnread,
   fetchNotifications,
@@ -134,6 +133,12 @@ export function MoodleProvider({
     if (!tk?.token) return
     inFlightRef.current = true
     try {
+      // Satu titik enrol-anchor: cache 24 jam, menulis tabel identitas
+      // (courseid ↔ kode jadwal) yang dipakai grades/tasks/announcements —
+      // domain-domain di bawah tidak perlu (dan tidak lagi) pra-fetch sendiri.
+      try {
+        await primeEnrolAnchor(tk, lessonsRef.current)
+      } catch { /* silent */ }
       try {
         const list = await fetchGrades(tk, lessonsRef.current)
         setGrades(list)
@@ -141,25 +146,16 @@ export function MoodleProvider({
         setToken((prev) => (prev ? { ...prev, lastSync: new Date().toISOString() } : prev))
       } catch { /* silent */ }
       try {
-        const map = await fetchSubmissionStatus(tk)
-        setSubMap(map)
-        const r = applySubmissionStatus(tasksRef.current, map)
+        const { status, urlByKey } = await fetchSubmissionStatus(tk)
+        setSubMap(status)
+        const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
         if (r.archived > 0) onTasks(r.tasks)
       } catch { /* silent */ }
       try {
-        // Daftar enrol (cache 24 jam) — dipanaskan di latar belakang agar
-        // tab Kursus terbuka instan. fetchEnrolledCourses sendiri yang
-        // memutuskan cache segar vs jaringan.
-        await fetchEnrolledCourses(tk)
-      } catch { /* silent */ }
-      try {
         // Timeline → tasks: tugas baru muncul TANPA tekan sinkron manual.
-        const events = await fetchActionEvents(tk)
+        const events = await fetchActionEvents(tk, lessonsRef.current)
         const r = mergeActionEvents(tasksRef.current, events, lessonsRef.current)
         if (r.added > 0 || r.updated > 0) onTasks(r.tasks)
-      } catch { /* silent */ }
-      try {
-        await fetchAnnouncements(tk)
       } catch { /* silent */ }
       try {
         const list = await fetchNotifications(tk)
@@ -376,7 +372,7 @@ export function MoodleProvider({
     setMessage(t('moodleSyncing'))
     try {
       if (token?.token) {
-        const events = await fetchActionEvents(token)
+        const events = await fetchActionEvents(token, lessons)
         const r = mergeActionEvents(tasks, events, lessons)
         onTasks(r.tasks)
         setMessage(t('actionSyncOk', { a: r.added, u: r.updated, n: events.length }))
@@ -445,9 +441,9 @@ export function MoodleProvider({
     setBusy('subs')
     setMessage(t('subSyncing'))
     try {
-      const map = await fetchSubmissionStatus(token)
-      setSubMap(map)
-      const r = applySubmissionStatus(tasks, map)
+      const { status, urlByKey } = await fetchSubmissionStatus(token)
+      setSubMap(status)
+      const r = applySubmissionStatus(tasks, status, urlByKey)
       if (r.archived > 0) onTasks(r.tasks)
       setMessage(t(r.archived > 0 ? 'subSyncOk' : 'subSyncNone', { n: r.archived }))
     } catch (e) {

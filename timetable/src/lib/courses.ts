@@ -3,6 +3,7 @@ import { wsCall } from './grades'
 import { normalizeCourseCode } from './ics'
 import { readJson, writeJson, TRANSIENT_KEYS } from './storage'
 import { htmlToText } from './html'
+import { saveIdentityFromEnrol } from './courseIdentity'
 
 /**
  * Daftar kursus resmi pengguna (core_enrol_get_users_courses) — sumber
@@ -77,9 +78,12 @@ export function parseEnrolledCourses(response: unknown): EnrolledCourse[] {
   return out
 }
 
-/** Ambil daftar kursus resmi (cache → jaringan). Tanpa token → null. */
+/** Ambil daftar kursus resmi (cache → jaringan). Tanpa token → null.
+ *  lessons opsional: bila diberikan, tabel identitas ikut ditulis dari
+ *  jadwal (courseid ↔ kode); tanpa itu baris identitas tidak berkode. */
 export async function fetchEnrolledCourses(
   src: { token: string; userid?: number } | null,
+  lessons?: Lesson[],
 ): Promise<EnrolledCourse[] | null> {
   if (!src?.token) return null
   const cached = loadEnrolledCourses()
@@ -95,6 +99,8 @@ export async function fetchEnrolledCourses(
   } catch {
     /* kuota penuh: biarkan cache memori saja */
   }
+  // Satu titik tulis tabel identitas: courseid ↔ kode jadwal ↔ nama.
+  saveIdentityFromEnrol(courses, lessons ?? [])
   return courses
 }
 

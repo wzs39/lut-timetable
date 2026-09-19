@@ -1,5 +1,5 @@
 import { wsCall, validateGradesSource } from './grades'
-import { readJson, writeJson, TRANSIENT_KEYS } from './storage'
+import { domainCacheKey, readCache, writeCache, syncDomain } from './moodleSync'
 
 /**
  * Konten kursus (core_course_get_contents) + status penyelesaian aktivitas
@@ -124,35 +124,21 @@ export function mergeCompletion(
 
 /* ----------------------------- cache + fetch ----------------------------- */
 
-interface CacheShape {
-  fetchedAt: number
-  sections: CourseSection[]
-}
-
 const CACHE_TTL = 6 * 3600 * 1000
 
 function cacheKey(courseId: number): string {
-  return TRANSIENT_KEYS.icsCachePrefix + `contents_${courseId}`
+  return domainCacheKey('contents', courseId)
 }
 
 export function loadCachedContents(courseId: number): CourseSection[] | null {
-  try {
-    const raw = readJson<CacheShape | null>(cacheKey(courseId), null)
-    if (raw && Array.isArray(raw.sections) && Date.now() - raw.fetchedAt <= CACHE_TTL) {
-      return raw.sections
-    }
-  } catch {
-    /* non-fatal */
-  }
-  return null
+  const v = readCache<CourseSection>(cacheKey(courseId), CACHE_TTL, (raw) =>
+    Array.isArray(raw.items) ? raw.items : null,
+  )
+  return v
 }
 
 function saveCachedContents(courseId: number, sections: CourseSection[]): void {
-  try {
-    writeJson(cacheKey(courseId), { fetchedAt: Date.now(), sections } satisfies CacheShape)
-  } catch {
-    /* kuota penuh: abaikan */
-  }
+  writeCache(cacheKey(courseId), sections)
 }
 
 export function clearContentsCache(courseId: number): void {
@@ -172,24 +158,29 @@ export async function fetchCourseContents(
   courseId: number,
   opts: { force?: boolean } = {},
 ): Promise<CourseSection[] | null> {
-  if (!opts.force) {
-    const cached = loadCachedContents(courseId)
-    if (cached) return cached
-  }
-  if (!src?.token) return loadCachedContents(courseId)
-  const { token, userid } = await validateGradesSource(src)
-  const res = await wsCall<unknown>(token, 'core_course_get_contents', { courseid: courseId })
-  let sections = parseCourseContents(res)
-  try {
-    const comp = await wsCall<unknown>(
-      token,
-      'core_completion_get_activities_completion_status',
-      { courseid: courseId, userid },
-    )
-    sections = mergeCompletion(sections, parseCompletionStatus(comp))
-  } catch {
-    /* completion opsional */
-  }
-  saveCachedContents(courseId, sections)
+  const sections = await syncDomain<CourseSection>({
+    cacheKey: cacheKey(courseId),
+    ttlMs: CACHE_TTL,
+    load: (raw) => (Array.isArray(raw.items) ? raw.items : null),
+    save: (items) => saveCachedContents(courseId, items),
+    src,
+    force: opts.force,
+    network: async (s) => {
+      const { token, userid } = await validateGradesSource(s)
+      const res = await wsCall<unknown>(token, 'core_course_get_contents', { courseid: courseId })
+      let out = parseCourseContents(res)
+      try {
+        const comp = await wsCall<unknown>(
+          token,
+          'core_completion_get_activities_completion_status',
+          { courseid: courseId, userid },
+        )
+        out = mergeCompletion(out, parseCompletionStatus(comp))
+      } catch {
+        /* completion opsional */
+      }
+      return out
+    },
+  })
   return sections
 }

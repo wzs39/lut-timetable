@@ -3,7 +3,8 @@ import { useI18n } from '../../i18n'
 import { useMoodleData } from '../../hooks/useMoodleData'
 import type { MoodleNotification, NotificationKind } from '../../lib/notificationsFeed'
 import { unreadByKind, notificationCourses } from '../../lib/notificationsFeed'
-import { loadEnrolledCourses, extractCourseCode } from '../../lib/courses'
+import { extractCourseCode } from '../../lib/courses'
+import { loadIdentityIndex } from '../../lib/courseIdentity'
 import { openExternal } from '../../lib/openExternal'
 import Icon from '../Icon'
 
@@ -70,13 +71,17 @@ export default function NotificationsSection() {
     () => Object.values(unread).reduce((a, b) => a + b, 0),
     [unread],
   )
-  // 按课程分组（有 courseid 的通知），课程名映射自 enrol 缓存。
+  // 按课程分组（有 courseid 的通知），课程名映射自持久化身份表。
   const courses = useMemo(() => notificationCourses(notifications), [notifications])
   const courseNames = useMemo(() => {
     const m = new Map<number, string>()
-    for (const c of loadEnrolledCourses() ?? []) m.set(c.courseid, c.shortname)
+    const idx = loadIdentityIndex()
+    for (const { courseid } of courses) {
+      const name = idx.shortnameFor(courseid) ?? idx.titleFor(courseid)
+      if (name) m.set(courseid, name)
+    }
     return m
-  }, [courses]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [courses])
 
   if (notifications === null) {
     return <p className="py-8 text-center text-xs text-[var(--text-3)]">{t('notifLoading')}</p>
