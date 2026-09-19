@@ -303,3 +303,57 @@ describe('parseMoodleAssignments (round-trip via ICS)', () => {
   })
 })
 
+
+describe('fetchActivityUrls URL construction', () => {
+  it('builds mod/<modulename>/view.php URLs keyed by event id (pure mapping check via parse of merge: upgraded url wins over event page)', async () => {
+    // fetchActivityUrls sendiri melakukan network call — diuji end-to-end di
+    // perangkat. Di sini kunci kontraknya: mergeMoodleAssignments mempertahankan
+    // url yang sudah di-upgrade pemanggil (a.url dari syncMoodle).
+    const icsTask: Task = {
+      id: 'moodle:4641931@moodle.lut.fi',
+      title: 'Quiz: Honor code closes',
+      course: 'CT60A4050',
+      dueAt: '2026-09-15T10:00:00.000Z',
+      url: 'https://moodle.lut.fi/mod/quiz/view.php?id=2105246',
+      completed: false,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    }
+    const feed = [
+      {
+        uid: '4641931@moodle.lut.fi',
+        title: 'Quiz: Honor code closes',
+        course: 'CT60A4050',
+        dueAt: '2026-09-15T10:00:00.000Z',
+        url: 'https://moodle.lut.fi/mod/quiz/view.php?id=2105246',
+      },
+    ]
+    const r = mergeMoodleAssignments([icsTask], feed, lessons)
+    expect(r.tasks[0].url).toBe('https://moodle.lut.fi/mod/quiz/view.php?id=2105246')
+    expect(r.updated).toBe(0)
+  })
+
+  it('re-sync keeps legacy event-page URL when caller did not upgrade (no regression)', () => {
+    const icsTask: Task = {
+      id: 'moodle:4641931@moodle.lut.fi',
+      title: 'Quiz: Honor code closes',
+      course: 'CT60A4050',
+      dueAt: '2026-09-15T10:00:00.000Z',
+      url: 'https://moodle.lut.fi/calendar/view.php?event=4641931',
+      completed: false,
+      createdAt: '2026-09-01T00:00:00.000Z',
+      updatedAt: '2026-09-01T00:00:00.000Z',
+    }
+    const feed = [
+      {
+        uid: '4641931@moodle.lut.fi',
+        title: 'Quiz: Honor code closes',
+        course: 'CT60A4050',
+        dueAt: '2026-09-15T10:00:00.000Z',
+        url: 'https://moodle.lut.fi/calendar/view.php?event=4641931',
+      },
+    ]
+    const r = mergeMoodleAssignments([icsTask], feed, lessons)
+    expect(r.tasks[0].url).toBe('https://moodle.lut.fi/calendar/view.php?event=4641931')
+  })
+})

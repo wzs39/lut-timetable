@@ -23,7 +23,7 @@ import {
   type SubmissionStatus,
 } from '../lib/submissions'
 import { primeEnrolAnchor } from '../lib/moodleSync'
-import { fetchActionEvents, mergeActionEvents } from '../lib/actions'
+import { fetchActionEvents, fetchActivityUrls, mergeActionEvents, upgradeIcsTaskUrls } from '../lib/actions'
 import {
   countUnread,
   fetchNotifications,
@@ -134,32 +134,59 @@ export function MoodleProvider({
     inFlightRef.current = true
     try {
       // Satu titik enrol-anchor: cache 24 jam, menulis tabel identitas
-      // (courseid ↔ kode jadwal) yang dipakai grades/tasks/announcements —
-      // domain-domain di bawah tidak perlu (dan tidak lagi) pra-fetch sendiri.
+      // (courseid ↔ kode jadwal) yang dipakai grades/tasks — KETERGANTUNGAN
+      // nyata, harus selesai sebelum domain lain mulai mencocokkan kursus.
       try {
         await primeEnrolAnchor(tk, lessonsRef.current)
       } catch { /* silent */ }
+      // Empat domain di-paralelkan (dulu serial await): total waktu = max,
+      // bukan jumlah. Semua gagal independen (allSettled = semantik try/catch
+      // per domain yang lama).
+      const [gradesR, subsR, eventsR, notifR] = await Promise.allSettled([
+        fetchGrades(tk, lessonsRef.current),
+        fetchSubmissionStatus(tk),
+        fetchActionEvents(tk, lessonsRef.current),
+        fetchNotifications(tk),
+      ])
+      // Penerapan berurutan di utas utama: dua domain yang mengubah task
+      // (submissions arsip + timeline merge) re-read tasksRef.current saat
+      // diterapkan — paralel di sini akan saling menimpa (stale write).
       try {
-        const list = await fetchGrades(tk, lessonsRef.current)
-        setGrades(list)
-        saveGradesSource({ ...tk, lastSync: new Date().toISOString() })
-        setToken((prev) => (prev ? { ...prev, lastSync: new Date().toISOString() } : prev))
+        if (gradesR.status === 'fulfilled') {
+          setGrades(gradesR.value)
+          saveGradesSource({ ...tk, lastSync: new Date().toISOString() })
+          setToken((prev) => (prev ? { ...prev, lastSync: new Date().toISOString() } : prev))
+        }
       } catch { /* silent */ }
       try {
-        const { status, urlByKey } = await fetchSubmissionStatus(tk)
-        setSubMap(status)
-        const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
-        if (r.archived > 0) onTasks(r.tasks)
+        if (subsR.status === 'fulfilled') {
+          const { status, urlByKey } = subsR.value
+          setSubMap(status)
+          const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
+          if (r.archived > 0) onTasks(r.tasks)
+        }
       } catch { /* silent */ }
       try {
         // Timeline → tasks: tugas baru muncul TANPA tekan sinkron manual.
-        const events = await fetchActionEvents(tk, lessonsRef.current)
-        const r = mergeActionEvents(tasksRef.current, events, lessonsRef.current)
-        if (r.added > 0 || r.updated > 0) onTasks(r.tasks)
+        if (eventsR.status === 'fulfilled') {
+          const events = eventsR.value
+          const r = mergeActionEvents(tasksRef.current, events, lessonsRef.current)
+          let next = r.tasks
+          try {
+            // Tugas ICS lama: URL halaman event → halaman aktivitas. Network
+            // hanya untuk event belum tercache (cache permanen) — biaya
+            // seri di fase apply ini sekali seumur event.
+            const staleIds = r.tasks
+              .map((task) => Number(task.id.match(/^moodle:(\d+)@moodle\.lut\.fi$/i)?.[1]))
+              .filter((n): n is number => Number.isFinite(n))
+            const urls = await fetchActivityUrls(tk.token, staleIds)
+            next = upgradeIcsTaskUrls(r.tasks, urls).tasks
+          } catch { /* silent */ }
+          if (r.added > 0 || r.updated > 0 || next !== r.tasks) onTasks(next)
+        }
       } catch { /* silent */ }
       try {
-        const list = await fetchNotifications(tk)
-        setNotifications(list)
+        if (notifR.status === 'fulfilled') setNotifications(notifR.value)
       } catch { /* silent */ }
     } finally {
       inFlightRef.current = false
@@ -374,8 +401,20 @@ export function MoodleProvider({
       if (token?.token) {
         const events = await fetchActionEvents(token, lessons)
         const r = mergeActionEvents(tasks, events, lessons)
-        onTasks(r.tasks)
-        setMessage(t('actionSyncOk', { a: r.added, u: r.updated, n: events.length }))
+        // Tugas ICS lama masih menempel halaman event kalender → naikkan ke
+        // URL aktivitas (eventid di ID task dipakai langsung, tanpa ICS feed).
+        const staleIds = r.tasks
+          .map((task) => Number(task.id.match(/^moodle:(\d+)@moodle\.lut\.fi$/i)?.[1]))
+          .filter((n): n is number => Number.isFinite(n))
+        let finalTasks = r.tasks
+        try {
+          const urls = await fetchActivityUrls(token.token, staleIds)
+          const up = upgradeIcsTaskUrls(r.tasks, urls)
+          finalTasks = up.tasks
+          if (up.upgraded > 0) setMessage(t('actionSyncOk', { a: r.added, u: r.updated + up.upgraded, n: events.length }))
+        } catch { /* URL kalender tetap */ }
+        onTasks(finalTasks)
+        if (finalTasks === r.tasks) setMessage(t('actionSyncOk', { a: r.added, u: r.updated, n: events.length }))
         return
       }
       if (!ics) {
