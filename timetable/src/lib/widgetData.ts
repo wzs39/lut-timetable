@@ -126,10 +126,10 @@ export async function pushWidgetData(lessons: Lesson[]): Promise<void> {
 export async function refreshWidgets(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
   try {
-    const bridge = (Capacitor as unknown as {
-      Plugins?: { WidgetBridge?: { refresh: () => Promise<{ updated: number }> } }
-    }).Plugins?.WidgetBridge
-    await bridge?.refresh()
+    const plugins = (Capacitor as unknown as {
+      Plugins?: { lutWidget?: { refresh: () => Promise<{ updated: number }> } }
+    }).Plugins
+    await plugins?.lutWidget?.refresh()
   } catch {
     // Widget adalah bonus.
   }
