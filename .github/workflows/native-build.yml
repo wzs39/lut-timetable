@@ -36,6 +36,7 @@ jobs:
         name: Compute next version from published tags
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINOR_BUMP: ${{ inputs.minor }}
         run: |
           set -euo pipefail
           # Newest published release tag (releases, not raw git tags, because
@@ -47,11 +48,17 @@ jobs:
           )
           echo "last published: $LAST"
           # Minor releases (feature batches) bump the middle segment; the
-          # default stays patch+1. Driven by the `minor` dispatch input.
-          if [ "${{ inputs.minor }}" = "true" ]; then
-            NEXT="v$(awk -F. '{printf "%d.%d.0", $1, $2+1}' "${LAST#v}")"
+          # default stays patch+1. Driven by the `minor` dispatch input,
+          # passed via env so a push event (empty inputs) cannot break the
+          # shell quoting.
+          VER="${LAST#v}"
+          MAJOR=$(printf '%s' "$VER" | cut -d. -f1)
+          MINOR=$(printf '%s' "$VER" | cut -d. -f2)
+          if [ "$MINOR_BUMP" = "true" ]; then
+            NEXT="v$(printf '%d.%d.0' "$MAJOR" "$((MINOR + 1))")"
           else
-            NEXT="v$(awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}' "${LAST#v}")"
+            PATCH=$(printf '%s' "$VER" | cut -d. -f3)
+            NEXT="v$(printf '%d.%d.%d' "$MAJOR" "$MINOR" "$((PATCH + 1))")"
           fi
           echo "next: $NEXT"
           # Race guard: if this tag somehow exists already (a second push while
