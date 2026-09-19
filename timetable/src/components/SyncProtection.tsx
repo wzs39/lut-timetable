@@ -119,7 +119,7 @@ export default function SyncProtection({ revision }: Props) {
                     key={k}
                     className="flex items-center justify-between gap-1 rounded bg-[var(--surface-1)] px-1.5 py-1 text-[10px]"
                   >
-                    <span className="truncate text-[var(--text-2)]" title={k}>
+                    <span className="min-w-0 truncate text-[var(--text-2)]" title={k}>
                       <span className="inline-flex items-center gap-1"><Icon name="close" size={11} className="text-[var(--danger)]" /> {tombLabel(k)}</span>
                     </span>
                     <button
@@ -161,7 +161,7 @@ export default function SyncProtection({ revision }: Props) {
                     key={k}
                     className="flex items-center justify-between gap-1 rounded bg-[var(--surface-1)] px-1.5 py-1 text-[10px]"
                   >
-                    <span className="truncate text-[var(--text-2)]" title={k}>
+                    <span className="min-w-0 truncate text-[var(--text-2)]" title={k}>
                       <span className="inline-flex items-center gap-1"><Icon name="pencil" size={11} /> {overrideLabel(k, patch)}</span>
                     </span>
                     <button
