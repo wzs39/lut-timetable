@@ -1,13 +1,24 @@
-import type { Announcement } from './announcements'
 import type { Lesson } from '../types'
 
 /**
- * Aturan teks pengumuman → peringatan kartu pelajaran.
+ * Aturan teks notifikasi → peringatan kartu pelajaran.
  *
- * Murni tanpa I/O: cache pengumuman memberikan Announcement[], modul ini
- * menghubungkannya ke Lesson (hari ini / pratinjau hari depan) berdasarkan
- * kode kursus dan jendela relevansi waktu.
+ * Murni tanpa I/O: aliran notifikasi (satu-satunya sumber info Moodle)
+ * memberikan AlertSource[], modul ini menghubungkannya ke Lesson (hari ini /
+ * pratinjau hari depan) berdasarkan kode kursus dan jendela relevansi waktu.
  */
+
+/**
+ * Sumber pemberitahuan minimal yang diperlukan matcher — structurally
+ * kompatibel dulu dengan Announcement, sekarang dengan MoodleNotification.
+ */
+export interface AlertSource {
+  id: string
+  subject: string
+  excerpt?: string
+  course?: string
+  postedAt?: string
+}
 
 export type NoticeKind = 'room-change' | 'deadline-change'
 
@@ -47,7 +58,7 @@ export function extractCourseCode(text: string): string | null {
 }
 
 /** Satu pengumuman → jenis peringatan + ruang baru (null bila bukan pemberitahuan). */
-export function parseNotice(a: Announcement): LessonNotice | null {
+export function parseNotice(a: AlertSource): LessonNotice | null {
   const hay = `${a.subject} ${a.excerpt ?? ''}`
   const isDeadline = DEADLINE_CHANGE_RE.test(hay)
   const isRoom = ROOM_CHANGE_RE.test(hay)
@@ -90,7 +101,7 @@ function lessonHasCode(l: Lesson, code: string): boolean {
 }
 
 /** Pelajaran cocok dengan kode kursus di teks pengumuman ATAU judulnya menyebut pelajaran. */
-function matchesLesson(a: Announcement, l: Lesson): boolean {
+function matchesLesson(a: AlertSource, l: Lesson): boolean {
   const code = extractCourseCode(`${a.course ?? ''} ${a.subject} ${a.excerpt ?? ''}`)
   if (code && lessonHasCode(l, code)) return true
   // Tanpa kode: cocokkan kata kunci judul kursus di pelajaran (longgar, ≥5 char)
@@ -110,13 +121,13 @@ function matchesLesson(a: Announcement, l: Lesson): boolean {
  *   tidak lagi relevan untuk kelas itu).
  */
 export function noticeForLesson(
-  anns: Announcement[] | null | undefined,
+  sources: AlertSource[] | null | undefined,
   l: Lesson,
 ): LessonNotice | null {
-  if (!anns || anns.length === 0) return null
+  if (!sources || sources.length === 0) return null
   const start = new Date(l.start).getTime()
   const end = new Date(l.end).getTime()
-  for (const a of anns) {
+  for (const a of sources) {
     const n = parseNotice(a)
     if (!n) continue
     if (!matchesLesson(a, l)) continue
@@ -133,12 +144,12 @@ export function noticeForLesson(
 
 /** Ambil pemberitahuan pertama yang cocok untuk kumpulan pelajaran (dipakai TodayView). */
 export function noticesForLessons(
-  anns: Announcement[] | null | undefined,
+  sources: AlertSource[] | null | undefined,
   lessons: Lesson[],
 ): Record<string, LessonNotice> {
   const out: Record<string, LessonNotice> = {}
   for (const l of lessons) {
-    const n = noticeForLesson(anns, l)
+    const n = noticeForLesson(sources, l)
     if (n) out[l.id] = n
   }
   return out

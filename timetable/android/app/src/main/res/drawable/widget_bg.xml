@@ -1,5 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <corners android:radius="16dp" />
-    <solid android:color="#E6202126" />
-</shape>
+<!-- Frosted-glass background, tema-sadar: warna dari @color/widget_*
+     (values = terang, values-night = gelap). Highlight gradient tetap
+     putih dua-duanya (cahaya kaca). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Semi-transparent base: wallpaper shows through (frosted glass). -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="22dp" />
+            <solid android:color="@color/widget_card_bg" />
+        </shape>
+    </item>
+    <!-- Frost highlight: white glow fading downward. -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="22dp" />
+            <gradient
+                android:angle="270"
+                android:startColor="#26FFFFFF"
+                android:endColor="#00FFFFFF"
+                android:type="linear" />
+        </shape>
+    </item>
+    <!-- Glass edge hairline. -->
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="22dp" />
+            <stroke android:width="1dp" android:color="@color/widget_card_line" />
+            <solid android:color="#00000000" />
+        </shape>
+    </item>
+</layer-list>

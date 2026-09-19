@@ -11,10 +11,61 @@ on:
         description: 'Also build & publish the Windows installers and the release'
         type: boolean
         default: false
+      minor:
+        description: 'Bump the MINOR segment instead of the patch (e.g. v0.2.21 -> v0.3.0)'
+        type: boolean
+        default: false
 
 jobs:
+  # Single version authority for the whole run. The version is derived from the
+  # newest published v* tag (NOT from package.json), then checked against the
+  # remote right before release so a repeated push can never clobber an
+  # already-published release's assets. android/windows/release consume it via
+  # needs; no job ever recomputes it.
+  version:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.calc.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # History + tags: the version source of truth is the tag list.
+          fetch-depth: 0
+      - id: calc
+        name: Compute next version from published tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Newest published release tag (releases, not raw git tags, because
+          # electron-builder publishes GitHub releases).
+          LAST=$(gh release list --repo "${{ github.repository }}" --limit 20 --json tagName --jq '
+            map(.tagName | select(test("^v[0-9]+[.][0-9]+[.][0-9]+$")))
+            | sort_by(sub("^v"; "") | split(".") | map(tonumber))
+            | last // "v0.0.0"'
+          )
+          echo "last published: $LAST"
+          # Minor releases (feature batches) bump the middle segment; the
+          # default stays patch+1. Driven by the `minor` dispatch input.
+          if [ "${{ inputs.minor }}" = "true" ]; then
+            NEXT="v$(awk -F. '{printf "%d.%d.0", $1, $2+1}' "${LAST#v}")"
+          else
+            NEXT="v$(awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}' "${LAST#v}")"
+          fi
+          echo "next: $NEXT"
+          # Race guard: if this tag somehow exists already (a second push while
+          # the previous run was still publishing), stop here — a later job
+          # uploading --clobber would silently overwrite live assets.
+          if gh release view "$NEXT" --repo "${{ github.repository }}" >/dev/null 2>&1 || git ls-remote --tags origin "refs/tags/$NEXT" | grep -q .; then
+            echo "::error::$NEXT already exists upstream. This push would clobber a published release. Land the pending changes first, then push again."
+            exit 1
+          fi
+          echo "version=${NEXT#v}" >> "$GITHUB_OUTPUT"
+
   android:
     name: Android APK (release-signed)
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,16 +86,19 @@ jobs:
           # all we need here; Gradle auto-downloads the platform and build-tools.
           packages: platform-tools
       - id: bump
-        name: Install deps, bump & build web assets
+        name: Install deps, stamp version & build web assets
         working-directory: timetable
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           npm ci
-          # Bump before building for the same reason as the Windows job: the APK's
-          # in-app version (VITE_APP_VERSION) must match the release tag, otherwise
-          # the Android update check keeps offering an update the user already has.
-          npm version patch --no-git-tag-version
+          # Tag-aware stamping: set package.json to the resolved version so the
+          # APK's in-app version (VITE_APP_VERSION) matches the release tag,
+          # otherwise the Android update check keeps offering an update the
+          # user already has. Version numbers come from the `version` job.
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
           npm run build
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Sync Capacitor
         working-directory: timetable
         run: npx cap sync android
@@ -122,11 +176,12 @@ jobs:
   windows:
     name: Windows (Electron)
     if: github.event_name == 'push' || inputs.publish
+    needs: [android, version]
     runs-on: windows-latest
     permissions:
       contents: write
     outputs:
-      version: ${{ steps.bump.outputs.version }}
+      version: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -140,13 +195,15 @@ jobs:
         working-directory: timetable
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           npm ci
-          # Auto-increment patch version so electron-updater sees a new version
-          # on every push and prompts users to update.
-          npm version patch --no-git-tag-version
-          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-          # Build AFTER the bump so VITE_APP_VERSION in the web bundle matches
+          # Stamp the tag-derived version so electron-builder packages and
+          # publishes exactly that release (electron-updater sees a new
+          # version on every push because the tag always advances).
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Build AFTER the stamp so VITE_APP_VERSION in the web bundle matches
           # the packaged installer version ("已是最新版本" banner must show the
           # real running version).
           npm run build
@@ -190,7 +247,7 @@ jobs:
   release:
     name: Attach APK to GitHub Release
     if: github.event_name == 'push' || inputs.publish
-    needs: [android, windows]
+    needs: [android, windows, version]
     runs-on: ubuntu-latest
     permissions:
       contents: write

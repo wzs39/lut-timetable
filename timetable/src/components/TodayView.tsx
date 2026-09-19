@@ -22,10 +22,9 @@ import ExternalLink from './ExternalLink'
 import TruncatedNote from './TruncatedNote'
 import Icon from './Icon'
 import CollapsiblePanel from './CollapsiblePanel'
-import AnnouncementsPanel from './AnnouncementsPanel'
 import { KEYS, readString, writeString } from '../lib/storage'
 import { useCollapse } from '../lib/useCollapse'
-import { loadCachedAnnouncements } from '../lib/announcements'
+import { loadCachedNotifications, notificationsAsAlertSources } from '../lib/notificationsFeed'
 import { noticesForLessons, type LessonNotice } from '../lib/lessonAlerts'
 
 interface Props {
@@ -108,10 +107,10 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
       .sort((a, b) => a.start.localeCompare(b.start))
   }, [lessons, now])
 
-  // 教室变更/截止延期公告 → 课卡提示（从公告缓存读取，30 分钟内有效）
+  // 教室变更/截止延期通知 → 课卡提示（数据源 = 通知流缓存，15 分钟重读一次）
   const notices = useMemo(() => {
-    const anns = loadCachedAnnouncements()
-    return noticesForLessons(anns, lessons)
+    return noticesForLessons(notificationsAsAlertSources(loadCachedNotifications()), lessons)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lessons, Math.floor(now / (15 * 60 * 1000))])
 
   const ongoing = today.find(
@@ -407,9 +406,6 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 </ul>
               </CollapsiblePanel>
             )}
-
-            {/* ---- 课程公告（Moodle News forum）---- */}
-            <AnnouncementsPanel />
 
             {/* ---- 今日截止任务 ---- */}
             {dueToday.length > 0 && (

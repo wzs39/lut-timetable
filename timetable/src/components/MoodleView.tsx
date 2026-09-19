@@ -10,7 +10,6 @@ import {
   TimelineSection,
   GradesSection,
   CoursesSection,
-  NewsSection,
   NotificationsSection,
   NotConnectedCard,
 } from './moodle'
@@ -20,14 +19,14 @@ import {
  * lazy per tab. Setiap seksi tinggal di filenya sendiri (components/moodle/);
  * state koneksi/nilai/notifikasi dimiliki MoodleProvider, bukan di sini.
  */
-type Section = 'timeline' | 'grades' | 'courses' | 'news' | 'notif'
+type Section = 'timeline' | 'grades' | 'courses' | 'notif'
 
 const SECTION_KEY = KEYS.moodleSection
 
 /** Baca section tersimpan; nilai tak dikenal → 'timeline'. */
 function loadSection(): Section {
   const raw = readString(SECTION_KEY)
-  const valid: Section[] = ['timeline', 'grades', 'courses', 'news', 'notif']
+  const valid: Section[] = ['timeline', 'grades', 'courses', 'notif']
   return (valid as string[]).includes(raw ?? '') ? (raw as Section) : 'timeline'
 }
 
@@ -90,9 +89,6 @@ export default function MoodleView({
           <button role="tab" aria-selected={section === 'courses'} onClick={() => setSection('courses')}>
             {t('moodleSectionCourses')}
           </button>
-          <button role="tab" aria-selected={section === 'news'} onClick={() => setSection('news')}>
-            {t('moodleSectionNews')}
-          </button>
           <button role="tab" aria-selected={section === 'notif'} onClick={() => setSection('notif')}>
             {t('notifSection')}
           </button>
@@ -112,7 +108,6 @@ export default function MoodleView({
           />
         )}
         {section === 'notif' && <NotificationsSection />}
-        {section === 'news' && <NewsSection />}
       </div>
     </div>
   )

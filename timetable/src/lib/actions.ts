@@ -1,7 +1,8 @@
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
 import { wsCall, validateGradesSource } from './grades'
-import { matchCourseCode, extractCourseCode, fetchEnrolledCourses } from './courses'
+import { matchCourseCode, extractCourseCode } from './courses'
+import { loadIdentityIndex } from './courseIdentity'
 
 /**
  * Tugas dari Moodle timeline via webservice token — sumber KANONIS:
@@ -97,9 +98,13 @@ export function mergeActionEvents(
   for (const ev of events) {
     feedIds.add(ev.id)
     const prev = byId.get(ev.id)
-    // Semantik sama dengan merge ICS (moodle.ts): kode jadwal bila cocok,
-    // else kode pendek dari shortname (label pendek), else nama asli.
-    const course = matchCourseCode(ev.course, lessons) ?? extractCourseCode(ev.course) ?? ev.course
+    // Semantik sama dengan merge ICS (moodle.ts): kode jadwal dari tabel
+    // identitas dulu; heuristik lama hanya fallback.
+    const course =
+      loadIdentityIndex().forName(ev.course)?.code ??
+      matchCourseCode(ev.course, lessons) ??
+      extractCourseCode(ev.course) ??
+      ev.course
     if (prev) {
       if (prev.title !== ev.title || prev.dueAt !== ev.dueAt || prev.course !== course || prev.modtype !== ev.modtype) updated++
       byId.set(ev.id, { ...prev, title: ev.title, dueAt: ev.dueAt, course, url: ev.url, modtype: ev.modtype, updatedAt: now })
@@ -148,16 +153,21 @@ export function mergeActionEvents(
  */
 export async function fetchActionEvents(
   src: { token: string; userid?: number } | null,
+  lessons?: Lesson[],
 ): Promise<ActionEvent[]> {
   if (!src?.token) return []
-  const { token, userid } = await validateGradesSource(src)
-  // Pra-fetch daftar enrol resmi (cache 24 jam) untuk pencocokan kursus presisi.
-  await fetchEnrolledCourses({ token, userid }).catch(() => null)
+  const { token } = await validateGradesSource(src)
+  // Enrol-anchor sudah dijawab backgroundRefresh (primeEnrolAnchor) —
+  // matchCourseCode di merge membaca cache-nya. Tidak ada pra-fetch di sini.
+  void lessons
   const from = Math.floor(Date.now() / 1000) - 14 * 24 * 3600 // 2 minggu overdue ke belakang
+  // limitnum MAKS 50 (server menolak >50 dengan exception — dulu 100, dan
+  // kegagalan senyap ini yang membuat semua tugas selamanya menempel URL
+  // kalender alih-alih URL aktivitas mod/assign).
   const res = await wsCall<{ events?: unknown[] }>(
     token,
     'core_calendar_get_action_events_by_timesort',
-    { timesortfrom: from, limitnum: 100 },
+    { timesortfrom: from, limitnum: 50 },
   )
   return parseActionEvents(res)
 }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget palette: mengikuti tema sistem. Nilai default = TERANG
+     (token light index.css), values-night = GELAP (token dark).
+     Dirujuk dari layout via @color/widget_*; Kotlin memakai
+     colorResource agar NOW/room/plus-more ikut bertema. -->
+<resources>
+    <!-- Frosted card terang: putih 76% + garis gelap semi transparan. -->
+    <color name="widget_card_bg">#C2FFFFFF</color>
+    <color name="widget_card_line">#26000000</color>
+    <!-- Teks tiga tingkat (light: text-1/2/3). -->
+    <color name="widget_text_title">#7A1C1C1F</color>
+    <color name="widget_text_main">#1C1C1F</color>
+    <color name="widget_text_body">#3F3F46</color>
+    <color name="widget_text_muted">#6A6A74</color>
+    <!-- NOW hijau gelap varian terang (token ok light, kontras di putih). -->
+    <color name="widget_now">#047857</color>
+</resources>

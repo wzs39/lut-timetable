@@ -10,4 +10,7 @@
     <string name="widget_empty_title">LUT Timetable</string>
     <string name="widget_empty_body">Open the app once to load the widget</string>
     <string name="widget_week_count">%1$d lessons this week</string>
+    <string name="widget_now">Now!</string>
+    <string name="widget_in_hm">Next in %1$dh %2$02dm</string>
+    <string name="widget_in_m">Next in %1$d min</string>
 </resources>

@@ -1,6 +1,5 @@
 import type { Task } from './tasks'
 import { wsCall, validateGradesToken, loadGradesSource } from './grades'
-import { fetchEnrolledCourses } from './courses'
 
 /**
  * Status pengumpulan & penilaian tugas Moodle (mod_assign), via webservice
@@ -33,6 +32,8 @@ interface RawAssignment {
   courseid?: number
   duedate?: number
   allowsubmissionsfromdate?: number
+  /** course module id — mod/assign/view.php 深链的规范参数。 */
+  cmid?: number
 }
 
 interface RawCourse {
@@ -62,10 +63,11 @@ export function parseAssignments(response: unknown): Array<{
   course: string
   dueAt?: string
   startAt?: string
+  cmid?: number
 }> {
   const courses = (response as { courses?: RawCourse[] })?.courses
   if (!Array.isArray(courses)) return []
-  const out: Array<{ id: number; name: string; course: string; dueAt?: string; startAt?: string }> = []
+  const out: Array<{ id: number; name: string; course: string; dueAt?: string; startAt?: string; cmid?: number }> = []
   for (const c of courses) {
     const courseName = c.shortname || c.fullname || ''
     for (const a of c.assignments ?? []) {
@@ -78,6 +80,7 @@ export function parseAssignments(response: unknown): Array<{
         startAt: a.allowsubmissionsfromdate
           ? new Date(a.allowsubmissionsfromdate * 1000).toISOString()
           : undefined,
+        cmid: typeof a.cmid === 'number' ? a.cmid : undefined,
       })
     }
   }
@@ -178,12 +181,20 @@ export function taskMatchKey(task: {
 export function applySubmissionStatus(
   tasks: Task[],
   statusByKey: Map<string, SubmissionStatus>,
+  urlByKey?: Map<string, string>,
 ): { tasks: Task[]; archived: number } {
   let archived = 0
   const next = tasks.map((task) => {
     if (!task.id.startsWith('moodle:')) return task
-    const st = statusByKey.get(taskMatchKey(task))
+    const key = taskMatchKey(task)
+    const st = statusByKey.get(key)
     if (!st) return task
+    // URL 回填：ICS 来源的任务只有 /calendar/view.php 回退（不是任务页）。
+    // mod_assign 的 cmid 深链更直接——覆盖日历回退，但不动真实存在的 mod 页。
+    const assignUrl = urlByKey?.get(key)
+    if (assignUrl && (!task.url || task.url.includes('/calendar/view.php?event='))) {
+      task = { ...task, url: assignUrl }
+    }
     const badge =
       st.state === 'graded'
         ? `✔ ${st.grade ?? ''}`.trim()
@@ -214,20 +225,19 @@ export function applySubmissionStatus(
 }
 
 /**
- * Ambil status untuk seluruh kursus → Map<taskMatchKey, SubmissionStatus>.
- * Aman dipanggil tanpa token (null → map kosong).
+ * Ambil status untuk seluruh kursus → status per taskMatchKey + URL tugas
+ * (mod/assign/view.php) per kunci yang sama. Aman dipanggil tanpa token.
  */
 export async function fetchSubmissionStatus(
   src: { token: string; userid?: number } | null,
-): Promise<Map<string, SubmissionStatus>> {
-  if (!src?.token) return new Map()
+): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string> }> {
+  if (!src?.token) return { status: new Map(), urlByKey: new Map() }
   const userid = src.userid ?? (await validateGradesToken(src.token))
-  // Pra-fetch daftar enrol resmi (cache 24 jam) — memperkuat pencocokan
-  // kursus di merge sisi task list via matchCourseCode.
-  await fetchEnrolledCourses({ ...src, userid }).catch(() => null)
+  // Enrol-anchor kini dijawab moodleSync.primeEnrolAnchor dari pemanggil
+  // backgroundRefresh — tidak lagi di sini (dulu duplikat 6 salinan).
   const assigns = await wsCall<{ courses?: RawCourse[] }>(src.token, 'mod_assign_get_assignments')
   const meta = parseAssignments(assigns)
-  if (meta.length === 0) return new Map()
+  if (meta.length === 0) return { status: new Map(), urlByKey: new Map() }
 
   const ids = meta.map((a) => a.id)
   const [subsRes, gradesRes] = await Promise.all([
@@ -242,12 +252,17 @@ export async function fetchSubmissionStatus(
 
   const byId = new Map(meta.map((a) => [a.id, a]))
   const status = new Map<string, SubmissionStatus>()
+  const urlByKey = new Map<string, string>()
   for (const [id, st] of perAssignment) {
     const a = byId.get(id)
     if (!a) continue
-    status.set(taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt }), st)
+    const key = taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt })
+    status.set(key, st)
+    // cmid → 课程内任务页（mod/assign/view.php?id=<cmid>）是官方深链。
+    // ICS/timeline 来源的任务没有这个 URL（ICS 无 URL 属性）——归档时回填。
+    if (a.cmid) urlByKey.set(key, `https://moodle.lut.fi/mod/assign/view.php?id=${a.cmid}`)
   }
-  return status
+  return { status, urlByKey }
 }
 
 /** Sumber token saat ini (null bila belum terhubung). */

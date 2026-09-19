@@ -206,6 +206,28 @@ describe('mergeMoodleAssignments', () => {
     expect(r.tasks[0].course).toBe('CT60A4050') // matched from timetable
   })
 
+  it('does not resurrect an event already owned by the timeline (moodle-act:)', () => {
+    // mergeActionEvents migrates ICS task moodle:<eventId>@... to
+    // moodle-act:<eventId> (with the direct activity URL). The ICS feed
+    // still carries the same event; re-adding it would make the task
+    // bounce between the two sources on every alternating sync.
+    const actOwned: Task = {
+      id: 'moodle-act:12345',
+      title: 'Assignment due',
+      course: 'CT60A4050',
+      dueAt: '2026-09-16T13:00:00.000Z',
+      url: 'https://moodle.lut.fi/mod/assign/view.php?id=99',
+      completed: false,
+      createdAt: '2026-09-01T10:00:00.000Z',
+      updatedAt: '2026-09-01T10:00:00.000Z',
+    }
+    const icsEcho = [assignment({ uid: '12345@moodle.lut.fi' })]
+    const r = mergeMoodleAssignments([actOwned], icsEcho, lessons)
+    expect(r.added).toBe(0)
+    expect(r.tasks.map((t) => t.id)).toEqual(['moodle-act:12345'])
+    expect(r.tasks[0].url).toContain('/mod/assign/view.php')
+  })
+
   it('updates in place on re-sync without duplicating', () => {
     const first = mergeMoodleAssignments([], [assignment()], lessons)
     const changed = [assignment({ title: 'IHA 1 (extended)', dueAt: '2026-09-18T13:00:00.000Z' })]

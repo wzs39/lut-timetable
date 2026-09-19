@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget palette varian GELAP (mengikuti tema sistem gelap) — token
+     dark index.css: surface-1 #17171A, text-1 #E4E4E7, text-2 #C9C9D1,
+     text-3 #8E8E99, ok #6EE7B7. -->
+<resources>
+    <!-- Frosted card gelap: surface-1 70% + garis putih semi transparan. -->
+    <color name="widget_card_bg">#B317171A</color>
+    <color name="widget_card_line">#33FFFFFF</color>
+    <color name="widget_text_title">#D4D4D8</color>
+    <color name="widget_text_main">#E4E4E7</color>
+    <color name="widget_text_body">#C9C9D1</color>
+    <color name="widget_text_muted">#8E8E99</color>
+    <color name="widget_now">#6EE7B7</color>
+</resources>
