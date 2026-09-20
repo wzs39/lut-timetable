@@ -38,6 +38,7 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - 截图：`adb exec-out screencap -p > xx.png`，**用 read_files 看图**，别猜。
 
 ### 发布链（版本由 CI 计算，永远 tag-aware，别手 bump tag）
+- docs-only 提交也走 push → 自动发版：推任何 main 提交前先想"这次要不要发版"；纯文档改动想避免发版就攒到下一次功能提交一起推，或推完立刻 `gh run cancel`
 1. 本地门禁全绿 → `git checkout -b feat/<题>` → 分批提交（每批一个清晰 commit，仓库风格：祈使句 + 原因）。
 2. push → 开 PR → 合并 → push 触发的构建自动发 **patch**（如 v0.3.1）。
 3. 要发 minor/major：合并后 `gh workflow run native-build.yml -f publish=true -f minor=true`（workflow 里也支持 major 入参）。
