@@ -134,10 +134,13 @@ describe('AssignmentsView — rendering contracts', () => {
       task({ id: 'a', title: 'Graded work', dueAt: new Date(2026, 9, 20).toISOString() }),
       task({ id: 'b', title: 'Submitted work', dueAt: new Date(2026, 9, 21).toISOString() }),
     ]
-    // 键 = taskMatchKey：norm(title)|dueAt ISO 前 10 字符（UTC——本地 10/20 → UTC 10/19）
+    // 键 = taskMatchKey：norm(title)|dueAt ISO 前 10 字符（UTC）。必须从同一
+    // Date 推导而不是手写——本地午夜在 UTC+8 落到前一天，在 UTC runner 上不变，
+    // 手写常量会随 runner 时区漂移（v0.3.2 发布时在 CI 上炸过一次）。
+    const dueKey = (d: Date) => d.toISOString().slice(0, 10)
     mockMd = md({
-      'gradedwork|2026-10-19': graded,
-      'submittedwork|2026-10-20': submitted,
+      [`gradedwork|${dueKey(new Date(2026, 9, 20))}`]: graded,
+      [`submittedwork|${dueKey(new Date(2026, 9, 21))}`]: submitted,
     })
     renderView(tasks)
     // 文本被 Icon + span 拆成多节点 → 查容器内容
