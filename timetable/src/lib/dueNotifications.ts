@@ -2,6 +2,7 @@ import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Task } from './tasks'
 import { isOverdue } from './tasks'
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
+import { formatDateTime as formatDueTime } from './date'
 
 /** Remind this long before the deadline (two reminders per task). */
 export const DUE_REMIND_BEFORE_H = [24, 1] as const
@@ -108,14 +109,4 @@ function isDueNotifId(id: number, tasks: Task[]): boolean {
     }
   }
   return false
-}
-
-function formatDueTime(iso: string, locale?: string): string {
-  return new Date(iso).toLocaleString(locale ?? undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
 }

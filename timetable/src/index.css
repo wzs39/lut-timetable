@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./theme-presets.css";
 
 :root {
   color-scheme: dark;
@@ -32,10 +33,10 @@ body,
    One neutral surface system; accent used sparingly.
    ============================================================ */
 :root {
-  --surface-0: #101012; /* page background            */
-  --surface-1: #17171a; /* cards / panels             */
-  --surface-2: #1e1e22; /* raised: inputs, hover      */
-  --line: #2a2a2f; /* hairline borders           */
+  --surface-0: #101014; /* page background — 冷调近黑（纯 #101012 偏暖发闷）          */
+  --surface-1: #17171c; /* cards / panels — 微冷蓝灰，和状态色同一冷色家族   */
+  --surface-2: #1e1e24; /* raised: inputs, hover      */
+  --line: #2a2a32; /* hairline borders           */
   --text-1: #e4e4e7; /* primary text               */
   --text-2: #a1a1aa; /* secondary text             */
   /* #71717a on surface-2 只有 3.44:1 — #8e8e99 达 4.52:1 */
@@ -86,8 +87,8 @@ body,
   --cc-l: 58%;
   --cc-text-l: 84%;
   --cc-text-a: 1;
-  --cc-bg-a: 0.22;
-  --cc-border-a: 0.55;
+  --cc-bg-a: 0.17; /* 0.22→0.17：降填充浓度，卡片安静不抢正文 */
+  --cc-border-a: 0.45;
 
   /* Text INSIDE a course-tinted card. The tint lifts the ground far above the
      card surface, so the shared muted tokens drop to ~2.2:1 there; tinted
@@ -103,10 +104,10 @@ body,
    lesson colour follows automatically, including the per-course palette. */
 :root[data-theme='light'] {
   color-scheme: light;
-  --surface-0: #f7f7f8;
+  --surface-0: #f7f7f9;
   --surface-1: #ffffff;
-  --surface-2: #f1f1f3;
-  --line: #e4e4e7;
+  --surface-2: #f1f1f4;
+  --line: #e4e4e9;
   --text-1: #1c1c1f;
   --text-2: #52525b;
   /* #8b8b94 只有 2.99:1（WCAG 需 4.5）— #6a6a74 达 4.55:1 */

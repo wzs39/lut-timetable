@@ -4,6 +4,7 @@ import { fetchMoodleWebService, moodleCredsFromUrl } from './fetchIcs'
 import { matchCourseCode, extractCourseCode, extractCourseTitle } from './courses'
 import { loadIdentityIndex } from './courseIdentity'
 import { primeEnrolAnchor } from './moodleSync'
+import { getFinalCourseGrade } from './gradeCalc'
 import { htmlToText } from './html'
 
 /**
@@ -42,7 +43,53 @@ export interface GradeItem {
   classAvg: number | null
   /** 0–100, persen kontribusi item terhadap total. */
   weight: number | null
+  /**
+   * Teks nilai resmi Moodle untuk item SKALA (Fail–Pass, A–F) — persen
+   * (1/2 = 50%) menyesatkan di sana. Null untuk item numerik.
+   */
+  gradeText?: string
   feedback?: string
+}
+
+/**
+ * 成绩报告 → cmid 键控的提交/评分状态（内容树徽标数据源）。
+ *
+ * 为什么不用 mod_assign_get_submissions：那是教师视角 API，LUT 学生 token
+ * 返回 "No access rights in module context"（applySubmissionStatus 的数据
+ * 源因此在 LUT 上恒空）。gradereport 的 gradeitems 学生可读，且每活动行
+ * 自带 cmid + submitted/graded 时间戳——这是学生视角唯一可靠的提交状态源。
+ * 仅提取有提交记录的项：树里“未提交”保持勾选框语义，不新增第三种标记。
+ */
+export interface GradeCmidStatus {
+  state: 'submitted' | 'graded'
+  grade?: string
+  submittedAt?: string
+}
+
+export function gradeStatusByCmid(response: unknown): Map<number, GradeCmidStatus> {
+  const out = new Map<number, GradeCmidStatus>()
+  const byId = (response as { usergrades?: unknown[] })?.usergrades
+  if (!Array.isArray(byId)) return out
+  for (const c of byId as { gradeitems?: unknown[] }[]) {
+    if (!Array.isArray(c?.gradeitems)) continue
+    for (const raw of c.gradeitems as Record<string, unknown>[]) {
+      if (!raw || typeof raw !== 'object') continue
+      const cmid = typeof raw.cmid === 'number' ? raw.cmid : Number(raw.cmid)
+      if (!Number.isFinite(cmid) || raw.itemtype !== 'mod') continue
+      if (raw.gradedatesubmitted == null) continue // 从未提交 → 无徽标
+      const graded = raw.gradedategraded != null
+      // gradeformatted 可能是 HTML（pass 图标 + 数字）——剥标签留文本。
+      const gradeText = typeof raw.gradeformatted === 'string'
+        ? (htmlToText(raw.gradeformatted) ?? '').trim()
+        : ''
+      out.set(cmid, {
+        state: graded ? 'graded' : 'submitted',
+        grade: graded && gradeText ? gradeText : undefined,
+        submittedAt: new Date((raw.gradedatesubmitted as number) * 1000).toISOString(),
+      })
+    }
+  }
+  return out
 }
 
 export interface CourseGrades {
@@ -55,6 +102,12 @@ export interface CourseGrades {
   items: GradeItem[]
   /** Rata-rata keseluruhan yang terlihat user (0–100) bila tersedia. */
   average: number | null
+  /**
+   * Total resmi Moodle (0–100): usergrade rasio 0–1 atau baris itemtype
+   * 'course' (item belum dinilai dihitung 0). Null bila server tak
+   * mengirimnya — UI memprioritaskan angka resmi ini di atas hitungan lokal.
+   */
+  officialTotal?: number | null
   /** ID kursus Moodle untuk deep-link /grade/report/user/index.php?id=<id>. */
   courseId?: number
 }
@@ -142,6 +195,13 @@ function buildItems(raw: RawGradeItem[]): GradeItem[] {
         : typeof it.weight === 'number' && it.weight > 0
           ? Math.round(it.weight * 10) / 10
           : null,
+    // Teks nilai resmi Moodle ("Passed", "8.00") — UTAMAKAN di atas persen:
+    // skala Fail–Pass 1/2 = 50% menyesatkan. Belum dinilai ('-')/tanpa field
+    // → undefined (UI fallback ke persen, lalu —).
+    gradeText:
+      it.graderaw != null
+        ? htmlToText(it.gradeformatted)?.trim() || undefined
+        : undefined,
     feedback: it.feedback?.trim() || undefined,
   }))
 }
@@ -159,6 +219,7 @@ interface RawGradeItem {
   weightraw?: number | string
   /** Alternatif lama: bobot langsung dalam persen. */
   weight?: number | string
+  gradeformatted?: string
   feedback?: string
 }
 
@@ -176,30 +237,25 @@ export function parseGradeItems(response: unknown): CourseGrades[] {
   for (const c of byId as (RawCourseGrades & { gradeitems?: (RawGradeItem & { itemtype?: string })[] })[]) {
     const rawItems = c.gradeitems ?? []
     // Baris total resmi Moodle: itemtype 'course' (raw 24/112 = 21.43%,
-    // item belum dinilai dihitung 0 dalam bobotnya). Ini "nilai saat ini"
-    // otoritatif untuk kursus berbobot.
+    // item belum dinilai dihitung 0 dalam bobotnya). Baris 'category'
+    // (subtotal kategori, itemname null) bukan item penilaian — dibuang.
     const courseRow = rawItems.find((it) => it.itemtype === 'course')
-    const items = buildItems(rawItems.filter((it) => it !== courseRow))
+    const isMeta = (it: RawGradeItem) =>
+      it === courseRow || (it as { itemtype?: string }).itemtype === 'category'
+    const items = buildItems(rawItems.filter((it) => !isMeta(it)))
     if (items.length === 0) continue
-    // Urutan prioritas rata-rata:
-    //  1. usergrade (rasio 0–1) bila server mengirim
-    //  2. baris 'course' (graderaw/grademax baris total)
-    //  3. fallback: rata-rata sederhana item yang sudah dinilai
-    let avg = ratioToPercent(c.usergrade?.grade ?? c.usergrade?.rawgrade)
-    if (avg == null && courseRow?.grademax != null) {
-      avg = toPercent(courseRow.graderaw, courseRow.grademax)
-    }
-    if (avg == null) {
-      const graded = items.filter((it) => it.grade != null) as (GradeItem & { grade: number })[]
-      if (graded.length > 0) {
-        avg = Math.round((graded.reduce((s, it) => s + it.grade, 0) / graded.length) * 10) / 10
-      }
-    }
+    // Total resmi (usergrade rasio 0–1 > baris 'course') — ekstraksi bidang
+    // mentah; SELURUH rantai prioritas nilai ada di gradeCalc.getFinalCourseGrade.
+    const official =
+      ratioToPercent(c.usergrade?.grade ?? c.usergrade?.rawgrade) ??
+      (courseRow?.grademax != null ? toPercent(courseRow.graderaw, courseRow.grademax) : null)
     out.push({
       course: '',
       matched: false,
       items,
-      average: avg,
+      // Satu-satunya tempat skor dihitung: fungsi murni di gradeCalc.
+      average: getFinalCourseGrade(items, official),
+      officialTotal: official,
       courseId: c.courseid,
     })
   }
@@ -230,7 +286,7 @@ export async function validateGradesToken(token: string): Promise<number> {
 export async function fetchGrades(
   src: MoodleGradesSource,
   lessons: Lesson[],
-): Promise<CourseGrades[]> {
+): Promise<{ courses: CourseGrades[]; statusByCmid: Map<number, GradeCmidStatus> }> {
   const userid =
     src.userid ?? (await validateGradesToken(src.token))
   // Daftar enrol resmi: jangkar pencocokan DAN sumber courseid per-kursus.
@@ -286,7 +342,11 @@ export async function fetchGrades(
   }
   const byCourse = new Map<string, CourseGrades>()
   for (const c of parsed) byCourse.set(c.course, c)
-  return [...byCourse.values()].sort((a, b) => a.course.localeCompare(b.course))
+  return {
+    courses: [...byCourse.values()].sort((a, b) => a.course.localeCompare(b.course)),
+    // 顺手产出：内容树的提交状态徽标数据（cmid 键控）。与成绩同源同请求，零额外开销。
+    statusByCmid: gradeStatusByCmid(report),
+  }
 }
 
 function displayNameFor(c: CourseGrades, report: unknown): string {

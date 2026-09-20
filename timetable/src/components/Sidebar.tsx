@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { Lesson, SyncSource } from '../types'
 import { QUICK_LINKS } from '../lib/quickLinks'
+import { formatTime } from '../lib/date'
 import ExternalLink from './ExternalLink'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
@@ -97,7 +98,7 @@ export default function Sidebar({
     'w-full rounded-md bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--ok)]'
 
   return (
-    <aside className="w-80 max-w-[85vw] shrink-0 border-r border-[var(--line)] bg-[var(--surface-1)] flex flex-col overflow-y-auto safe-bottom">
+    <aside className="h-full w-80 max-w-[85vw] shrink-0 border-r border-[var(--line)] bg-[var(--surface-1)] flex flex-col overflow-y-auto safe-bottom">
       {onCloseDrawer && (
         <div className="flex justify-end px-3 pt-3 md:hidden">
           <button
@@ -139,7 +140,7 @@ export default function Sidebar({
                   <div className="mt-1 text-[10px] text-[var(--text-3)]">
                     {t('lessonsN', { n: s.count })}
                     {s.lastSync
-                      ? ` · ${new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      ? ` · ${formatTime(s.lastSync)}`
                       : ''}
                   </div>
                 </div>

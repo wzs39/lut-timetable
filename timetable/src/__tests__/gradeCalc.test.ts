@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   clamp,
+  contributionOf,
   courseProjection,
   effectiveGrade,
-  estimateWithAssumption,
   filterGrades,
+  getFinalCourseGrade,
   gradedWeight,
   sortGrades,
   ungradedCount,
@@ -74,19 +75,6 @@ describe('weightedEstimate', () => {
   })
 })
 
-describe('estimateWithAssumption', () => {
-  it('keeps real grades and fills ungraded with the assumption', () => {
-    const items = [
-      item({ grade: 90, weight: 20 }),
-      item({ grade: null, weight: 80 }),
-    ]
-    // assume exam = 70: 82 (same as override case)
-    expect(estimateWithAssumption(items, 70)).toBeCloseTo(74, 5)
-    // assume exam = 100: 98
-    expect(estimateWithAssumption(items, 100)).toBeCloseTo(98, 5)
-  })
-})
-
 describe('helpers', () => {
   it('effectiveGrade prefers override, clamps, else falls back', () => {
     const it0 = item({ grade: 55 })
@@ -116,10 +104,61 @@ describe('helpers', () => {
       ],
     }
     const p = courseProjection(c, { 1: 70 })
-    expect(p.projected).toBeCloseTo(74, 5)
+    // what-if: official tak ada → total berjalan = 20%·90 + 80%·70 = 74
+    expect(p.current).toBeCloseTo(74, 5)
+    expect(p.coveredAvg).toBeCloseTo(74, 5)
     expect(p.coveredWeight).toBe(100)
     expect(p.ungraded).toBe(1)
     expect(p.gradedWeight).toBeCloseTo(20, 5)
+  })
+
+  it('prefers the official Moodle total over the local running sum', () => {
+    const c = {
+      course: 'X',
+      matched: false,
+      average: null,
+      officialTotal: 21.4,
+      items: [
+        item({ grade: 100, weight: 7.1 }),
+        item({ grade: 100, weight: 7.1 }),
+        item({ grade: null, weight: 85.8 }),
+      ],
+    }
+    const p = courseProjection(c)
+    expect(p.current).toBeCloseTo(21.4, 5) // angka resmi, bukan 14.2 hitungan lokal
+    expect(p.coveredAvg).toBeCloseTo(100, 5)
+  })
+
+  it('what-if override switches the headline to the running total', () => {
+    const c = {
+      course: 'X',
+      matched: false,
+      average: null,
+      officialTotal: 21.4,
+      items: [
+        item({ grade: 100, weight: 7.1 }),
+        item({ grade: null, weight: 92.9 }),
+      ],
+    }
+    // official diabaikan saat override: 7.1%·100 + 92.9%·60 = 62.84
+    expect(courseProjection(c, { 1: 60 }).current).toBeCloseTo(62.84, 2)
+  })
+
+  it('weighted course with nothing graded and no official total shows — not 0', () => {
+    const c = {
+      course: 'X',
+      matched: false,
+      average: null,
+      items: [item({ grade: null, weight: 100 })],
+    }
+    expect(courseProjection(c).current).toBeNull()
+  })
+
+  it('contributionOf = weight × grade / 100, live with overrides', () => {
+    expect(contributionOf(item({ grade: 100, weight: 7.1 }))).toBeCloseTo(7.1, 5)
+    expect(contributionOf(item({ grade: null, weight: 7.1 }), 50)).toBeCloseTo(3.55, 5)
+    expect(contributionOf(item({ grade: null, weight: 7.1 }))).toBeNull()
+    expect(contributionOf(item({ grade: 90, weight: null }))).toBeNull()
   })
 
   it('clamp', () => {
@@ -144,7 +183,8 @@ describe('courseProjection — no-weight fallback', () => {
       ],
     }
     const p = courseProjection(c)
-    expect(p.projected).toBeCloseTo(75, 5)
+    expect(p.current).toBeCloseTo(75, 5)
+    expect(p.coveredAvg).toBeNull()
     expect(p.coveredWeight).toBe(0)
   })
 
@@ -156,12 +196,12 @@ describe('courseProjection — no-weight fallback', () => {
       items: [item({ grade: null, weight: null }), item({ grade: 80, weight: null })],
     }
     const p = courseProjection(c, { 0: 60 })
-    expect(p.projected).toBeCloseTo(70, 5)
+    expect(p.current).toBeCloseTo(70, 5)
   })
 
   it('returns null projection when nothing graded', () => {
     const c = { course: 'X', matched: false, average: null, items: [item({ grade: null, weight: null })] }
-    expect(courseProjection(c).projected).toBeNull()
+    expect(courseProjection(c).current).toBeNull()
   })
 })
 
@@ -227,5 +267,39 @@ describe('filterGrades', () => {
 
   it('combines keyword and status', () => {
     expect(filterGrades(list, { q: 'a', only: 'unmatched' }).length).toBe(1)
+  })
+})
+
+// 【锁定】SATU rantai prioritas nilai akhir — parse & kartu memakai fungsi ini.
+describe('getFinalCourseGrade — unified priority chain', () => {
+  it('1. official total wins when no what-if override', () => {
+    const items = [item({ grade: 100, weight: 7.1 }), item({ grade: null, weight: 92.9 })]
+    expect(getFinalCourseGrade(items, 21.4)).toBe(21.4)
+  })
+
+  it('2. override skips the (stale) official and uses the running total', () => {
+    const items = [item({ grade: 100, weight: 7.1 }), item({ grade: null, weight: 92.9 })]
+    // 7.1%·100 + 92.9%·60 = 62.84
+    expect(getFinalCourseGrade(items, 21.4, { 1: 60 })).toBeCloseTo(62.84, 2)
+  })
+
+  it('3. weighted course, nothing graded → null (Moodle "-"), not simple average', () => {
+    const items = [item({ grade: null, weight: 50 }), item({ grade: null, weight: 50 })]
+    expect(getFinalCourseGrade(items, null)).toBeNull()
+  })
+
+  it('4. no-weight course falls back to simple average of graded items', () => {
+    const items = [item({ grade: 100, weight: null }), item({ grade: 50, weight: null })]
+    expect(getFinalCourseGrade(items, null)).toBe(75)
+  })
+
+  it('5. no-weight course WITH official prefers official (unified semantics)', () => {
+    const items = [item({ grade: 100, weight: null }), item({ grade: 50, weight: null })]
+    // dulu rantai parse/proyeksi berbeda di sini; sekarang resmi selalu menang
+    expect(getFinalCourseGrade(items, 60)).toBe(60)
+  })
+
+  it('6. nothing at all → null', () => {
+    expect(getFinalCourseGrade([item({ grade: null, weight: null })], null)).toBeNull()
   })
 })

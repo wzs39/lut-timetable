@@ -35,7 +35,10 @@ abstract class BaseWidgetProvider : AppWidgetProvider() {
     }
 
     private fun renderAndApply(context: Context, manager: AppWidgetManager, id: Int) {
-        manager.updateAppWidget(id, render(context, layoutRes(), manager.getAppWidgetOptions(id)))
+        manager.updateAppWidget(
+            id,
+            render(context, layoutRes(), manager.getAppWidgetOptions(id), isKeyguard(manager, id)),
+        )
     }
 
     /**
@@ -54,6 +57,16 @@ abstract class BaseWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        /**
+         * True bila widget dirender oleh host layar kunci / negatif satu
+         * (Android 16+ lock screen, beberapa launcher glance): kategori
+         * KEYGUARD dilaporkan lewat options — kontras tinggi wajib karena
+         * wallpaper di belakangnya tak terkendali.
+         */
+        fun isKeyguard(manager: AppWidgetManager, id: Int): Boolean =
+            manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_HOST_CATEGORY) ==
+                android.appwidget.AppWidgetProviderInfo.WIDGET_CATEGORY_KEYGUARD
+
         /** Render + terapkan untuk SEMUA widget varian — dipakai WidgetBridgePlugin. */
         fun renderAll(context: Context, manager: AppWidgetManager) {
             for (provider in listOf(TodayWidgetProvider(), WideWidgetProvider())) {
@@ -61,14 +74,27 @@ abstract class BaseWidgetProvider : AppWidgetProvider() {
                 for (id in manager.getAppWidgetIds(cn)) {
                     manager.updateAppWidget(
                         id,
-                        render(context, provider.layoutRes(), manager.getAppWidgetOptions(id)),
+                        render(context, provider.layoutRes(), manager.getAppWidgetOptions(id), isKeyguard(manager, id)),
                     )
                 }
             }
+            // Widget tugas: mesin render sendiri (payload & layout berbeda).
+            val cnT = android.content.ComponentName(context, TasksWidgetProvider::class.java)
+            for (id in manager.getAppWidgetIds(cnT)) {
+                manager.updateAppWidget(
+                    id,
+                    TasksWidgetProvider.render(context, manager.getAppWidgetOptions(id), isKeyguard(manager, id)),
+                )
+            }
         }
 
-        fun render(context: Context, layoutRes: Int, opts: Bundle? = null): RemoteViews {
+        fun render(context: Context, layoutRes: Int, opts: Bundle? = null, keyguard: Boolean = false): RemoteViews {
             val views = RemoteViews(context.packageName, layoutRes)
+            if (keyguard) {
+                // Kartu gelap opaque: teks tetap terbaca di wallpaper layar
+                // kunci warna apa pun (palet tema terang/transparan tidak).
+                views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.widget_bg_keyguard)
+            }
 
             val open = PendingIntent.getActivity(
                 context, 0,
@@ -76,6 +102,14 @@ abstract class BaseWidgetProvider : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             views.setOnClickPendingIntent(R.id.widget_root, open)
+            // Interaksi: header membuka halaman TUGAS (request code beda agar
+            // PendingIntent tidak bentrok dengan root). Root tetap ke today.
+            val openTasks = PendingIntent.getActivity(
+                context, 1001,
+                Intent(context, MainActivity::class.java).putExtra("tt_view", "assign"),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            views.setOnClickPendingIntent(R.id.widget_title, openTasks)
 
             val payload = readPayload(context)
             if (payload == null) {
@@ -100,10 +134,16 @@ abstract class BaseWidgetProvider : AppWidgetProvider() {
             // sedang berlangsung ditandai ►NOW. Warna dari @color/widget_*
             // (tema-sadar: values = terang, values-night = gelap) — HTML
             // font butuh hex literal, jadi resolve dulu ke string.
+            // Keyguard menimpa dengan kontras tinggi fix.
             fun hex(c: Int) = String.format("#%06X", 0xFFFFFF and context.getColor(c))
-            val nowColor = hex(R.color.widget_now)
-            val mutedColor = hex(R.color.widget_text_muted)
-            val bodyColor = hex(R.color.widget_text_body)
+            val nowColor = if (keyguard) "#6EE7B7" else hex(R.color.widget_now)
+            val mutedColor = if (keyguard) "#B8BCC4" else hex(R.color.widget_text_muted)
+            val bodyColor = if (keyguard) "#F4F5F7" else hex(R.color.widget_text_body)
+            if (keyguard) {
+                views.setTextColor(R.id.widget_title, android.graphics.Color.parseColor("#F4F5F7"))
+                views.setTextColor(R.id.widget_items, android.graphics.Color.parseColor("#D9DBE0"))
+                views.setTextColor(R.id.widget_meta, android.graphics.Color.parseColor("#B8BCC4"))
+            }
             val nowMs = System.currentTimeMillis()
             val dual = layoutRes == R.layout.widget_today_wide
             val maxRows = capacityFor(layoutRes, opts)

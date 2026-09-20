@@ -3,7 +3,7 @@ import { useExitAnimation } from '../lib/useExitAnimation'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
-import { formatTime } from '../lib/date'
+import { formatTime, formatDay } from '../lib/date'
 import type { CSSProperties } from 'react'
 import { courseColor, courseStyle, courseTextStyle } from '../lib/colors'
 import { TYPE_META } from '../lib/lessonTypes'
@@ -60,12 +60,7 @@ export default function ConflictCheck({ lessons, onOpenLesson, onClose }: Props)
     requestClose()
   }
 
-  const fmtDate = (iso: string) =>
-    new Date(iso).toLocaleDateString(locale, {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-    })
+  const fmtDate = (iso: string) => formatDay(new Date(iso), locale)
 
   const timeRange = (l: Lesson) => formatTime(l.start) + '–' + formatTime(l.end)
 

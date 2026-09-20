@@ -40,24 +40,38 @@ export function weightedEstimate(
 }
 
 /**
- * Estimasi "jika semua yang belum dinilai dapat x" (0–100).
- * Sudah dinilai memakai nilai aslinya; belum dinilai (termasuk yang tanpa
- * nilai tapi berbobot) memakai x.
+ * Kontribusi satu item ke total kursus (poin persen): w·g/100 — persis
+ * kolom "Contribution to course total" Moodle. Null bila item tak berbobot
+ * atau belum dinilai (tanpa override).
  */
-export function estimateWithAssumption(
-  items: GradeItem[],
-  assumption: number,
+export function contributionOf(
+  item: GradeItem,
+  override?: number,
 ): number | null {
-  const a = clamp(assumption)
-  const eff = items.map((it) => {
-    const w = it.weight
-    if (w == null || w <= 0) return null
-    const g = it.grade ?? a
-    return { w, g }
-  }).filter((x): x is { w: number; g: number } => x != null)
-  const den = eff.reduce((s, x) => s + x.w, 0)
-  if (den <= 0) return null
-  return eff.reduce((s, x) => s + x.w * x.g, 0) / den
+  const w = item.weight
+  const g = effectiveGrade(item, override)
+  if (w == null || w <= 0 || g == null) return null
+  return (w * g) / 100
+}
+
+/**
+ * Total berjalan berbobot: Σ w·g atas SEMUA item — item belum dinilai
+ * terhitung 0, bukan dikecualikan. Inilah cara Moodle menghitung total
+ * kursus berjalan (mis. 3 pekan dinilai dari 14 → 3×7.14% = 21.4%),
+ * berbeda dari `weightedEstimate` yang merenormalisasi atas bobot
+ * tercover (menjawab "seberapa bagus pekerjaan yang sudah dinilai",
+ * bukan "berapa poin yang sudah dikumpulkan").
+ */
+export function weightedRunningTotal(
+  items: GradeItem[],
+  overrides: Record<number, number> = {},
+): number {
+  let sum = 0
+  for (let i = 0; i < items.length; i++) {
+    const c = contributionOf(items[i], overrides[i])
+    if (c != null) sum += c
+  }
+  return sum
 }
 
 /**
@@ -82,39 +96,61 @@ export function clamp(v: number): number {
   return Math.max(0, Math.min(100, v))
 }
 
-/** Proyeksi lengkap untuk kartu satu kursus. */
+/**
+ * SATU rantai prioritas nilai akhir kursus — dipakai headline kartu nilai
+ * DAN `average` hasil parse (dulu rantai ini di-hardcode dua tempat dan
+ * bisa saling berbeda). Prioritas:
+ *   1. total resmi Moodle (officialTotal) — diabaikan saat what-if override
+ *      (angka resmi sudah basi terhadap nilai harapan)
+ *   2. total berjalan berbobot Σ w·g, belum dinilai = 0 — kolom
+ *      "Contribution to course total"; hanya bila ada item berbobot dan > 0
+ *   3. rata-rata sederhana item yang sudah dinilai (kursus tanpa bobot)
+ *   4. null — Moodle juga menampilkan "-"
+ */
+export function getFinalCourseGrade(
+  items: GradeItem[],
+  officialTotal?: number | null,
+  overrides: Record<number, number> = {},
+): number | null {
+  const hasOverrides = Object.keys(overrides).length > 0
+  if (!hasOverrides && officialTotal != null) return officialTotal
+  if (items.some((it) => it.weight != null && it.weight > 0)) {
+    const running = weightedRunningTotal(items, overrides)
+    return running > 0 ? running : null
+  }
+  let num = 0
+  let n = 0
+  for (let i = 0; i < items.length; i++) {
+    const g = effectiveGrade(items[i], overrides[i])
+    if (g == null) continue
+    num += g
+    n++
+  }
+  return n > 0 ? num / n : null
+}
+
+/**
+ * Proyeksi lengkap untuk kartu satu kursus.
+ *
+ * `current` = angka utama — SELURUH rantai prioritas ada di
+ * `getFinalCourseGrade` (satu pemilik, tanpa duplikasi).
+ * `coveredAvg` = rata-rata berbobot item tercover saja (kualitas pekerjaan
+ * yang sudah dinilai) — ditampilkan sekunder.
+ */
 export function courseProjection(
   c: CourseGrades,
   overrides: Record<number, number> = {},
 ): {
-  projected: number | null
+  current: number | null
+  coveredAvg: number | null
   coveredWeight: number
   ungraded: number
   gradedWeight: number
 } {
-  const { value, coveredWeight } = weightedEstimate(c.items, overrides)
-  // LUT nyata tidak mengekspos bobot item (semua null) → weightedEstimate
-  // selalu null. Fallback: rata-rata sederhana item yang ikut dihitung
-  // (sudah dinilai memakai nilai asli, what-if override tetap dihormati,
-  // item belum dinilai tanpa override dikecualikan).
-  if (value == null && coveredWeight === 0) {
-    let num = 0
-    let n = 0
-    for (let i = 0; i < c.items.length; i++) {
-      const g = effectiveGrade(c.items[i], overrides[i])
-      if (g == null) continue
-      num += g
-      n++
-    }
-    return {
-      projected: n > 0 ? num / n : null,
-      coveredWeight: 0,
-      ungraded: ungradedCount(c.items),
-      gradedWeight: 0,
-    }
-  }
+  const { value: coveredAvg, coveredWeight } = weightedEstimate(c.items, overrides)
   return {
-    projected: value,
+    current: getFinalCourseGrade(c.items, c.officialTotal, overrides),
+    coveredAvg,
     coveredWeight,
     ungraded: ungradedCount(c.items),
     gradedWeight: gradedWeight(c.items),

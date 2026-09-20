@@ -18,10 +18,12 @@ import {
   type GradesError,
 } from '../lib/grades'
 import {
+  applyCompletionToTasks,
   applySubmissionStatus,
   fetchSubmissionStatus,
   type SubmissionStatus,
 } from '../lib/submissions'
+import { markActivityCompletion, updateCachedCompletion } from '../lib/contents'
 import { primeEnrolAnchor } from '../lib/moodleSync'
 import { fetchActionEvents, fetchActivityUrls, mergeActionEvents, upgradeIcsTaskUrls } from '../lib/actions'
 import {
@@ -62,6 +64,8 @@ export interface MoodleData {
   connected: boolean
   grades: CourseGrades[] | null
   subStatus: ReadonlyMap<string, SubmissionStatus>
+  /** cmid 键控的提交状态（内容树按模块 cmid 精确联接 assign 提交态） */
+  subByCmid: ReadonlyMap<number, SubmissionStatus>
   busy: 'idle' | 'sync' | 'grades' | 'subs'
   message: string | null
   /** Aliran notifikasi Moodle (satu pemilik: provider ini) */
@@ -83,6 +87,10 @@ export interface MoodleData {
   syncNow: () => Promise<void>
   refreshGrades: () => Promise<void>
   syncSubmissions: () => Promise<void>
+  /** 内容树勾选 → 同步归档/恢复对应任务（cmid 联接，只动 moodle: 任务） */
+  applyCompletion: (cmid: number, completed: boolean) => void
+  /** 任务卡勾选 → 推 Moodle 服务器完成状态并刷 contents 缓存（树↔任务不漂移） */
+  pushTaskCompletion: (cmid: number, completed: boolean) => void
 }
 
 const Ctx = createContext<MoodleData | null>(null)
@@ -110,6 +118,25 @@ export function MoodleProvider({
   const [token, setToken] = useState(() => loadGradesSource())
   const [grades, setGrades] = useState<CourseGrades[] | null>(null)
   const [subMap, setSubMap] = useState<Map<string, SubmissionStatus>>(new Map())
+  const [subByCmid, setSubByCmid] = useState<Map<number, SubmissionStatus>>(new Map())
+  /**
+   * 树徽标的合并视图：submissions 域（教师视角 API，部分站点可用）优先，
+   * grades 域（学生可读的 gradeitems）填补 LUT 等拒绝学生调 mod_assign 的站点。
+   * 同 cmid 两域都有数据时以 submissions 为准（带 feedback，信息更全）。
+   */
+  const mergeGradeStatus = useCallback((fromGrades: Map<number, import('../lib/grades').GradeCmidStatus>) => {
+    setSubByCmid((prev) => {
+      const next = new Map(prev)
+      for (const [cmid, gs] of fromGrades) {
+        if (!next.has(cmid)) {
+          // grades 域没有 dueAt（gradeitems 不含 duedate）——留空，树里该行
+          // 自然不显示截止；submissions 域的行才带。
+          next.set(cmid, { state: gs.state, grade: gs.grade, submittedAt: gs.submittedAt })
+        }
+      }
+      return next.size === prev.size ? prev : next
+    })
+  }, [])
   const [busy, setBusy] = useState<MoodleData['busy']>('idle')
   const [message, setMessage] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<MoodleNotification[] | null>(() => loadCachedNotifications())
@@ -153,15 +180,17 @@ export function MoodleProvider({
       // diterapkan — paralel di sini akan saling menimpa (stale write).
       try {
         if (gradesR.status === 'fulfilled') {
-          setGrades(gradesR.value)
+          setGrades(gradesR.value.courses)
+          mergeGradeStatus(gradesR.value.statusByCmid)
           saveGradesSource({ ...tk, lastSync: new Date().toISOString() })
           setToken((prev) => (prev ? { ...prev, lastSync: new Date().toISOString() } : prev))
         }
       } catch { /* silent */ }
       try {
         if (subsR.status === 'fulfilled') {
-          const { status, urlByKey } = subsR.value
+          const { status, urlByKey, statusByCmid } = subsR.value
           setSubMap(status)
+          setSubByCmid(statusByCmid)
           const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
           if (r.archived > 0) onTasks(r.tasks)
         }
@@ -290,6 +319,7 @@ export function MoodleProvider({
     setToken(null)
     setGrades(null)
     setSubMap(new Map())
+    setSubByCmid(new Map())
     setMessage(null)
   }, [])
 
@@ -447,12 +477,13 @@ export function MoodleProvider({
     setBusy('grades')
     setMessage(t('gradesFetching'))
     try {
-      const list = await fetchGrades(token, lessons)
-      setGrades(list)
+      const res = await fetchGrades(token, lessons)
+      setGrades(res.courses)
+      mergeGradeStatus(res.statusByCmid)
       const withTime = { ...token, lastSync: new Date().toISOString() }
       saveGradesSource(withTime)
       setToken(withTime)
-      setMessage(t('gradesLastSync', { n: list.length, time: timeStr() }))
+      setMessage(t('gradesLastSync', { n: res.courses.length, time: timeStr() }))
     } catch (e) {
       setMessage(gradesErrMsg(e))
     } finally {
@@ -475,13 +506,36 @@ export function MoodleProvider({
     [],
   )
 
+  const applyCompletion = useCallback(
+    (cmid: number, completed: boolean) => {
+      const r = applyCompletionToTasks(tasksRef.current, cmid, completed)
+      if (r.changed > 0) onTasks(r.tasks)
+    },
+    [onTasks],
+  )
+
+  /**
+   * 反向同步：任务卡勾选 → Moodle 服务器完成状态 + contents 缓存。
+   * 任务列表的更新由调用方（AssignmentsView 的 onChange）负责——本函数只
+   * 推服务器和刷缓存，失败静默（树下次同步会自然对齐，不阻塞 UI）。
+   */
+  const pushTaskCompletion = useCallback(
+    (cmid: number, completed: boolean) => {
+      void markActivityCompletion(token, cmid, completed).then((ok) => {
+        if (ok) updateCachedCompletion(cmid, completed)
+      })
+    },
+    [token],
+  )
+
   const syncSubmissions = useCallback(async () => {
     if (busy !== 'idle' || !token) return
     setBusy('subs')
     setMessage(t('subSyncing'))
     try {
-      const { status, urlByKey } = await fetchSubmissionStatus(token)
+      const { status, urlByKey, statusByCmid } = await fetchSubmissionStatus(token)
       setSubMap(status)
+      setSubByCmid(statusByCmid)
       const r = applySubmissionStatus(tasks, status, urlByKey)
       if (r.archived > 0) onTasks(r.tasks)
       setMessage(t(r.archived > 0 ? 'subSyncOk' : 'subSyncNone', { n: r.archived }))
@@ -533,6 +587,7 @@ export function MoodleProvider({
       connected: !!(ics || token),
       grades,
       subStatus: subMap,
+    subByCmid,
       busy,
       message,
       notifications,
@@ -549,8 +604,10 @@ export function MoodleProvider({
       syncNow,
       refreshGrades,
       syncSubmissions,
+      applyCompletion,
+      pushTaskCompletion,
     }),
-    [ics, token, grades, subMap, busy, message, notifications, markNotificationRead, refreshNotifications, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions],
+    [ics, token, grades, subMap, subByCmid, busy, message, notifications, markNotificationRead, refreshNotifications, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions, applyCompletion, pushTaskCompletion],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

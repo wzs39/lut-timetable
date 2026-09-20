@@ -347,12 +347,21 @@ export default function LessonDetail({
               </dl>
 
               {moodleCourseId && (
-                <ExternalLink
-                  href={`https://moodle.lut.fi/course/view.php?id=${moodleCourseId}`}
-                  className="block text-[11px] text-[var(--info)] hover:text-[var(--info)] hover:underline"
-                >
-                  {t('viewMoodleCourse')}
-                </ExternalLink>
+                <>
+                  <ExternalLink
+                    href={`https://moodle.lut.fi/course/view.php?id=${moodleCourseId}`}
+                    className="block text-[11px] text-[var(--info)] hover:text-[var(--info)] hover:underline"
+                  >
+                    {t('viewMoodleCourse')}
+                  </ExternalLink>
+                  {/* Tautan langsung laporan nilai kursus ini (grade report). */}
+                  <ExternalLink
+                    href={`https://moodle.lut.fi/grade/report/user/index.php?id=${moodleCourseId}`}
+                    className="block text-[11px] text-[var(--info)] hover:text-[var(--info)] hover:underline"
+                  >
+                    {t('viewMoodleGrades')}
+                  </ExternalLink>
+                </>
               )}
               {lesson.code && (
                 <button

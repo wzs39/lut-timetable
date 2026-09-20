@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget tugas: deadline terdekat dulu, warna dari @color/widget_*
+     (tema-sadar). ID sama dengan widget_today agar mesin render & keyguard
+     override seragam (widget_title / widget_items / widget_meta). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="12dp"
+    android:background="@drawable/widget_bg">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.04"
+        android:textAllCaps="true"
+        android:textColor="@color/widget_text_title" />
+
+    <TextView
+        android:id="@+id/widget_items"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="10dp"
+        android:fontFeatureSettings="tnum"
+        android:textSize="13sp"
+        android:lineSpacingExtra="4dp"
+        android:textColor="@color/widget_text_body" />
+
+    <TextView
+        android:id="@+id/widget_meta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textSize="11sp"
+        android:letterSpacing="0.02"
+        android:textColor="@color/widget_text_muted"
+        android:visibility="gone" />
+</LinearLayout>

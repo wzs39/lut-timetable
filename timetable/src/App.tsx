@@ -20,7 +20,8 @@ import {
 } from './lib/translator'
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
-import { loadTasks, pendingTasks, saveTasks, type Task } from './lib/tasks'
+import { loadTasks, pendingTasks, saveTasks, updateTask, type Task } from './lib/tasks'
+import { installWidgetNavBridge, pushTasksData } from './lib/widgetData'
 import { useDelayedUnmount } from './lib/useExitAnimation'
 import { checkApkUpdate } from './lib/apkUpdate'
 import { maybeCleanOldApks } from './lib/apkUpdate'
@@ -63,8 +64,11 @@ function AppInner({
     const m = /^#\/view\/(today|week|assign|moodle)$/.exec(location.hash)
     return (m?.[1] as 'today' | 'week' | 'assign' | 'moodle') || 'today'
   })
-  /** 作业页进入时预置的分组筛选（Moodle 时间线卡片跳转用） */
-  const [assignFilter, setAssignFilter] = useState<'overdue' | 'due7' | 'later'>('overdue')
+  /** 作业页进入时预置的分组筛选。null = 无预置（侧栏/深链普通导航），
+   *  只有 Moodle 时间线/成绩卡跳转才带具体筛选；AssignmentsView 把 null
+   *  当 'all' 用。默认必须 null：普通导航带着旧 'overdue' 会把列表过滤成空。 */
+  const [assignFilter, setAssignFilter] = useState<'overdue' | 'due7' | 'later' | null>(null)
+  const [assignQuery, setAssignQuery] = useState<string | undefined>(undefined)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showDupResolver, setShowDupResolver] = useState(false)
   const [showBatchFilter, setShowBatchFilter] = useState(false)
@@ -84,6 +88,21 @@ function AppInner({
   const [updateChecking, setUpdateChecking] = useState(false)
   const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
   const [translatorMsg, setTranslatorMsg] = useState<string | null>(null)
+
+  // Widget 深链：view 只在挂载时读一次 hash，运行中由 widget tap 经
+  // MainActivity → __widgetNav 写 hash；此 listener 把 hash 变化接到 view 状态。
+  useEffect(() => {
+    installWidgetNavBridge()
+    const onHash = () => {
+      const m = /^#\/view\/(today|week|assign|moodle)$/.exec(location.hash)
+      if (m) {
+        if (m[1] === 'assign') { setAssignFilter(null); setAssignQuery(undefined) } // 普通深链不带筛选
+        setView(m[1] as 'today' | 'week' | 'assign' | 'moodle')
+      }
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   // Manual one-click link: only touches Lecture Translator when the user
   // presses the sidebar button — never automatic, never in the background.
@@ -235,7 +254,11 @@ function AppInner({
               {t('viewWeek')}
             </button>
             <button
-              onClick={() => setView('assign')}
+              onClick={() => {
+                setAssignFilter(null) // 侧栏导航 = 无预置筛选
+                setAssignQuery(undefined)
+                setView('assign')
+              }}
               aria-pressed={view === 'assign'}
               title={t('assignTitle')}
             >
@@ -429,7 +452,12 @@ function AppInner({
               notes={notes}
               tasks={tasks}
               onJumpToCourse={jumpToCourse}
-              onOpenAssignments={() => setView('assign')}
+              onToggleTask={(task, completed) => setTasks(updateTask(tasks, task.id, { completed }))}
+              onOpenAssignments={() => {
+                setAssignFilter(null) // 今日页横幅/卡片：无预置筛选
+                setAssignQuery(undefined)
+                setView('assign')
+              }}
             />
           )}
           {view === 'week' && (
@@ -445,8 +473,9 @@ function AppInner({
               tasks={tasks}
               lessons={tt.lessons}
               onJumpToCourse={jumpToCourse}
-              onOpenAssignments={(filter) => {
+              onOpenAssignments={(filter, query) => {
                 setAssignFilter(filter)
+                setAssignQuery(query)
                 setView('assign')
               }}
               onOpenSettings={() => setShowSettings(true)}
@@ -457,8 +486,9 @@ function AppInner({
               tasks={tasks}
               lessons={tt.lessons}
               onChange={(next) => setTasks(saveTasks(next))}
-              key={assignFilter}
+              key={`${assignFilter ?? 'all'}|${assignQuery ?? ''}`}
               initialFilter={assignFilter}
+              initialQuery={assignQuery}
               onJumpToCourse={jumpToCourse}
             />
           )}
@@ -488,6 +518,8 @@ function AppInner({
           assignments={tasks}
           onOpenAssignments={() => {
             setSelectedId(null)
+            setAssignFilter(null) // 课程详情跳转：无预置筛选
+            setAssignQuery(undefined)
             setView('assign')
           }}
         />
@@ -621,6 +653,8 @@ function AppInner({
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => loadTasks())
   const tt = useTimetable()
+  // Widget 任务列表：tasks 变化即推新 payload（同 lessons 的 push 模式）。
+  useEffect(() => void pushTasksData(tasks), [tasks])
   return (
     <MoodleProvider tasks={tasks} lessons={tt.lessons} onTasks={(n) => setTasks(saveTasks(n))}>
       <AppInner tasks={tasks} setTasks={setTasks} tt={tt} />

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { CourseGrades, GradeItem } from '../lib/grades'
-import { courseProjection, effectiveGrade } from '../lib/gradeCalc'
+import { contributionOf, courseProjection, effectiveGrade } from '../lib/gradeCalc'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
 
@@ -14,9 +14,12 @@ import Icon from './Icon'
 export default function GradeCourseCard({
   c,
   onJumpToCourse,
+  onOpenUngradedTasks,
 }: {
   c: CourseGrades
   onJumpToCourse?: (code: string) => void
+  /** Ada di ≥1: chip "N belum dinilai" jadi tautan ke daftar tugas tersaring kursus ini. */
+  onOpenUngradedTasks?: () => void
 }) {
   const { t } = useI18n()
   const [overrides, setOverrides] = useState<Record<number, number>>({})
@@ -80,12 +83,12 @@ export default function GradeCourseCard({
           )}
         </span>
         <span className="shrink-0 tabular-nums text-[11px] font-semibold text-[var(--text-1)]">
-          <span title={t('gradeProjTitle')}>
-            {proj.projected != null ? proj.projected.toFixed(1) : '—'}%
+          <span title={t('gradeCurTitle')}>
+            {proj.current != null ? proj.current.toFixed(1) : '—'}%
           </span>
-          {proj.projected != null && c.average != null && Math.abs(proj.projected - c.average) >= 0.05 && (
-            <span className="ml-1 text-[10px] font-normal text-[var(--text-3)]" title={t('gradeMoodleAvg')}>
-              ({c.average.toFixed(0)}%)
+          {proj.current != null && proj.coveredAvg != null && Math.abs(proj.current - proj.coveredAvg) >= 0.05 && (
+            <span className="ml-1 text-[10px] font-normal text-[var(--text-3)]" title={t('gradeCoveredAvgTitle')}>
+              ({proj.coveredAvg.toFixed(0)}%)
             </span>
           )}
         </span>
@@ -97,7 +100,18 @@ export default function GradeCourseCard({
           {weighted
             ? t('gradeCovered', { w: proj.coveredWeight.toFixed(0) })
             : t('gradeGradedOf', { g: gradedCount, n: c.items.length })}
-          {proj.ungraded > 0 && ` · ${t('gradeUngraded', { n: proj.ungraded })}`}
+          {proj.ungraded > 0 && ` · `}
+          {proj.ungraded > 0 && onOpenUngradedTasks ? (
+            <button
+              onClick={onOpenUngradedTasks}
+              title={t('gradeUngradedJumpTitle')}
+              className="inline-flex items-center gap-0.5 text-[var(--text-3)] hover:text-[var(--text-1)] hover:underline"
+            >
+              {t('gradeUngraded', { n: proj.ungraded })} <Icon name="chevron-right" size={9} />
+            </button>
+          ) : (
+            proj.ungraded > 0 && <span>{t('gradeUngraded', { n: proj.ungraded })}</span>
+          )}
         </span>
         <button
           onClick={() => setExpanded((o) => !o)}
@@ -167,6 +181,8 @@ function GradeItemRow({
 }) {
   const { t } = useI18n()
   const eff = effectiveGrade(it, override)
+  // Kontribusi ke total (w·g/100) — ikut override secara live saat what-if.
+  const contrib = contributionOf(it, override)
   // Editing adalah state baris ini: tombol '—'/'90' membuka editor (draft
   // kosong untuk item belum dinilai, nilai asli untuk yang sudah), ✕/Enter
   // kosong menghapus override. Jangan turunkan "editing" dari override —
@@ -190,8 +206,15 @@ function GradeItemRow({
         {editing && <span className="mr-1 inline-flex align-[-1px] text-[var(--info)]">✎</span>}
         {it.name}
       </span>
-      {it.weight != null && (
-        <span className="shrink-0 tabular-nums text-[var(--text-3)]">{t('gradesWeight')} {it.weight}%</span>
+      {(it.weight != null || contrib != null) && (
+        <span className="shrink-0 tabular-nums text-[var(--text-3)]">
+          {it.weight != null && `${t('gradesWeight')} ${it.weight}%`}
+          {contrib != null && (
+            <span className="ml-1 text-[var(--info)]" title={t('gradeContribTitle')}>
+              +{contrib.toFixed(1)}
+            </span>
+          )}
+        </span>
       )}
       <span className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-1)]">
         <span
@@ -235,7 +258,8 @@ function GradeItemRow({
           className="w-14 shrink-0 text-right tabular-nums text-[var(--text-1)] hover:text-[var(--info)]"
           title={t('gradeWhatIfTitle')}
         >
-          {it.grade != null ? `${it.grade}` : '—'}
+          {/* Teks resmi Moodle ("Passed"/"8.00") lebih dulu; persen sebagai fallback. */}
+          {it.gradeText ?? (it.grade != null ? `${it.grade}` : '—')}
         </button>
       )}
     </li>

@@ -13,4 +13,11 @@
     <string name="widget_now">Now!</string>
     <string name="widget_in_hm">Next in %1$dh %2$02dm</string>
     <string name="widget_in_m">Next in %1$d min</string>
+
+    <!-- Widget tugas -->
+    <string name="widget_tasks_title">LUT Timetable · Tasks</string>
+    <string name="widget_no_tasks">No upcoming tasks</string>
+    <string name="widget_late">LATE</string>
+    <string name="widget_soon">SOON</string>
+    <string name="widget_open_tasks">%1$d open</string>
 </resources>

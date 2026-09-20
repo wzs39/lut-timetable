@@ -243,3 +243,66 @@ describe('assign deep-link backfill', () => {
     expect(r.tasks[0].url).toBe(real)
   })
 })
+
+// 内容树勾选 → 任务同步：cmid 精确联接（task.url = mod 活动页），只动 moodle: 任务。
+import { applyCompletionToTasks } from '../lib/submissions'
+
+describe('applyCompletionToTasks', () => {
+  const mk = (id: string, url?: string, note?: string): Task => ({
+    id,
+    title: 'Assignment 2: Create a Persona',
+    url,
+    note,
+    completed: false,
+    createdAt: '2026-09-01T00:00:00Z',
+    updatedAt: '2026-09-01T00:00:00Z',
+  })
+
+  it('archives the matching-cmid task and tags it', () => {
+    const t = mk('moodle-act:100', 'https://moodle.lut.fi/mod/assign/view.php?id=2179011')
+    const r = applyCompletionToTasks([t], 2179011, true)
+    expect(r.changed).toBe(1)
+    expect(r.tasks[0].completed).toBe(true)
+    expect(r.tasks[0].note).toContain('[Moodle]')
+  })
+
+  it('un-completes: restores task and strips the sync tag, keeps user notes', () => {
+    const t = {
+      ...mk('moodle-act:100', 'https://moodle.lut.fi/mod/quiz/view.php?id=2193942', 'my own note\n[Moodle] ✔ 5'),
+      completed: true,
+    }
+    const r = applyCompletionToTasks([t], 2193942, false)
+    expect(r.changed).toBe(1)
+    expect(r.tasks[0].completed).toBe(false)
+    expect(r.tasks[0].note).toBe('my own note')
+  })
+
+  it('never touches manual tasks or non-mod URLs', () => {
+    const manual = mk('manual-1', 'https://moodle.lut.fi/mod/assign/view.php?id=1')
+    const icsFallback = mk('moodle:9@moodle.lut.fi', 'https://moodle.lut.fi/calendar/view.php?event=9')
+    const r = applyCompletionToTasks([manual, icsFallback], 1, true)
+    expect(r.changed).toBe(0)
+    expect(r.tasks.every((x) => !x.completed)).toBe(true)
+  })
+
+  it('is idempotent: already-completed task matches no change', () => {
+    const t = { ...mk('moodle-act:1', 'https://moodle.lut.fi/mod/assign/view.php?id=5'), completed: true }
+    expect(applyCompletionToTasks([t], 5, true).changed).toBe(0)
+  })
+})
+
+// 反向同步的提取契约：taskCmidOf 与 applyCompletionToTasks 共用同一个 cmid 联接规则。
+import { taskCmidOf } from '../lib/submissions'
+
+describe('taskCmidOf (反向同步联接键)', () => {
+  it('extracts cmid from any mod activity URL', () => {
+    expect(taskCmidOf({ url: 'https://moodle.lut.fi/mod/assign/view.php?id=2179011' })).toBe(2179011)
+    expect(taskCmidOf({ url: 'https://moodle.lut.fi/mod/quiz/view.php?id=2193942' })).toBe(2193942)
+    expect(taskCmidOf({ url: 'https://moodle.lut.fi/mod/workshop/view.php?id=123&x=9' })).toBe(123)
+  })
+
+  it('returns undefined for calendar-fallback URLs or missing url', () => {
+    expect(taskCmidOf({ url: 'https://moodle.lut.fi/calendar/view.php?event=9' })).toBeUndefined()
+    expect(taskCmidOf({})).toBeUndefined()
+  })
+})

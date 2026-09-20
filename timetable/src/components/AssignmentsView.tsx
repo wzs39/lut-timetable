@@ -11,13 +11,10 @@ import {
   type Task,
 } from '../lib/tasks'
 import { matchCourseCode } from '../lib/moodle'
-import { taskMatchKey } from '../lib/submissions'
+import TaskRow from './TaskRow'
 import { normalizeCourseCode } from '../lib/ics'
-import { courseColorByKey, courseStyle, courseTextStyle } from '../lib/colors'
 import { QUICK_LINKS } from '../lib/quickLinks'
-import { useMoodleData } from '../hooks/useMoodleData'
 import ExternalLink from './ExternalLink'
-import TruncatedNote from './TruncatedNote'
 import Icon from './Icon'
 
 interface Props {
@@ -27,17 +24,19 @@ interface Props {
   /** 跳转到该课程的日历位置（点击课程代码时） */
   onJumpToCourse?: (code: string) => void
   onClose?: () => void
-  /** 进入页面时预置的分组筛选（如从 Moodle 时间线卡片跳转） */
-  initialFilter?: Group | 'all'
+  /** 进入页面时预置的分组筛选；null = 无预置（普通导航 → 'all'）。
+   *  组件带 key={assignFilter}：App 层每次导航都重建，初值始终生效。
+   *  `query`：预置搜索词（成绩卡未评项 → 课程码筛选），与 group 正交。 */
+  initialFilter?: Group | 'all' | null
+  initialQuery?: string
 }
 
 type Group = 'overdue' | 'due7' | 'later' | 'nodue' | 'done'
 
 const GROUP_ORDER: Group[] = ['overdue', 'due7', 'later', 'nodue', 'done']
 
-export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCourse, onClose, initialFilter }: Props) {
-  const { t, locale } = useI18n()
-  const md = useMoodleData()
+export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCourse, onClose, initialFilter, initialQuery }: Props) {
+  const { t } = useI18n()
   const [title, setTitle] = useState('')
   const [course, setCourse] = useState('')
   const [dueAt, setDueAt] = useState('')
@@ -46,8 +45,9 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // 搜索 + 分组筛选（initialFilter 仅作初值：Moodle 时间线卡片 → 预置筛选）
-  const [q, setQ] = useState('')
+  // 搜索 + 分组筛选（initialFilter 仅作初值：Moodle 时间线卡片 → 预置筛选；
+  // initialQuery：成绩卡未评项跳转 → 课程码预置搜索）
+  const [q, setQ] = useState(initialQuery ?? '')
   const [groupFilter, setGroupFilter] = useState<Group | 'all'>(initialFilter ?? 'all')
 
   // 折叠抽屉（默认收起，避免堆满一屏）
@@ -88,12 +88,28 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     setError(null)
   }
 
-  const formatDue = (due?: string) => {
-    if (!due) return t('taskNoDue')
-    return new Date(due).toLocaleString(locale, {
-      weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    })
+  /** 该任务课程的日历内代码（用于着色与跳转）；无匹配则 null */
+  const courseCodeOf = (course?: string): string | null => {
+    if (!course) return null
+    const matched = matchCourseCode(course, lessons)
+    if (matched) return matched
+    // 已是 LUT 代码或与某节课代码前缀一致时直接用
+    const norm = normalizeCourseCode(course)
+    if (lessons.some((l) => l.code && normalizeCourseCode(l.code) === norm)) return norm
+    return null
   }
+
+  // 成绩卡未评项跳转预置课程码 → 任务搜索词必须能命中。
+  // 任务 course 存的是 Moodle shortname/fullname（如 "BM20A9200 Contact teaching…"），
+  // 代码通常内嵌其中；但保险起见把解析出的日历代码也并入检索串。
+  const codeByCourse = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const task of tasks) {
+      if (task.course && !m.has(task.course)) m.set(task.course, courseCodeOf(task.course))
+    }
+    return m
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, lessons])
 
   const groups = useMemo(() => {
     const now = Date.now()
@@ -105,7 +121,8 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     const map = new Map<Group, Task[]>()
     for (const task of sortTasks(tasks)) {
       if (kw) {
-        const hay = `${task.title} ${task.course || ''} ${task.note || ''}`.toLowerCase()
+        const code = task.course ? codeByCourse.get(task.course) : null
+        const hay = `${task.title} ${task.course || ''} ${code || ''} ${task.note || ''}`.toLowerCase()
         if (!hay.includes(kw)) continue
       }
       let g: Group
@@ -117,7 +134,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
       push(map, g, task)
     }
     return map
-  }, [tasks, q])
+  }, [tasks, q, codeByCourse])
 
   const groupLabel: Record<Group, string> = {
     overdue: t('assignOverdue'),
@@ -125,17 +142,6 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     later: t('assignLater'),
     nodue: t('assignNoDue'),
     done: t('assignDone'),
-  }
-
-  /** 该任务课程的日历内代码（用于着色与跳转）；无匹配则 null */
-  const courseCodeOf = (course?: string): string | null => {
-    if (!course) return null
-    const matched = matchCourseCode(course, lessons)
-    if (matched) return matched
-    // 已是 LUT 代码或与某节课代码前缀一致时直接用
-    const norm = normalizeCourseCode(course)
-    if (lessons.some((l) => l.code && normalizeCourseCode(l.code) === norm)) return norm
-    return null
   }
 
   const inputCls =
@@ -299,83 +305,19 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                     {groupLabel[g]} · {items.length}
                   </h3>
                   <ul className="space-y-2">
-                    {items.map((task) => {
-                      const overdue = g === 'overdue'
-                      const isMoodle = task.id.startsWith('moodle:') || task.id.startsWith('moodle-act:')
-                      const cc = courseCodeOf(task.course)
-                      const c = cc ? courseColorByKey(cc) : null
-                      return (
-                        <li key={task.id} className={'task-row rounded-lg border p-2.5 ' + (task.completed ? 'border-[var(--line)] bg-[var(--surface-2)] opacity-50' : overdue ? 'border-[var(--danger)] bg-[var(--surface-2)]' : 'border-[var(--line)] bg-[var(--surface-2)]')}
-                          style={task.completed || overdue ? undefined : c ? courseStyle(c) : undefined}
-                        >
-                          <div className="flex items-start gap-2">
-                            <input
-                              type="checkbox"
-                              checked={task.completed}
-                              onChange={(event) => onChange(updateTask(tasks, task.id, { completed: event.target.checked }))}
-                              className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500"
-                              aria-label={task.title}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className={'text-xs font-medium ' + (task.completed ? 'line-through text-[var(--text-3)]' : '')} style={task.completed || !c ? undefined : { color: c.text }}>
-                                {isMoodle && <span className="mr-1 inline-flex" title="Moodle"><Icon name="assignment" size={11} /></span>}
-                                {task.title}
-                              </div>
-                              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-[var(--text-2)]">
-                                {task.course && (
-                                  cc && onJumpToCourse ? (
-                                    <button
-                                      onClick={() => onJumpToCourse(cc)}
-                                      className="font-medium underline-offset-2 hover:underline"
-                                      style={courseTextStyle(c!)}
-                                      title={t('jumpToCourse')}
-                                    >
-                                      <span className="inline-flex items-center gap-1"><Icon name="book" size={11} /> {task.course} <Icon name="jump" size={10} /></span>
-                                    </button>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1"><Icon name="book" size={11} /> {task.course}</span>
-                                  )
-                                )}
-                                {task.dueAt && <span className="inline-flex items-center gap-1"><Icon name="clock" size={11} /> {formatDue(task.dueAt)}{overdue ? ` · ${t('taskOverdue')}` : ''}</span>}
-                                {(() => {
-                                  const st = md.subStatus.get(taskMatchKey(task))
-                                  if (!st) return null
-                                  if (st.state === 'graded') return (
-                                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line-ok)] bg-[var(--tint-ok)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--ok)]" title={st.feedback || undefined}>
-                                      <Icon name="check" size={10} /> {t('subGraded')}{st.grade ? ` ${st.grade}` : ''}
-                                    </span>
-                                  )
-                                  if (st.state === 'submitted') return (
-                                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line-info)] bg-[var(--tint-info)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--info)]">
-                                      <Icon name="check" size={10} /> {t('subSubmitted')}
-                                    </span>
-                                  )
-                                  return null
-                                })()}
-                              </div>
-                              {task.note && <TruncatedNote note={task.note} />}
-                            </div>
-                            <div className="flex shrink-0 gap-1">
-                              {task.url && (
-                                <ExternalLink
-                                  href={String(task.url)}
-                                  className="app-btn-ghost px-1.5 py-1 text-[10px]"
-                                  title="Moodle"
-                                >
-                                  <Icon name="external" size={11} />
-                                </ExternalLink>
-                              )}
-                              {!isMoodle && (
-                                <>
-                                  <button onClick={() => edit(task)} className="app-btn-ghost px-1.5 py-1" title={t('edit')}><Icon name="pencil" size={11} /></button>
-                                  <button onClick={() => onChange(removeTask(tasks, task.id))} className="app-btn-ghost px-1.5 py-1 text-[var(--danger)]" title={t('delete')}><Icon name="close" size={11} /></button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </li>
-                      )
-                    })}
+                    {items.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        lessons={lessons}
+                        onToggle={(t0, completed) => {
+                          onChange(updateTask(tasks, t0.id, { completed }))
+                        }}
+                        onEdit={edit}
+                        onDelete={(t0) => onChange(removeTask(tasks, t0.id))}
+                        onJumpToCourse={onJumpToCourse}
+                      />
+                    ))}
                   </ul>
                 </section>
               )

@@ -87,7 +87,13 @@ export async function fetchEnrolledCourses(
 ): Promise<EnrolledCourse[] | null> {
   if (!src?.token) return null
   const cached = loadEnrolledCourses()
-  if (cached) return cached
+  if (cached) {
+    // Cache pun ikut menulis identitas: penulisan lokal murah, dan lesson
+    // bisa saja baru dimuat (dulu cache-hit = baris identitas tak berkode
+    // sampai cache enrol kedaluwarsa 24 jam).
+    saveIdentityFromEnrol(cached, lessons ?? [])
+    return cached
+  }
   const res = await wsCall<unknown>(src.token, 'core_enrol_get_users_courses', {
     userid: src.userid ?? 0,
   })

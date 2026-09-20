@@ -17,20 +17,22 @@ export interface CourseColor {
   text: string
 }
 
-/** 12 hue yang mudah dibedakan; lightness/alpha diatur CSS per tema */
+/** 12 hue yang mudah dibedakan; lightness/alpha diatur CSS per tema.
+ *  Saturasi dijaga 62–78%: warna terlalu jenuh (dulu 78–96%) tampak seperti
+ *  stiker neon di atas chrome netral yang restrained. */
 const PALETTE: string[] = [
-  '199 89%', // sky
-  '258 90%', // violet
-  '160 84%', // emerald
-  '38 92%', // amber
-  '349 89%', // rose
-  '189 94%', // cyan
-  '85 78%', // lime
-  '25 95%', // orange
-  '292 91%', // fuchsia
-  '173 80%', // teal
-  '239 84%', // indigo
-  '48 96%', // yellow
+  '199 76%', // sky
+  '258 74%', // violet
+  '160 66%', // emerald
+  '38 76%', // amber
+  '349 72%', // rose
+  '189 76%', // cyan
+  '85 64%', // lime
+  '25 76%', // orange
+  '292 70%', // fuchsia
+  '173 64%', // teal
+  '239 70%', // indigo
+  '48 76%', // yellow
 ]
 
 /** FNV-1a hash — deterministik, distribusi merata */

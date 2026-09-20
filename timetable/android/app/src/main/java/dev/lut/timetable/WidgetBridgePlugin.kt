@@ -25,6 +25,7 @@ class WidgetBridgePlugin : Plugin() {
         val count = listOf(
             TodayWidgetProvider::class.java,
             WideWidgetProvider::class.java,
+            TasksWidgetProvider::class.java,
         ).sumOf { cls -> manager.getAppWidgetIds(ComponentName(context, cls)).size }
         call.resolve(JSObject().put("updated", count))
     }

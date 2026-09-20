@@ -28,7 +28,7 @@ function makeId(): string {
 
 export function loadTasks(): Task[] {
   const raw = readJson<unknown>(KEYS.tasks, [])
-  return Array.isArray(raw) ? raw.filter(isTask) : []
+  return withDerivedModtypes(Array.isArray(raw) ? raw.filter(isTask) : [])
 }
 
 export function saveTasks(tasks: Task[]): Task[] {
@@ -182,4 +182,31 @@ export function addTask(tasks: Task[], input: Pick<Task, 'title' | 'course' | 'd
 
 export function removeTask(tasks: Task[], id: string): Task[] {
   return saveTasks(tasks.filter((task) => task.id !== id))
+}
+
+/**
+ * Jenis modul Moodle untuk badge ikon task card. Prioritas: `modtype`
+ * eksplisit (dari action timeline) → turunkan dari URL aktivitas
+ * (`/mod/<type>/view.php`) → null (task manual / tanpa info).
+ * Murni, tanpa I/O — mudah diuji & dipakai lintas tampilan.
+ */
+export type ModuleType = 'assign' | 'quiz' | 'workshop' | 'attendance' | string
+
+export function moduleTypeOf(task: Pick<Task, 'modtype' | 'url'>): ModuleType | null {
+  if (task.modtype) return task.modtype
+  const m = task.url?.match(/\/mod\/([^/]+)\//)
+  return m ? m[1] : null
+}
+
+/** Tugas ICS hasil upgrade URL belum punya modtype — isi dari URL sekali. */
+export function withDerivedModtypes(tasks: Task[]): Task[] {
+  let dirty = false
+  const next = tasks.map((t) => {
+    if (t.modtype || !t.url) return t
+    const m = t.url.match(/\/mod\/([^/]+)\//)
+    if (!m) return t
+    dirty = true
+    return { ...t, modtype: m[1] }
+  })
+  return dirty ? next : tasks
 }
