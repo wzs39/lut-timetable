@@ -54,6 +54,8 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 | CapacitorHttp 非 2xx 返回 HTML 错误页 | Android 报 "invalid JSON" | 网络层容忍非 JSON 响应，按失败处理并回退缓存 |
 | 组件测试没包 MoodleProvider | TaskRow/今日页/作业页测试全组红 "must be used inside MoodleProvider" | jsdom 渲染时包 `MoodleProvider`（真实 App 在 App.tsx 的 AppInner 外层已包） |
 | 同名函数不同义（如 ics/courses 各有一份 extractCourseCode：一个剥分组号一个保留） | 按"重复"合并后颜色分桶/去重/匹配行为悄悄改变 | 合并前先 diff 正则与返回值语义；刻意分歧保留两份并在注释里互相指向 |
+| CI gate/脚本用 npx 但放在 npm ci 之前 | 本地全绿、fresh runner 上 ENOENT/vitest 不存在 | 任何 npx 步骤必须排在依赖安装之后；本地暴露不了，首次 push CI 才炸 |
+| 测试 fixture 手写 UTC 日期字面量 | UTC+8 本地绿、UTC CI runner 红（差一天） | key/断言从同一 Date 推导（toISOString().slice(0,10)），并发 PR 前 `TZ=UTC npx vitest run` 复跑一遍 |
 | WebView 资产缓存 | 改了代码模拟器没变化 | `cap copy` 后确认 `lastUpdateTime`；必要时卸载重装 |
 | `install -r` 签名冲突 | 静默失败，旧 APK 还在跑 | 卸载重装；装完 grep `Success` |
 | 本地通知 `smallIcon` 缺省回退自适应启动器图标 | MIUI 等厂商 ROM 展开/点击通知时 RemoteServiceException 杀进程（"点通知就退出"），AOSP 模拟器复现不了 | 必须专用纯白线条透明底图标（`ic_stat_lesson`，全密度 drawable-*）；模拟器验证通过不代表厂商 ROM 通过 |
