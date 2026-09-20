@@ -49,6 +49,9 @@ export type IconName =
   | 'trash'
   | 'plus'
   | 'megaphone'
+  | 'quiz'
+  | 'workshop'
+  | 'attendance'
 
 const PATHS: Record<IconName, React.ReactNode> = {
   'arrow-left': <path d="M15 8H2m0 0l4-4M2 8l4 4" />,
@@ -88,6 +91,10 @@ const PATHS: Record<IconName, React.ReactNode> = {
   trash: <path d="M2 4h12M5 4V2h6v2M4 4l1 10h6l1-10M6.5 7v4m3-4v4" />,
   plus: <path d="M8 2v12M2 8h12" />,
   megaphone: <path d="M13 3v8L6 9H3a1 1 0 01-1-1V6a1 1 0 011-1h3l7-2zM5.5 9v4a1.5 1.5 0 003 0V9.5" />,
+  // modul Moodle: quiz = kartu tanya; workshop = dua kepala bertukar; attendance = daftar hadir
+  quiz: <path d="M3 1h10v12H3zM5.5 5.5a1.2 1.2 0 112.4 0c0 .8-1.2 1-1.2 2m1.2 2.2v.1M11 1v12" />,
+  workshop: <path d="M5 2a2 2 0 100 4 2 2 0 000-4zM11 10a2 2 0 100 4 2 2 0 000-4zM1 13c0-2 1.8-3.5 4-3.5 1 0 2 .3 2.7.8M9 4.7c.7-.5 1.6-.8 2.6-.8 2.2 0 4 1.5 4 3.5" />,
+  attendance: <path d="M2 2h12v12H2zM4.5 5.5h.1M4.5 8h.1M4.5 10.5h.1M7 5.5h5M7 8h5M7 10.5h3" />,
 }
 
 export default function Icon({ name, size = 14, className = '' }: IconProps) {

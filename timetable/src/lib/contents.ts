@@ -1,5 +1,10 @@
 import { wsCall, validateGradesSource } from './grades'
 import { domainCacheKey, readCache, writeCache, syncDomain } from './moodleSync'
+import { readJson } from './storage'
+import type { CacheEnvelope } from './moodleSync'
+
+/** contents 缓存键前缀（与 moodleSync.domainCacheKey 的实现保持同源）。 */
+const TRANSIENT_PREFIX = 'tt_ics_cache_v1:'
 
 /**
  * Konten kursus (core_course_get_contents) + status penyelesaian aktivitas
@@ -181,6 +186,38 @@ function saveCachedContents(courseId: number, sections: CourseSection[]): void {
 export function clearContentsCache(courseId: number): void {
   try {
     localStorage.removeItem(cacheKey(courseId))
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/**
+ * 反向同步的缓存侧：任务卡勾选成功后，把新 completion 状态写进该课程的
+ * contents 缓存——已打开的内容树下次渲染立即反映，无需重拉网络。
+ * （与正向同步 applyCompletionToTasks 配对：树→任务、任务→树，状态不漂移。）
+ * 未命中任何 cmid 或无缓存 = 静默 no-op。
+ */
+export function updateCachedCompletion(cmid: number, completed: boolean): void {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith(TRANSIENT_PREFIX + 'contents_')) continue
+      const raw = readJson<CacheEnvelope<CourseSection> | null>(key, null)
+      if (!raw || !Array.isArray(raw.items)) continue
+      let hit = false
+      const items = raw.items.map((s) => ({
+        ...s,
+        modules: s.modules.map((m) => {
+          if (m.id !== cmid) return m
+          hit = true
+          return { ...m, completion: completed ? 1 : m.completion === 2 ? 2 : 0 }
+        }),
+      }))
+      if (hit) {
+        writeCache(key, items)
+        return
+      }
+    }
   } catch {
     /* non-fatal */
   }

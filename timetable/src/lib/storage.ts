@@ -38,6 +38,7 @@ export const KEYS = {
   moodleNewsOpen: 'tt_moodle_news_open',
   lang: 'tt_lang',
   theme: 'tt_theme',
+  themePreset: 'tt_theme_preset',
   autosync: 'tt_autosync',
   notif: 'tt_notif',
   ntfRead: 'tt_ntf_read_v1',

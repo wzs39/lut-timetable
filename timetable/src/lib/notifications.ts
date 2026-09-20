@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Lesson } from '../types'
+import { formatTime } from './date'
 
 /** Remind this many minutes before a lesson starts */
 export const REMIND_MINUTES = 10
@@ -100,20 +101,16 @@ export async function refreshNotifications(
       title: texts.title,
       body: texts.body(lesson, formatTime(lesson.start, locale)),
       schedule: { at, allowWhileIdle: true, exact },
-      smallIcon: undefined,
+      // 专用状态栏图标（纯白线条、透明底）：MIUI 等厂商 ROM 对彩色/自适应
+      // 图标的通知在展开或点击时抛 RemoteServiceException 直接杀进程 ——
+      // "点通知就退出应用" 的已知根因。ic_stat_lesson 专用资源杜绝该路径。
+      smallIcon: 'ic_stat_lesson',
+      iconColor: '#e7e5e4',
     }))
 
   if (toSchedule.length > 0) {
     await LocalNotifications.schedule({ notifications: toSchedule })
   }
-}
-
-function formatTime(iso: string, locale?: string): string {
-  return new Date(iso).toLocaleTimeString(locale ?? undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
 }
 
 export async function cancelAllNotifications(): Promise<void> {

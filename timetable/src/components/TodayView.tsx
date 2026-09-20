@@ -3,7 +3,7 @@ import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import { useNow } from '../lib/useNow'
 import { courseColor, courseStyle, courseTextStyle } from '../lib/colors'
-import { formatTime, nextLessonDay, sameDay } from '../lib/date'
+import { formatTime, nextLessonDay, sameDay, formatDateTime, formatLongDay } from '../lib/date'
 import { TYPE_META } from '../lib/lessonTypes'
 import { SOURCE_ICON } from '../lib/sources'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
@@ -11,15 +11,12 @@ import { noteForLesson, type NotesMap } from '../lib/notes'
 import {
   dueOn,
   isOverdue,
-  msUntilDue,
   type Task,
 } from '../lib/tasks'
-import { normalizeCourseCode } from '../lib/ics'
+import TaskRow from './TaskRow'
 import { upcomingExams } from '../lib/exams'
 import { freeRoomsNow } from '../lib/freeRooms'
 import LessonNote from './LessonNote'
-import ExternalLink from './ExternalLink'
-import TruncatedNote from './TruncatedNote'
 import Icon from './Icon'
 import CollapsiblePanel from './CollapsiblePanel'
 import { KEYS, readString, writeString } from '../lib/storage'
@@ -36,6 +33,8 @@ interface Props {
   tasks?: Task[]
   /** 跳转到该课程的日历位置 */
   onJumpToCourse?: (code: string) => void
+  /** 勾选/取消任务（持久化由 App 层处理）；不传则今日页任务行无复选框之外行为差异 */
+  onToggleTask?: (task: Task, completed: boolean) => void
   /** 打开作业页面 */
   onOpenAssignments?: () => void
 }
@@ -88,7 +87,7 @@ function LessonNoticeChip({ notice }: { notice?: LessonNotice }) {
  *  - 动态: ruangan kosong, ujian, pengumuman, tugas jatuh tempo.
  * Tab terakhir dipakai kembali saat buka (persisten).
  */
-export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onOpenAssignments }: Props) {
+export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments }: Props) {
   const { t, locale } = useI18n()
   const now = useNow()
   const [tab, setTab] = useState<TodayTab>(loadTab)
@@ -158,10 +157,7 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
         ? 'app-card text-[var(--text-1)]'
         : 'app-card text-[var(--text-3)]'
 
-  const todayLabel = new Date(now).toLocaleDateString(
-    locale,
-    { weekday: 'long', day: 'numeric', month: 'long' },
-  )
+  const todayLabel = formatLongDay(new Date(now), locale)
 
   // ---- 截止任务：今日截止 + 逾期汇总 ----
   const overdueTasks = useMemo(
@@ -202,6 +198,25 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
 
   // Feed tab badge: ada sesuatu yang perlu dilihat?
   const feedCount = freeRooms.length + exams.length + overdueTasks.length + dueToday.length
+
+  // 明日预览卡片：今日课已全部结束，或空课日（today 为空但有下一节课日）时内嵌展示，
+  // 取代空课日「只有横幅一句话」的空态。两处共用同一个 JSX，避免双份维护。
+  const nextDayPreview = nextDayLessons.length > 0 && (
+    <section className="animate-modal-in app-card p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <h3 className="app-card-label">{t('nextDayPreview')}</h3>
+          <p className="mt-0.5 text-[11px] text-[var(--text-2)]">
+            {nextDay ? formatLongDay(nextDay, locale) : ''}
+          </p>
+        </div>
+        <span className="app-badge">
+          {t('nextDayLessonsN', { n: nextDayLessons.length })}
+        </span>
+      </div>
+      <LessonList lessons={nextDayLessons} notices={notices} notes={notes} locale={locale} onSelect={onSelect} />
+    </section>
+  )
 
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
@@ -273,27 +288,14 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
               </CollapsiblePanel>
             )}
 
+            {/* 空态处理：空课日或已结束时优先内嵌明日预览；<p> 兜底只在横幅
+                未表达空态时出现（避免同屏两句「今天没有课程」）。 */}
             {today.length === 0 ? (
-              <p className="py-10 text-center text-xs text-[var(--text-3)]">
-                {t('noLessonsToday')}
-              </p>
-            ) : ended && nextDayLessons.length > 0 ? (
-              <section className="animate-modal-in app-card p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div>
-                    <h3 className="app-card-label">{t('nextDayPreview')}</h3>
-                    <p className="mt-0.5 text-[11px] text-[var(--text-2)]">
-                      {nextDay?.toLocaleDateString(locale, {
-                        weekday: 'long', day: 'numeric', month: 'long',
-                      })}
-                    </p>
-                  </div>
-                  <span className="app-badge">
-                    {t('nextDayLessonsN', { n: nextDayLessons.length })}
-                  </span>
-                </div>
-                <LessonList lessons={nextDayLessons} notices={notices} notes={notes} locale={locale} onSelect={onSelect} />
-              </section>
+              nextDayPreview || (banner.tone !== 'empty' ? (
+                <p className="py-10 text-center text-xs text-[var(--text-3)]">{t('noLessonsToday')}</p>
+              ) : null)
+            ) : ended && nextDayPreview ? (
+              nextDayPreview
             ) : (
               <LessonList lessons={today} notices={notices} notes={notes} locale={locale} onSelect={onSelect} now={now} />
             )}
@@ -433,77 +435,16 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 <div className={`collapse-wrap${tasksOpen ? ' open' : ' is-closed'}`} inert={!tasksOpen}>
                   <div>
                   <ul className="space-y-2">
-                  {dueToday.map((task) => {
-                    const cc = task.course
-                      ? (() => {
-                          const code = normalizeCourseCode(task.course)
-                          return lessons.some((l) => l.code && normalizeCourseCode(l.code) === code)
-                            ? code
-                            : null
-                        })()
-                      : null
-                    const leftMs = msUntilDue(task, new Date(now))
-                    const leftMin = leftMs != null ? Math.round(leftMs / 60000) : null
-                    return (
-                      <li
-                        key={task.id}
-                        className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2"
-                      >
-                        <div>
-                          {/* 标题行：标题 + 倒计时徽章 */}
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0 truncate text-xs font-medium text-[var(--text-1)]">
-                              {task.id.startsWith('moodle:') && <span className="mr-1 inline-flex align-[-2px]" title="Moodle"><Icon name="assignment" size={11} /></span>}
-                              {task.modtype === 'quiz' && (
-                                /* 测验与作业不同：有时间窗、要进 Moodle 作答，单独徽标区分。 */
-                                <span className="app-badge mr-1 align-[-2px] text-[10px]" title={t('quizBadgeTitle')}>{t('quizBadge')}</span>
-                              )}
-                              {task.title}
-                            </div>
-                            {leftMin != null && (
-                              <span className="app-badge app-badge-due">
-                                <Icon name="hourglass" size={11} /> {leftMin >= 60 ? t('durationHM', { h: Math.floor(leftMin / 60), m: leftMin % 60 }) : t('durationM', { m: leftMin })}
-                              </span>
-                            )}
-                          </div>
-                          {/* 信息行：占满整卡宽度，按钮行尾对齐 */}
-                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-2)]">
-                            {task.course && <span className="inline-flex items-center gap-1"><Icon name="book" size={11} /> {task.course}</span>}
-                            {task.startAt && (
-                              <span className="whitespace-nowrap inline-flex items-center gap-1"><Icon name="live" size={10} /> {formatDueFull(task.startAt, locale)}</span>
-                            )}
-                            {task.dueAt && (
-                              <span className="whitespace-nowrap font-medium text-[var(--text-1)]">
-                                <span className="inline-flex items-center gap-1"><Icon name="clock" size={11} /> {formatDueFull(task.dueAt, locale)}</span>
-                              </span>
-                            )}
-                            <span className="ml-auto flex items-center gap-1">
-                              {task.url && (
-                                <ExternalLink
-                                  href={String(task.url)}
-                                  className="app-btn-ghost px-1.5 py-1 text-[10px] leading-none"
-                                  title={t('dueOpenActivity')}
-                                  stopPropagation
-                                >
-                                  <Icon name="external" size={11} />
-                                </ExternalLink>
-                              )}
-                              {cc && onJumpToCourse && (
-                                <button
-                                  onClick={() => onJumpToCourse(cc)}
-                                  className="app-btn-ghost px-1.5 py-1 text-[10px] leading-none"
-                                  title={t('jumpToCourse')}
-                                >
-                                  <Icon name="jump" size={11} />
-                                </button>
-                              )}
-                            </span>
-                          </div>
-                          {task.note && <TruncatedNote note={task.note} />}
-                        </div>
-                      </li>
-                    )
-                  })}
+                  {dueToday.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      lessons={lessons}
+                      onToggle={(t0, completed) => onToggleTask?.(t0, completed)}
+                      onJumpToCourse={onJumpToCourse}
+                      showCountdown
+                    />
+                  ))}
                   </ul>
                   </div>
                 </div>
@@ -601,18 +542,8 @@ function LessonList({
   )
 }
 
-/** "9月16日周三 16:00" / "Wed, Sep 16 4:00 PM" */
-function formatDueFull(iso: string, locale: string): string {
-  return new Date(iso).toLocaleString(locale, {
-    month: 'short', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit',
-  })
-}
-
-/** 紧凑版（横幅用）: "9/13 16:00" */
 function formatDueShort(iso: string, locale: string): string {
-  return new Date(iso).toLocaleString(locale, {
-    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
-  })
+  return formatDateTime(iso, locale)
 }
 
 /** 空闲教室 "直到" 标签：今天则只显示时间，非今天则带日期 "9/16 08:00" */

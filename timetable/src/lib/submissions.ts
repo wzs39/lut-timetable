@@ -24,6 +24,12 @@ export interface SubmissionStatus {
   gradedAt?: string
   feedback?: string
   submittedAt?: string
+  /**
+   * Deadline tugas (dari duedate assignment). Ditampilkan di pohon konten
+   * agar info sejajar dengan kartu tugas (sumber tunggal: meta fetch ini,
+   * tanpa panggilan jaringan tambahan).
+   */
+  dueAt?: string
 }
 
 interface RawAssignment {
@@ -173,6 +179,57 @@ export function taskMatchKey(task: {
   return `${norm(task.title)}|${due}`
 }
 
+/** task.url → 活动 cmid；非 mod 活动页（日历回退）返回 undefined。 */
+export function taskCmidOf(task: Pick<Task, 'url'>): number | undefined {
+  const n = Number(task.url?.match(/\/mod\/[a-z0-9_]+\/view\.php\?(?:.*&)?id=(\d+)/i)?.[1])
+  return Number.isFinite(n) ? n : undefined
+}
+
+/**
+ * 内容树勾选 → 任务列表同步：cmid 精确联接（task.url = mod/*.php?id=<cmid>）。
+ * 完成 → 归档（补 [Moodle] ✔ 标签）；取消完成 → 恢复为未完成（同源标签清除，
+ * 用户自己的笔记保留）。URL 缺失或非 mod 活动页的任务不匹配——无法确定 cmid。
+ * 只动同步来源的任务（moodle: 前缀），手动任务永不触碰。
+ */
+export function applyCompletionToTasks(
+  tasks: Task[],
+  cmid: number,
+  completed: boolean,
+  grade?: string,
+): { tasks: Task[]; changed: number } {
+  const tag = `[Moodle] ✔ ${grade ?? ''}`.trim()
+  let changed = 0
+  const next = tasks.map((task) => {
+    if (!/^moodle(-act)?:/.test(task.id)) return task // 手动任务永不触碰
+    const taskCmid = taskCmidOf(task)
+    if (taskCmid === undefined || taskCmid !== cmid) return task
+    if (task.completed === completed) return task
+    changed++
+    if (completed) {
+      const already = task.note?.includes('[Moodle]') ?? false
+      return {
+        ...task,
+        completed: true,
+        note: already ? task.note : [task.note, tag].filter(Boolean).join('\n'),
+        updatedAt: new Date().toISOString(),
+      }
+    }
+    // 恢复：清除同源标签行，保留用户手写内容；[Moodle] 标签若与用户内容
+    // 混在同一行（applySubmissionStatus 只在行首拼接），整段含标签的行删去。
+    const note = (task.note ?? '')
+      .split('\n')
+      .filter((line) => !line.startsWith('[Moodle]'))
+      .join('\n')
+    return {
+      ...task,
+      completed: false,
+      note: note || undefined,
+      updatedAt: new Date().toISOString(),
+    }
+  })
+  return { tasks: next, changed }
+}
+
 /**
  * Terapkan status ke Task: submitted/graded → completed otomatis SEKALI
  * (note ditandai `[Moodle] ✔`). Setelah tercatat, completed pengguna
@@ -230,14 +287,14 @@ export function applySubmissionStatus(
  */
 export async function fetchSubmissionStatus(
   src: { token: string; userid?: number } | null,
-): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string> }> {
-  if (!src?.token) return { status: new Map(), urlByKey: new Map() }
+): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string>; statusByCmid: Map<number, SubmissionStatus> }> {
+  if (!src?.token) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map() }
   const userid = src.userid ?? (await validateGradesToken(src.token))
   // Enrol-anchor kini dijawab moodleSync.primeEnrolAnchor dari pemanggil
   // backgroundRefresh — tidak lagi di sini (dulu duplikat 6 salinan).
   const assigns = await wsCall<{ courses?: RawCourse[] }>(src.token, 'mod_assign_get_assignments')
   const meta = parseAssignments(assigns)
-  if (meta.length === 0) return { status: new Map(), urlByKey: new Map() }
+  if (meta.length === 0) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map() }
 
   const ids = meta.map((a) => a.id)
   const [subsRes, gradesRes] = await Promise.all([
@@ -253,16 +310,23 @@ export async function fetchSubmissionStatus(
   const byId = new Map(meta.map((a) => [a.id, a]))
   const status = new Map<string, SubmissionStatus>()
   const urlByKey = new Map<string, string>()
+  const statusByCmid = new Map<number, SubmissionStatus>()
   for (const [id, st] of perAssignment) {
     const a = byId.get(id)
     if (!a) continue
     const key = taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt })
-    status.set(key, st)
+    // 截止时间随 status 一起下发：内容树按 cmid 联接后与任务卡信息对齐。
+    const withDue: SubmissionStatus = a.dueAt ? { ...st, dueAt: a.dueAt } : st
+    status.set(key, withDue)
     // cmid → 课程内任务页（mod/assign/view.php?id=<cmid>）是官方深链。
     // ICS/timeline 来源的任务没有这个 URL（ICS 无 URL 属性）——归档时回填。
-    if (a.cmid) urlByKey.set(key, `https://moodle.lut.fi/mod/assign/view.php?id=${a.cmid}`)
+    if (a.cmid) {
+      urlByKey.set(key, `https://moodle.lut.fi/mod/assign/view.php?id=${a.cmid}`)
+      // cmid 键控副本：内容树按模块 cmid 精确联接（标题匹配对跨语言/重名任务不可靠）。
+      statusByCmid.set(a.cmid, withDue)
+    }
   }
-  return { status, urlByKey }
+  return { status, urlByKey, statusByCmid }
 }
 
 /** Sumber token saat ini (null bila belum terhubung). */

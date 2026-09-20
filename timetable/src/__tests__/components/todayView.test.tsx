@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import TodayView from '../../components/TodayView'
 import { I18nProvider } from '../../i18n'
+import { MoodleProvider } from '../../hooks/useMoodleData'
 import { KEYS } from '../../lib/storage'
 import type { Task } from '../../lib/tasks'
 import type { Lesson } from '../../types'
@@ -41,7 +42,9 @@ function openFeedTab() {
 function renderToday(lessons: Lesson[], tasks: Task[]) {
   return render(
     <I18nProvider>
-      <TodayView lessons={lessons} tasks={tasks} onSelect={() => {}} />
+      <MoodleProvider tasks={tasks} lessons={lessons} onTasks={() => {}}>
+        <TodayView lessons={lessons} tasks={tasks} onSelect={() => {}} />
+      </MoodleProvider>
     </I18nProvider>,
   )
 }

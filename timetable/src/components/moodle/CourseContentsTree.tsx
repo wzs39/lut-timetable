@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { useI18n } from '../../i18n'
+import { useMoodleData } from '../../hooks/useMoodleData'
 import type { CourseModule, CourseSection } from '../../lib/contents'
 import { markActivityCompletion } from '../../lib/contents'
+import { formatDateTime } from '../../lib/date'
+import { useNowDate } from '../../lib/useNow'
 import type { IconName } from '../Icon'
 import ExternalLink from '../ExternalLink'
 import Icon from '../Icon'
+import SubmissionBadge from './SubmissionBadge'
 
 const MOD_ICON: Record<string, IconName> = {
   assign: 'pencil',
@@ -47,17 +51,23 @@ export default function CourseContentsTree({
   busy: boolean
   onToggleComplete?: () => void
 }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const now = useNowDate()
+  const { subByCmid, applyCompletion } = useMoodleData()
   const [pendingCmid, setPendingCmid] = useState<number | null>(null)
 
   const toggle = async (m: CourseModule) => {
     if (!m.url || pendingCmid != null) return
     const cmid = Number(new URL(m.url, 'https://moodle.lut.fi').searchParams.get('id'))
     if (!Number.isFinite(cmid)) return
+    const completing = !isComplete(m.completion)
     setPendingCmid(cmid)
-    const ok = await markActivityCompletion(tokenHolder.src, cmid, !isComplete(m.completion))
+    const ok = await markActivityCompletion(tokenHolder.src, cmid, completing)
     setPendingCmid(null)
-    if (ok && onToggleComplete) onToggleComplete()
+    if (!ok) return
+    // 同步任务列表：勾选完成 → 归档同活动（cmid 联接）的任务；取消 → 恢复。
+    applyCompletion(cmid, completing)
+    if (onToggleComplete) onToggleComplete()
   }
 
   return (
@@ -78,8 +88,16 @@ export default function CourseContentsTree({
               {s.modules.map((m) => {
                 const done = isComplete(m.completion)
                 const failed = m.completion === 3
-                // Tombol status hanya untuk modul ber-URL (cmid bisa diambil);
-                // state 3 (gagal) bukan toggle manual.
+                // 自动跟踪模块：完成对号语义是"服务器判定完成"，用户真正关心的是
+                // 提交状态（已提交/已评分）——有提交/评分数据时用徽标替代对号。
+                // 数据源 gradeitems 覆盖所有可评分模块（assign/quiz/workshop/…），
+                // 不按 modname 过滤：map 里有的 cmid 就显示。
+                const cmid = m.url ? Number(new URL(m.url, 'https://moodle.lut.fi').searchParams.get('id')) : NaN
+                const sub = Number.isFinite(cmid) ? subByCmid.get(cmid) : undefined
+                const hasSubBadge = sub?.state === 'submitted' || sub?.state === 'graded'
+                const overdue = !!sub?.dueAt && new Date(sub.dueAt).getTime() < now.getTime()
+                // 有提交/评分徽标时复选框仍然显示（与任务卡信息量一致：
+                // 服务器完成态 + 提交态并存，互不替代）。
                 const canToggle = Boolean(m.url) && !failed
                 return (
                   <li key={m.id} className="flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] hover:bg-[var(--surface-2)]">
@@ -91,6 +109,18 @@ export default function CourseContentsTree({
                     ) : (
                       <span className="min-w-0 flex-1 truncate" title={m.description || m.name}>{m.name}</span>
                     )}
+                    {/* 截止时间：与任务卡同一数据源（SubmissionStatus.dueAt，cmid 联接）
+                        + 同一格式（formatDateTime）。逾期红字提示，同任务卡语义。 */}
+                    {sub?.dueAt && (
+                      <span
+                        className={'inline-flex shrink-0 items-center gap-0.5 text-[10px] tabular-nums ' + (overdue ? 'text-[var(--danger)]' : 'text-[var(--text-3)]')}
+                      >
+                        <Icon name="clock" size={10} />
+                        {formatDateTime(sub.dueAt, locale)}
+                        {overdue && ` · ${t('taskOverdue')}`}
+                      </span>
+                    )}
+                    {hasSubBadge && sub && <SubmissionBadge st={sub} />}
                     {canToggle ? (
                       <button
                         onClick={() => void toggle(m)}

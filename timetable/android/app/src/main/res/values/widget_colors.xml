@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Widget palette: mengikuti tema sistem. Nilai default = TERANG
-     (token light index.css), values-night = GELAP (token dark).
-     Dirujuk dari layout via @color/widget_*; Kotlin memakai
-     colorResource agar NOW/room/plus-more ikut bertema. -->
+     (M3-tuned: permukaan hangat ~96% opaque supaya teks tetap kontras di
+     wallpaper apa pun - frosted 76% putih lama mencuci warna teks; teks
+     SOLID tanpa alpha, hierarki dari kegelapan bukan transparansi).
+     Dirujuk dari layout via @color/widget_*; Kotlin memakai colorResource.
+     widget_late/widget_soon: tag deadline di widget tugas. -->
 <resources>
-    <!-- Frosted card terang: putih 76% + garis gelap semi transparan. -->
-    <color name="widget_card_bg">#C2FFFFFF</color>
-    <color name="widget_card_line">#26000000</color>
-    <!-- Teks tiga tingkat (light: text-1/2/3). -->
-    <color name="widget_text_title">#7A1C1C1F</color>
-    <color name="widget_text_main">#1C1C1F</color>
-    <color name="widget_text_body">#3F3F46</color>
-    <color name="widget_text_muted">#6A6A74</color>
-    <!-- NOW hijau gelap varian terang (token ok light, kontras di putih). -->
+    <!-- Kartu terang: off-white hangat 96% + garis tipis 12%. -->
+    <color name="widget_card_bg">#F5FAF9F7</color>
+    <color name="widget_card_line">#1F000000</color>
+    <!-- Teks tiga tingkat, SOLID (M3: hierarchy by tone, not alpha). -->
+    <color name="widget_text_title">#5F6168</color>
+    <color name="widget_text_main">#17181C</color>
+    <color name="widget_text_body">#303238</color>
+    <color name="widget_text_muted">#6B6E76</color>
+    <!-- NOW hijau gelap (kontras di off-white terang). -->
     <color name="widget_now">#047857</color>
+    <!-- Tag deadline widget tugas: LATE merah M3 error, SOON amber gelap. -->
+    <color name="widget_late">#B3261E</color>
+    <color name="widget_soon">#9A6A00</color>
 </resources>

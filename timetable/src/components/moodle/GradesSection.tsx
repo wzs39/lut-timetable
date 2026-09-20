@@ -6,6 +6,7 @@ import Icon from '../Icon'
 import {
   sortGrades,
   filterGrades,
+  ungradedTotal,
   type GradeSort,
 } from '../../lib/gradeCalc'
 import { readString, writeString, KEYS } from '../../lib/storage'
@@ -23,7 +24,7 @@ export default function GradesSection({
   onOpenAssignments,
 }: {
   onJumpToCourse?: (code: string) => void
-  onOpenAssignments: (filter: 'overdue' | 'due7' | 'later') => void
+  onOpenAssignments: (filter: 'overdue' | 'due7' | 'later' | null, query?: string) => void
 }) {
   const { t } = useI18n()
   const md = useMoodleData()
@@ -130,7 +131,16 @@ export default function GradesSection({
           ) : (
             <ul className="space-y-2">
               {(shown ?? []).map((c) => (
-                <GradeCourseCard key={c.courseId ?? c.course} c={c} onJumpToCourse={onJumpToCourse} />
+                <GradeCourseCard
+                  key={c.courseId ?? c.course}
+                  c={c}
+                  onJumpToCourse={onJumpToCourse}
+                  onOpenUngradedTasks={
+                    ungradedTotal(c) > 0 && c.course
+                      ? () => onOpenAssignments(null, c.course)
+                      : undefined
+                  }
+                />
               ))}
             </ul>
           )}

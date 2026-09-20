@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
+import { formatTime } from '../lib/date'
 import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
 import { buildIcs } from '../lib/ics'
 import { downloadBlob } from '../lib/download'
@@ -8,6 +9,7 @@ import { exportBackup, importBackupDetail } from '../lib/backup'
 import { TYPE_META } from '../lib/lessonTypes'
 import { parseNoteKey, scopeText, type NotesMap } from '../lib/notes'
 import { useTheme } from '../theme'
+import { THEME_PRESETS, type Preset } from '../lib/theme'
 import { useExitAnimation } from '../lib/useExitAnimation'
 import { useMoodleData } from '../hooks/useMoodleData'
 import { openExternal } from '../lib/openExternal'
@@ -54,7 +56,7 @@ export default function Settings({
   onClose,
 }: Props) {
   const { t, lang, setLang } = useI18n()
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, preset, setPreset } = useTheme()
   const md = useMoodleData()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -151,6 +153,41 @@ export default function Settings({
             </div>
           </section>
 
+          {/* 预设配色：Nord / Catppuccin / …，与深浅模式正交，全模块即时生效 */}
+          <section>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+              {t('presetTitle')}
+            </h4>
+            <div className="grid grid-cols-3 gap-2">
+              {THEME_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  aria-pressed={preset === p.id}
+                  onClick={() => setPreset(p.id as Preset)}
+                  className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2 transition-colors ${
+                    preset === p.id
+                      ? 'border-[var(--info)] bg-[var(--tint-info)]'
+                      : 'border-[var(--line)] hover:bg-[var(--hover-1)]'
+                  }`}
+                  title={t('presetHint')}
+                >
+                  <span className="flex">
+                    {p.swatch.map((c) => (
+                      <span
+                        key={c}
+                        className="h-4 w-4 first:rounded-l-full last:rounded-r-full"
+                        style={{ background: c }}
+                      />
+                    ))}
+                  </span>
+                  <span className="text-[10px] leading-none text-[var(--text-2)]">
+                    {p.id === 'default' ? t('presetDefault') : p.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
           {/* 语言 */}
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
@@ -204,7 +241,7 @@ export default function Settings({
                     </span>
                   </div>
                   <div className="mt-0.5 text-[10px] text-[var(--text-3)]">
-                    {t('lessonsN', { n: s.count })}{s.lastSync ? ` · ${new Date(s.lastSync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                    {t('lessonsN', { n: s.count })}{s.lastSync ? ` · ${formatTime(s.lastSync)}` : ''}
                   </div>
                 </div>
               ))}

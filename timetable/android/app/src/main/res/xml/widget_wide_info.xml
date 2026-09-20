@@ -9,4 +9,4 @@
     android:initialLayout="@layout/widget_today_wide"
     android:previewLayout="@layout/widget_today_wide"
     android:resizeMode="horizontal|vertical"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen|keyguard" />

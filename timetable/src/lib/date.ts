@@ -72,11 +72,27 @@ export function formatTime(iso: string, locale?: string): string {
   })
 }
 
+/** 长日期 "9月21日星期一" / "Monday, September 21"（今日页标题、明日预览标题共用）。 */
+export function formatLongDay(d: Date, locale?: string): string {
+  return d.toLocaleDateString(locale ?? undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+}
+
 export function formatDay(d: Date, locale?: string): string {
   return d.toLocaleDateString(locale ?? undefined, {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
+  })
+}
+
+/** 截止时刻紧凑格式：同任务卡的 formatDue（短星期 + 日 + 时:分），共用一处。 */
+export function formatDateTime(iso: string, locale?: string): string {
+  return new Date(iso).toLocaleString(locale ?? undefined, {
+    weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 }
 

@@ -122,3 +122,59 @@ describe('nextStartMs (countdown anchor)', () => {
     expect(p.next).toBeNull()
   })
 })
+
+// ---- buildTasksPayload: widget tugas (deadline terdekat dulu, maks 8) ----
+import { buildTasksPayload } from '../lib/widgetData'
+import type { Task } from '../lib/tasks'
+
+function task(partial: Partial<Task> & { id: string }): Task {
+  return {
+    title: partial.id,
+    completed: false,
+    createdAt: '2026-09-01T00:00:00Z',
+    updatedAt: '2026-09-01T00:00:00Z',
+    ...partial,
+  } as Task
+}
+
+describe('buildTasksPayload', () => {
+  const NOW = new Date('2026-09-18T09:30:00')
+
+  it('hanya tugas belum selesai, urut deadline, tanpa dueAt dilewati', () => {
+    const p = buildTasksPayload(
+      [
+        task({ id: 'a', title: 'Late one', dueAt: '2026-09-15T12:00:00', completed: false }),
+        task({ id: 'b', title: 'Done one', dueAt: '2026-09-14T12:00:00', completed: true }),
+        task({ id: 'c', title: 'Future', dueAt: '2026-09-25T12:00:00' }),
+        task({ id: 'd', title: 'No due date' }),
+      ],
+      NOW,
+    )
+    expect(p.items).toHaveLength(2)
+    expect(p.items[0].t).toBe('Late one') // 15.9 < 25.9
+    expect(p.items[1].t).toBe('Future')
+    expect(p.items[0].late).toBe(true) // 15.9 < 18.9
+    expect(p.items[1].late).toBe(false)
+    expect(p.openCount).toBe(3) // a + c + d (tanpa dueAt tetap terbuka)
+  })
+
+  it('tanggal tampilan dd.MM. dan cap 8 item', () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      task({ id: `t${i}`, title: `Task ${i}`, dueAt: `2026-10-${String(i + 1).padStart(2, '0')}T12:00:00` }),
+    )
+    const p = buildTasksPayload(many, NOW)
+    expect(p.items).toHaveLength(8)
+    expect(p.openCount).toBe(12)
+    expect(p.items[0].d).toBe('01.10.')
+    expect(p.items[7].d).toBe('08.10.')
+  })
+
+  it('course fallback kosong (native melewati baris course)', () => {
+    const p = buildTasksPayload(
+      [task({ id: 'x', title: 'Upload CV', course: 'CT10A9900', dueAt: '2026-09-20T12:00:00' })],
+      NOW,
+    )
+    expect(p.items[0].c).toBe('CT10A9900')
+    expect(buildTasksPayload([task({ id: 'y', title: 'Bare', dueAt: '2026-09-20T12:00:00' })], NOW).items[0].c).toBe('')
+  })
+})

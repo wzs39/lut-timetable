@@ -14,7 +14,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --port 5210\" \"wait-on tcp:5210 && electron electron/main.cjs\"",
-    "electron:build": "node -e \"require('node:fs').rmSync('release-electron', { recursive: true, force: true })\" && npm run build && electron-builder --win nsis msi"
+    "electron:build": "node -e \"require('node:fs').rmSync('release-electron', { recursive: true, force: true })\" && npm run build && electron-builder --win nsis msi",
+    "test:consistent": "node scripts/checkTestConsistency.mjs"
   },
   "build": {
     "appId": "dev.lut.timetable",
@@ -31,10 +32,11 @@
         "nsis",
         "msi"
       ]
-    }, "nsis": {
- "oneClick": true,
- "deleteAppDataOnUninstall": true
- },
+    },
+    "nsis": {
+      "oneClick": true,
+      "deleteAppDataOnUninstall": true
+    },
     "publish": [
       {
         "provider": "github",

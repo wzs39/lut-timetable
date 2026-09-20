@@ -40,7 +40,7 @@ export default function MoodleView({
   tasks: Task[]
   lessons: Lesson[]
   onJumpToCourse?: (code: string) => void
-  onOpenAssignments: (filter: 'overdue' | 'due7' | 'later') => void
+  onOpenAssignments: (filter: 'overdue' | 'due7' | 'later' | null, query?: string) => void
   onOpenSettings: () => void
 }) {
   const { t } = useI18n()

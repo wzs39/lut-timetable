@@ -185,3 +185,105 @@ describe('parseGradeItems — LUT weightraw + course total row', () => {
     expect(c.items).toHaveLength(3)
   })
 })
+
+// Baris 'category' (subtotal kategori, itemname null) bukan item penilaian.
+// officialTotal dipisah dari `average` agar UI memprioritaskan angka resmi.
+describe('parseGradeItems — category rows, officialTotal & weighted fallback', () => {
+  const nested = {
+    usergrades: [
+      {
+        courseid: 32632,
+        gradeitems: [
+          { itemname: 'Baseline video', itemtype: 'mod', graderaw: null, grademax: 2, weightraw: 1 },
+          { itemname: null, itemtype: 'category', graderaw: null, grademax: 5, weightraw: null },
+          { itemname: null, itemtype: 'category', graderaw: null, grademax: 5, weightraw: 0.25 },
+          { itemname: 'Vocabulary', itemtype: 'mod', graderaw: 5, grademax: 5, weightraw: null },
+          { itemname: null, itemtype: 'course', graderaw: null, grademax: 5 },
+        ],
+      },
+    ],
+  }
+
+  it('drops category subtotal rows from the item list', () => {
+    const [c] = parseGradeItems(nested)
+    expect(c.items.map((i) => i.name)).toEqual(['Baseline video', 'Vocabulary'])
+  })
+
+  it('officialTotal is null when the course row has no grade', () => {
+    const [c] = parseGradeItems(nested)
+    expect(c.officialTotal).toBeNull()
+  })
+
+  it('weighted course with zero running total shows null (unified chain, Moodle "-")', () => {
+    const [c] = parseGradeItems(nested)
+    // Baseline berbobot tapi belum dinilai; Vocabulary 100% tanpa bobot
+    // → Σ w·pct = 0 → null, BUKAN jatuh ke rata-rata sederhana 100
+    // (rantai terpadu = semantik courseProjection; Moodle juga "-").
+    expect(c.average).toBeNull()
+  })
+
+  it('uses Σ weight × percent (Moodle contribution) before simple average', () => {
+    const [c] = parseGradeItems({
+      usergrades: [
+        {
+          courseid: 1,
+          gradeitems: [
+            { itemname: 'A', itemtype: 'manual', graderaw: 10, grademax: 10, weightraw: 0.7 },
+            { itemname: 'B', itemtype: 'mod', graderaw: 10, grademax: 20, weightraw: 0.3 },
+          ],
+        },
+      ],
+    })
+    // 0.7·100 + 0.3·50 = 85 — beda dari rata-rata sederhana 75.
+    expect(c.average).toBe(85)
+  })
+
+  it('reads officialTotal from the course-total row', () => {
+    const [c] = parseGradeItems({
+      usergrades: [
+        {
+          courseid: 1,
+          gradeitems: [
+            { itemname: 'Week 1', itemtype: 'manual', graderaw: 8, grademax: 8, weightraw: 0.07143 },
+            { itemname: null, itemtype: 'course', graderaw: 24, grademax: 112 },
+          ],
+        },
+      ],
+    })
+    expect(c.officialTotal).toBeCloseTo(21.4, 1)
+    expect(c.average).toBeCloseTo(21.4, 1)
+    expect(c.items).toHaveLength(1) // baris course tidak bocor ke item
+  })
+})
+
+// Item skala (scaleid ≠ null): nilai teks resmi ("Passed") dipertahankan —
+// persen 1/2 = 50% menyesatkan untuk skala Fail–Pass.
+describe('parseGradeItems — scale items carry gradeText', () => {
+  it('keeps gradeformatted as gradeText for scale items', () => {
+    const [c] = parseGradeItems({
+      usergrades: [
+        {
+          courseid: 1,
+          gradeitems: [
+            { itemname: 'CV upload', itemtype: 'mod', graderaw: 1, grademax: 2, scaleid: 4, gradeformatted: 'Passed' },
+            { itemname: 'Quiz', itemtype: 'mod', graderaw: 5, grademax: 5 },
+          ],
+        },
+      ],
+    })
+    expect(c.items[0].gradeText).toBe('Passed')
+    expect(c.items[1].gradeText).toBeUndefined() // numerik tanpa skala
+  })
+
+  it('scale item with no grade has no gradeText', () => {
+    const [c] = parseGradeItems({
+      usergrades: [
+        {
+          courseid: 1,
+          gradeitems: [{ itemname: 'X', itemtype: 'mod', graderaw: null, grademax: 2, scaleid: 4, gradeformatted: '-' }],
+        },
+      ],
+    })
+    expect(c.items[0].gradeText).toBeUndefined()
+  })
+})

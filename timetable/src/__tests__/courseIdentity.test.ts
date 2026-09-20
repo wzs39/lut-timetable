@@ -108,3 +108,24 @@ describe('loadIdentityIndex from storage', () => {
     expect(idx.codeFor(1)).toBeNull()
   })
 })
+
+// 【修复锁定】LUT 真实 shortname 带后缀（"BM20A9200 Contact teaching, …"）——
+// 旧实现用 normalizeCourseCode（只清洗纯代码）匹配 → 所有行 code=null，
+// idForCode 永远空，LessonDetail 的 Moodle 直链全体失效。
+describe('saveIdentityFromEnrol — real LUT shortname extraction', () => {
+  it('extracts the code from suffixed shortnames and joins lesson codes', () => {
+    localStorage.clear()
+    const rows = saveIdentityFromEnrol(
+      [
+        { courseid: 30565, shortname: 'BM20A9200 Contact teaching, Lahti 31.8.2026-11.12.2026', fullname: 'BM20A9200 Mathematics A - Contact teaching, Lahti' },
+        { courseid: 29428, shortname: 'LUT digital orientation 2026-2027', fullname: 'LUT digital orientation 2026-2027' },
+      ],
+      [{ id: 'l1', source: 'sisu', title: 'Math A', code: 'BM20A9200', start: '2026-09-14T08:00:00.000Z', end: '2026-09-14T10:00:00.000Z' }],
+    )
+    expect(rows.find((r) => r.courseid === 30565)?.code).toBe('BM20A9200')
+    // 无课表匹配的行保持 null
+    expect(rows.find((r) => r.courseid === 29428)?.code).toBeNull()
+    // idForCode 方向打通
+    expect(loadIdentityIndex().idForCode('BM20A9200')).toBe(30565)
+  })
+})

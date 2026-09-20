@@ -1,5 +1,7 @@
 import { KEYS, readJson, writeJson } from './storage'
 import { normalizeCourseCode } from './ics'
+// Fungsi deklarasi (hoisted) — penukaran import dengan courses.ts aman saat runtime.
+import { extractCourseCode } from './courses'
 import type { EnrolledCourse } from './courses'
 import type { Lesson } from '../types'
 
@@ -117,7 +119,13 @@ export function saveIdentityFromEnrol(
   )
   const courses: CourseIdentity[] = enrolled.map((e) => ({
     courseid: e.courseid,
-    code: lessonCodes.get(normalizeCourseCode(e.shortname)) ?? null,
+    // Kode dari EKSTRAKSI shortname ("BM20A9200 Contact teaching, …" →
+    // "BM20A9200"), bukan normalizeCourseCode — itu hanya membersihkan kode
+    // murni, jadi dulu SEMUA baris ber-code null dan idForCode selalu kosong.
+    code:
+      lessonCodes.get(extractCourseCode(e.shortname) ?? '') ??
+      lessonCodes.get(extractCourseCode(e.fullname) ?? '') ??
+      null,
     shortname: e.shortname,
     fullname: e.fullname,
   }))

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { Lesson } from '../types'
 import { addDays, sameDay, startOfWeek, formatTime, formatDay } from '../lib/date'
 import { useI18n } from '../i18n'
@@ -137,6 +137,14 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
   const shownConflict = (p: PlacedLesson) =>
     p.conflict && !dismissed.has(p.clusterKey)
 
+  /** 无课日：placed 为空 ⇔ 当天无任何课（dismissed 只影响冲突展示，不影响 placed） */
+  const dayEmpty = (i: number) => (byDay.get(i)?.placed.length ?? 0) === 0
+  /** 空课占位底纹：斜向细纹，双主题都用 surface-2 半透明，读作「空格子」 */
+  const EMPTY_HATCH: CSSProperties = {
+    background:
+      'repeating-linear-gradient(135deg, transparent 0 12px, color-mix(in srgb, var(--surface-2) 62%, transparent) 12px 24px)',
+  }
+
   // ---- Tampilan mobile (<768px): satu hari penuh, tab pilih hari ----
   const [mobileDay, setMobileDay] = useState(() =>
     sameDay(startOfWeek(now), weekStart) ? (now.getDay() + 6) % 7 : 0,
@@ -273,7 +281,9 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                 'flex-1 rounded-md py-1 text-[11px] border transition ' +
                 (i === mobileDay
                   ? 'app-btn-primary border-transparent'
-                  : 'border-[var(--line)] bg-[var(--surface-1)] text-[var(--text-2)] hover:text-[var(--text-1)]') +
+                  : dayEmpty(i)
+                    ? 'border-dashed border-[var(--line)] bg-transparent text-[var(--text-3)] opacity-75 hover:opacity-100'
+                    : 'border-[var(--line)] bg-[var(--surface-1)] text-[var(--text-2)] hover:text-[var(--text-1)]') +
                 (sameDay(d, new Date()) && i !== mobileDay ? ' ring-1 ring-[var(--line)]' : '')
               }
             >
@@ -299,9 +309,12 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
             </div>
           )}
           {placed.length === 0 ? (
-            <p className="py-10 text-center text-xs text-[var(--text-3)]">
+            <div
+              className="rounded-lg border border-dashed border-[var(--line)] py-8 text-center text-xs text-[var(--text-3)]"
+              style={EMPTY_HATCH}
+            >
               {t('noLessonsToday')}
-            </p>
+            </div>
           ) : (
             mobileSegments.map((seg) =>
               seg.g ? groupBox(seg.g) : seg.p ? lessonCard(seg.p.lesson) : null,
@@ -379,6 +392,15 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                   className="relative"
                   style={{ height: hours.length * HOUR_PX }}
                 >
+                  {/* 无课日占位：斜纹铺满整列（叠在网格线下方需在最前渲染，
+                      但置于网格线之上更清晰——放在线之前让线保持锐利） */}
+                  {dayEmpty(i) && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0"
+                      style={EMPTY_HATCH}
+                    />
+                  )}
                   {/* garis jam */}
                   {hours.map((h, idx) => (
                     <div
