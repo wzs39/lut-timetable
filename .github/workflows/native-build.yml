@@ -85,14 +85,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      # Test-collection consistency gate: `vitest list` (collected) must equal
-      # `vitest run` (executed). Catches silent include-pattern drift — e.g. a
-      # test subdirectory falling out of the default glob, which would make
-      # suite totals lie while everything still shows green. Cheap (one extra
-      # vitest list); fails the whole run before any build minutes are spent.
-      - name: Test-collection consistency gate
-        working-directory: timetable
-        run: npm run test:consistent
       - uses: android-actions/setup-android@v4
         with:
           # The legacy `tools` package no longer exists in the SDK repository, but
@@ -114,6 +106,14 @@ jobs:
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           npm run build
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      # Test-collection consistency gate: `vitest list` (collected) must equal
+      # `vitest run` (executed). Catches silent include-pattern drift — e.g. a
+      # test subdirectory falling out of the default glob, which would make
+      # suite totals lie while everything still shows green. Runs after npm ci
+      # (needs node_modules) but before Gradle build minutes are spent.
+      - name: Test-collection consistency gate
+        working-directory: timetable
+        run: npm run test:consistent
       - name: Sync Capacitor
         working-directory: timetable
         run: npx cap sync android
