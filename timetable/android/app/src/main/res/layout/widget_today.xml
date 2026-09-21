@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget 3×2: daftar hari ini, warna dari @color/widget_* (tema-sadar). -->
+<!-- Widget 3×2: daftar hari-ini SCROLLABLE (ListView + WidgetListService) —
+     semua sesi terlihat lewat scroll, "+N more" dihapus. Warna tema-sadar. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -21,16 +22,25 @@
         android:textAllCaps="true"
         android:textColor="@color/widget_text_title" />
 
-    <TextView
-        android:id="@+id/widget_items"
+    <ListView
+        android:id="@+id/widget_list"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="10dp"
-        android:fontFeatureSettings="tnum"
-        android:textSize="13sp"
-        android:lineSpacingExtra="4dp"
-        android:textColor="@color/widget_text_body" />
+        android:layout_marginTop="6dp"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none" />
+
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:textSize="12sp"
+        android:textColor="@color/widget_text_muted"
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/widget_meta"

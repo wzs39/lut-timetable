@@ -1,3 +1,11 @@
+plugins {
+    // Foojay toolchain resolver: lets Gradle auto-download the exact JDK a
+    // module's toolchain asks for (capacitor-filesystem pins languageVersion
+    // 21) when no local JDK matches. Only affects dev machines; CI installs
+    // JDK 21 via setup-java so the resolver never fires there.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
 include ':app'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
