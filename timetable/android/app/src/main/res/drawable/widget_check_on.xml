@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lingkaran terisi (tercatat selesai) — checkbox baris tugas widget, terang. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#047857" />
+        </shape>
+    </item>
+    <item android:top="7dp" android:left="7dp" android:bottom="7dp" android:right="7dp">
+        <shape android:shape="oval">
+            <solid android:color="#F9FAFB" />
+        </shape>
+    </item>
+</layer-list>

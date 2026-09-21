@@ -73,10 +73,12 @@ class TasksWidgetProvider : AppWidgetProvider() {
 
             // Daftar SCROLLABLE: ListView + WidgetListService (kind=tasks).
             // Semua tugas terbuka tersedia via scroll — "+N more" dihapus.
+            // Template broadcast: checkbox per baris (fill-in taskId/completed)
+            // mengantre toggle untuk web; tap baris lain tetap membuka app.
             val items = payload.optJSONArray("items")
             val count = items?.length() ?: 0
             views.setRemoteAdapter(R.id.widget_list, WidgetListService.adapterIntent(context, WidgetListService.KIND_TASKS, widgetId))
-            views.setPendingIntentTemplate(R.id.widget_list, WidgetListService.rowClickTemplate(context, "assign"))
+            views.setPendingIntentTemplate(R.id.widget_list, WidgetToggleReceiver.toggleTemplate(context))
             if (count == 0) {
                 views.setViewVisibility(R.id.widget_list, android.view.View.GONE)
                 views.setViewVisibility(R.id.widget_empty, android.view.View.VISIBLE)

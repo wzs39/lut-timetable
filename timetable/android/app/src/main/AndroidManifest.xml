@@ -67,6 +67,16 @@
             android:exported="false"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
+        <!-- Checkbox centang di widget tugas: antre toggle untuk web + gambar
+             ulang widget. exported=false cukup, PendingIntent aplikasi sendiri. -->
+        <receiver
+            android:name=".WidgetToggleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.lut.timetable.WIDGET_TOGGLE_TASK" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".TasksWidgetProvider"
             android:exported="false">

@@ -129,9 +129,10 @@ export interface WidgetTasksPayload {
  * widget ListView scrollable (semua baris tersedia via scroll).
  * `d` = tanggal jatuh tempo (dd.MM., tampilan), `dms` = epoch ms — native
  * menandai LATE bila dms < now, `late` sudah dihitung di sini juga untuk
- * fallback.
+ * fallback. `id` = task id asli — checkbox widget mengirim balik id ini
+ * lewat WidgetToggleReceiver (antrean widget_task_ops_v1).
  */
-  items: { t: string; c: string; d: string; dms: number; late: boolean }[]
+  items: { id: string; t: string; c: string; d: string; dms: number; late: boolean }[]
   openCount: number
 }
 
@@ -149,6 +150,7 @@ export function buildTasksPayload(
       const p = (n: number) => String(n).padStart(2, '0')
       const dms = due.getTime()
       return {
+        id: t.id,
         t: t.title,
         c: t.course || '',
         d: `${p(due.getDate())}.${p(due.getMonth() + 1)}.`,
@@ -172,6 +174,43 @@ export async function pushTasksData(tasks: Task[]): Promise<void> {
   } catch {
     // Widget adalah bonus — kegagalan push tidak boleh mengganggu app.
   }
+}
+
+/** Key antrean toggle dari widget — ditulis WidgetToggleReceiver.kt. */
+const PREF_TASK_OPS_KEY = 'widget_task_ops_v1'
+
+/**
+ * Satu operasi toggle dari widget: id task + status target.
+ */
+export interface WidgetTaskOp {
+  id: string
+  completed: boolean
+}
+
+/**
+ * Baca & kosongkan antrean toggle dari widget (checkbox di widget tugas).
+ * Dipanggil App saat boot dan tiap kembali ke foreground — widget bisa
+ * dicentang saat app MATI; perubahan diambil di kesempatan pertama.
+ * Atomic read-then-remove: op yang hilang di tengah jalan tidak dobel.
+ */
+export async function drainWidgetTaskOps(): Promise<WidgetTaskOp[]> {
+  if (!Capacitor.isNativePlatform()) return []
+  try {
+    const { Preferences } = await import('@capacitor/preferences')
+    const { value } = await Preferences.get({ key: PREF_TASK_OPS_KEY })
+    if (!value) return []
+    await Preferences.remove({ key: PREF_TASK_OPS_KEY })
+    const ops = (JSON.parse(value) as unknown[]).filter(isWidgetTaskOp)
+    return ops
+  } catch {
+    return []
+  }
+}
+
+function isWidgetTaskOp(v: unknown): v is WidgetTaskOp {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Partial<WidgetTaskOp>
+  return typeof o.id === 'string' && o.id.length > 0 && typeof o.completed === 'boolean'
 }
 
 /**

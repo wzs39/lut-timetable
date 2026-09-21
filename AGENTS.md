@@ -103,3 +103,8 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - 已发布 v0.3.0（双平台，应用内更新链路验证通过）。
 - 工作树未提交批次：小组件全套（resize/主题/毛玻璃/溢出）、课程板块遮挡修复、作业 URL 自愈升级、对号状态修复 + 自主标记、backgroundRefresh 并行化、syncDomain 在途去重、flex 行遮挡排查修复（SyncProtection ×2 `min-w-0`）、任务卡模块类型图标、成绩加权总分（官方总评优先 + 分项贡献列 + category 垃圾行过滤）、本文件 → 攒够一批走 v0.3.2。
 - iOS：曾有 App Store 计划，未启动（需要 macOS + 开发者账号，CI 是 Windows runner）。
+
+### 坑位表
+
+- **PendingIntent 模板必须 MUTABLE 才能收 fill-in extras**（API 31+）：`setPendingIntentTemplate` 配 `FLAG_IMMUTABLE` 时，factory 里 `setOnClickFillInIntent` 的 extras 被**系统静默丢弃**——广播照收但 extras 为空，点击像没反应。模板（checkbox 切换这类）用 `FLAG_MUTABLE`；纯打开 Activity 的模板才可用 IMMUTABLE。实测：IMMUTABLE 版点击后 ops 队列为空，换 MUTABLE 后立即生效。
+- **`<shape>`/`<layer-list>` drawable 不能放 `values-night/`**：values 限定符目录只收 values 类型资源，drawable 要用 `drawable-night/`。放错目录报 "Can't determine type for tag"。

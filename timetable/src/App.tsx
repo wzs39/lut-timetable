@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Lesson, SyncSource } from './types'
 import { useTimetable } from './hooks/useTimetable'
 import { useMoodleData } from './hooks/useMoodleData'
@@ -21,7 +21,8 @@ import {
 import Sidebar from './components/Sidebar'
 import { useI18n } from './i18n'
 import { loadTasks, pendingTasks, saveTasks, updateTask, type Task } from './lib/tasks'
-import { installWidgetNavBridge, pushTasksData } from './lib/widgetData'
+import { installWidgetNavBridge, pushTasksData, drainWidgetTaskOps } from './lib/widgetData'
+import { taskCmidOf } from './lib/submissions'
 import { useDelayedUnmount } from './lib/useExitAnimation'
 import { checkApkUpdate } from './lib/apkUpdate'
 import { maybeCleanOldApks } from './lib/apkUpdate'
@@ -58,6 +59,39 @@ function AppInner({
   tt: ReturnType<typeof useTimetable>
 }) {
   const { lang, locale, setLang, t } = useI18n()
+  const md = useMoodleData()
+
+  // Widget 小组件勾选回灌：boot 与每次回前台时排空 widget_task_ops_v1 队列。
+  // 复选框可能发生在应用被杀时——在最早的机会把变更写回任务列表（updateTask
+  // 自带 updatedAt 盖戳 + saveTasks 持久化）；Moodle 活动任务再走 pushTask-
+  // Completion 服务器反向同步，与 UI 内勾选完全同一链路。手动任务只改本地。
+  const tasksRef = useRef<Task[]>(tasks)
+  tasksRef.current = tasks
+  const widgetOpsBusyRef = useRef(false)
+  useEffect(() => {
+    const drain = async () => {
+      if (widgetOpsBusyRef.current) return
+      widgetOpsBusyRef.current = true
+      try {
+        for (const op of await drainWidgetTaskOps()) {
+          const t0 = tasksRef.current.find((x) => x.id === op.id)
+          if (!t0 || t0.completed === op.completed) continue
+          setTasks(updateTask(tasksRef.current, op.id, { completed: op.completed }))
+          const cmid = taskCmidOf(t0)
+          if (cmid !== undefined) md.pushTaskCompletion(cmid, op.completed)
+        }
+      } finally {
+        widgetOpsBusyRef.current = false
+      }
+    }
+    void drain()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void drain()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+    // pushTaskCompletion 稳定（useCallback [token]）；tasks 经 ref 读取避免重挂。
+  }, [md.pushTaskCompletion, setTasks])
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [view, setView] = useState<'today' | 'week' | 'assign' | 'moodle'>(() => {
     // Windows 跳转列表 / 深链入口：#/view/today|week|assign|moodle
