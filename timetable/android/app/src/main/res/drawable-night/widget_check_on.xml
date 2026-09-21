@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lingkaran terisi — checkbox baris tugas widget, gelap (values-night). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#34D399" />
+        </shape>
+    </item>
+    <item android:top="7dp" android:left="7dp" android:bottom="7dp" android:right="7dp">
+        <shape android:shape="oval">
+            <solid android:color="#14161A" />
+        </shape>
+    </item>
+</layer-list>

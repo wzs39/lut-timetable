@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Baris daftar scrollable widget: waktu+kode (+tag NOW/OVERDUE/SOON di kanan),
-     baris kedua nama penuh/ruangan. Dipakai ketiga varian widget. -->
+<!-- Baris daftar scrollable widget: checkbox (hanya widget tugas yang memunculkannya),
+     waktu+kode (+tag NOW/OVERDUE/SOON di kanan), baris kedua nama penuh/ruangan.
+     Dipakai ketiga varian widget. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/row_root"
     android:layout_width="match_parent"
@@ -9,6 +10,17 @@
     android:gravity="center_vertical"
     android:paddingTop="3dp"
     android:paddingBottom="3dp">
+
+    <!-- Checkbox baris tugas: isi per-baris lewat setImageViewResource (factory).
+         LessonsFactory menyembunyikannya (GONE). -->
+    <ImageView
+        android:id="@+id/row_check"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginEnd="6dp"
+        android:layout_gravity="center_vertical"
+        android:contentDescription="@null"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="0dp"

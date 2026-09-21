@@ -26,6 +26,18 @@ class WidgetListService : RemoteViewsService() {
         const val EXTRA_KIND = "kind"
         const val KIND_TASKS = "tasks"
         const val KIND_LESSONS = "lessons"
+        /** Pref payload tugas (diutak-atik juga WidgetToggleReceiver). */
+        const val TASKS_PAYLOAD_KEY = "widget_tasks_payload_v1"
+        /** Extra fill-in per baris tugas: id + status target. */
+        const val EXTRA_TASK_ID = "taskId"
+        const val EXTRA_TASK_DONE = "completed"
+
+        /**
+         * Fill-in intent checkbox: hanya extras — templatenya dipasang provider
+         * (PendingIntent.getBroadcast). Dipanggil sebelum setOnClickFillInIntent.
+         */
+        fun checkboxExtras(taskId: String, completed: Boolean): Intent =
+            Intent().putExtra(EXTRA_TASK_ID, taskId).putExtra(EXTRA_TASK_DONE, completed)
 
         /** Intent untuk setRemoteAdapter (authority unik per widget agar tidak di-cache silang). */
         fun adapterIntent(ctx: Context, kind: String, widgetId: Int): Intent =
@@ -76,6 +88,7 @@ internal object WidgetRows {
     )
 
     data class TaskRow(
+        val id: String,
         val title: String,
         val course: String,
         val due: String,
@@ -118,6 +131,7 @@ internal object WidgetRows {
                 val late = o.optBoolean("late") || dms in 1 until nowMs
                 val soon = !late && (dms - nowMs) in 1 until 24 * 3600 * 1000L
                 TaskRow(
+                    id = o.optString("id"),
                     title = o.optString("t"),
                     course = o.optString("c"),
                     due = o.optString("d"),
@@ -188,6 +202,7 @@ internal class LessonsFactory(private val appCtx: Context) : RemoteViewsService.
         } else {
             views.setViewVisibility(R.id.row_tag, GONE)
         }
+        views.setViewVisibility(R.id.row_check, GONE)
         views.setOnClickFillInIntent(R.id.row_root, android.content.Intent())
         return views
     }
@@ -244,6 +259,15 @@ internal class TasksFactory(private val appCtx: Context) : RemoteViewsService.Re
                 views.setViewVisibility(R.id.row_tag, VISIBLE)
             }
             else -> views.setViewVisibility(R.id.row_tag, GONE)
+        }
+        // Checkbox: visibel + fill-in intent toggle (template broadcast dipasang
+        // provider). Payload lama tanpa id → kotak disembunyikan, baris tetap tap.
+        if (r.id.isEmpty()) {
+            views.setViewVisibility(R.id.row_check, GONE)
+        } else {
+            views.setViewVisibility(R.id.row_check, VISIBLE)
+            views.setImageViewResource(R.id.row_check, R.drawable.widget_check_off)
+            views.setOnClickFillInIntent(R.id.row_check, WidgetListService.checkboxExtras(r.id, true))
         }
         views.setOnClickFillInIntent(R.id.row_root, android.content.Intent())
         return views

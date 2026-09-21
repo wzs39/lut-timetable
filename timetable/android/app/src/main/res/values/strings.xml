@@ -20,4 +20,6 @@
     <string name="widget_late">LATE</string>
     <string name="widget_soon">SOON</string>
     <string name="widget_open_tasks">%1$d open</string>
+    <!-- Toast feedback after checkbox toggle in the widget. -->
+    <string name="widget_toggle_done">Task checked off</string>
 </resources>

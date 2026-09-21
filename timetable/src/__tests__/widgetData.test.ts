@@ -158,6 +158,17 @@ describe('buildTasksPayload', () => {
     expect(p.openCount).toBe(3) // a + c + d (tanpa dueAt tetap terbuka)
   })
 
+  it('membawa id asli tiap baris — checkbox widget mengirim balik id ini', () => {
+    const p = buildTasksPayload(
+      [
+        task({ id: 'moodle-act:123', title: 'Persona', dueAt: '2026-09-20T12:00:00' }),
+        task({ id: 'manual-uuid', title: 'Manual', dueAt: '2026-09-21T12:00:00' }),
+      ],
+      NOW,
+    )
+    expect(p.items.map((i) => i.id)).toEqual(['moodle-act:123', 'manual-uuid'])
+  })
+
   it('tanggal tampilan dd.MM. dan tanpa cap (ListView scrollable)', () => {
     const many = Array.from({ length: 12 }, (_, i) =>
       task({ id: `t${i}`, title: `Task ${i}`, dueAt: `2026-10-${String(i + 1).padStart(2, '0')}T12:00:00` }),
