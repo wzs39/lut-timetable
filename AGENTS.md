@@ -108,3 +108,18 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 
 - **PendingIntent 模板必须 MUTABLE 才能收 fill-in extras**（API 31+）：`setPendingIntentTemplate` 配 `FLAG_IMMUTABLE` 时，factory 里 `setOnClickFillInIntent` 的 extras 被**系统静默丢弃**——广播照收但 extras 为空，点击像没反应。模板（checkbox 切换这类）用 `FLAG_MUTABLE`；纯打开 Activity 的模板才可用 IMMUTABLE。实测：IMMUTABLE 版点击后 ops 队列为空，换 MUTABLE 后立即生效。
 - **`<shape>`/`<layer-list>` drawable 不能放 `values-night/`**：values 限定符目录只收 values 类型资源，drawable 要用 `drawable-night/`。放错目录报 "Can't determine type for tag"。
+
+- **TimeEdit feed 是约 7 天滚动窗口**（【2026-09-21 实证】同一订阅 9/18 拉是 9/15 起 38 事件、9/21 拉是 9/21 起 15/35 事件；`?days=`/`?weeks=` 参数无效；`{id}.json` 接口同窗口且类型列为空）：全量重同步每次都会删掉滑出窗口的旧课——这是「之前的课识别不到」的根因。`syncSource` 对 `windowDays` 源做增量合并（只删窗口 [min,max] 内的课），窗口外旧课保留；空 feed 视为瞬时空响应不清库。老源靠 `loadSources` 一次性迁移打标。
+- **TimeEdit SUMMARY 与 SISU 格式不同**：`K200DJ96 Finnish 1 K200DJ96-3015 · KKIE26LABH`（码前缀 + 组号 + 专业码），SISU 的 `cleanTitle` 清不掉，需 `cleanTimeEditTitle` 专用清洗（剥离组号 `-3015`、码前缀、`Tunnus N` 段、`KoBScDDhebei1` 类驼峰码也要覆盖——首版正则漏了它）。存量脏标题在同步时对保留课做一次性重清洗（override 的 title 除外）。
+
+## 2026-09-22 · 小组件课程行 → Moodle 课程页（真机 E2E）
+- **RemoteViews ListView 的 fill-in 缓存很顽固**：payload（prefs）更新后，`notifyAppWidgetViewDataChanged` 可能仍不够——列表行的 fill-in intent 是 bind 时工厂快照。强杀应用重启（boot push → renderAll 重建）才刷新。验证点击时若 Intent 带旧 URL，先怀疑列表缓存而非路由代码。
+- **dumpsys 查到的 Chrome `dat=` Intent 是任务 record 的首启 intent**——Chrome 复用任务栈时不会变。判断真实跳转 URL 要么强杀 Chrome 再点（冷启动记录），要么直接看 Chrome 地址栏。
+- **假 courseid 会在真实 Moodle 报 "Can't find data record in database table course"**（已登录时）。E2E 注入测试数据绝不能用虚构 id——用真实账号 token 同步出真实身份表（备份 + tt_grades_source_v1 token 注入即可， enrol 同步 15s 内完成）。
+- **`core_course_get_courses` 对学生 token 报 nopermissions**——不能用它验证 courseid 有效性；学生视角 `course/view.php?id=N`（已选课）才是真实路径。
+- **Windows Electron 客户端空闲被系统杀**：CDP 9225 探活失败不代表数据丢，重启客户端即可（localStorage 持久）。
+
+## 2026-09-22 · 身份表 code 来源修正（enrol 侧不再依赖课表交集）
+- **身份表 code 直接从 Moodle shortname 提取**（`extractCourseCode(e.shortname) ?? extractCourseCode(e.fullname)`），删除 lessonCodes 交集条件——真实数据里 CT60A4500/BH60A7201/KE00BX35 这些「Moodle shortname 带码但课表无同码课」的行曾永远 null，TE 码（K200DJ96）对齐全靠课表恰好有这门课才侥幸命中。
+- **emulator 的 WebView 有 DNS 负缓存**：宿主 `ping` 已恢复但 WebView 仍报 `Unable to resolve host`——重启应用进程才清掉。SISU K200DJ96 实测 `lab-cu-40081 Finnish 1`。
+- 验证技巧：`saveIdentityFromEnrol` 的行覆盖率 = `rows.filter(r => r.code).length / rows.length`，真实数据 7/11 → 10/11（唯一 null 是无码 shortname「LUT digital orientation」，正确）。

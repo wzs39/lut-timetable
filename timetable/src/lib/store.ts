@@ -16,8 +16,28 @@ export function saveLessons(l: Lesson[]) {
   writeJson(KEYS.lessons, l)
 }
 
+/**
+ * Migration sekali-jalan: sumber TimeEdit lama belum punya flag windowDays
+ * (feed hanya mengirim ~7 hari ke depan — window bergulir). Ditandai di
+ * sini supaya syncSource melindungi pelajaran di luar window.
+ */
+function migrateSourceWindowFlags(sources: SyncSource[]): SyncSource[] {
+  let changed = false
+  const out = sources.map((s) => {
+    if (s.type === 'timeedit' && s.windowDays == null) {
+      changed = true
+      return { ...s, windowDays: 14 }
+    }
+    return s
+  })
+  if (changed) saveSources(out)
+  return out
+}
+
 export function loadSources(): SyncSource[] {
-  return readJson<SyncSource[]>(KEYS.sources, [])
+  return migrateSourceWindowFlags(
+    readJson<SyncSource[]>(KEYS.sources, []),
+  )
 }
 
 export function saveSources(s: SyncSource[]) {
@@ -258,6 +278,11 @@ export function backfillLessonTypes(lessons: Lesson[]): Lesson[] {
  * Fetch + parse ICS dari satu sumber, lalu merge ke daftar lesson.
  * Lesson lama dari sumber yang sama dihapus dulu (full re-sync), kecuali
  * lesson manual yang tidak pernah disentuh.
+ *
+ * Sumber rolling-window (windowDays ditentukan, mis. TimeEdit hanya
+ * mengirim ~7 hari ke depan): lesson di luar window TIDAK dihapus —
+ * sync diperlakukan sebagai upsert. Tanpa ini, setiap sync menghapus
+ * semua pelajaran yang sudah lewat dari window feed.
  */
 export async function syncSource(
   src: SyncSource,
@@ -266,9 +291,35 @@ export async function syncSource(
   const text = await fetchIcsText(src.icsUrl)
   const events = parseIcs(text)
 
-  const kept = existing.filter(
-    (l) => !(l.syncId === src.id && l.source !== 'manual'),
-  )
+  const windowMs =
+    src.windowDays != null ? src.windowDays * 24 * 60 * 60 * 1000 : null
+  /**
+   * Rentang window feed saat ini [min, max] (undefined = full re-sync).
+   * Hanya lesson DI DALAM rentang ini yang boleh dihapus — event feed
+   * pasti menggantikannya. Lesson sebelum window (sudah lewat) dan
+   * sesudah window (diimpor saat window sebelumnya lebih jauh) tidak
+   * pernah dikirim lagi feed, jadi harus dipertahankan.
+   */
+  let windowMin: number | undefined
+  let windowMax: number | undefined
+  if (windowMs != null && events.length > 0) {
+    const starts = events.map((e) => e.start.getTime())
+    windowMin = Math.min(...starts)
+    windowMax = Math.max(...starts)
+  } else if (windowMs != null) {
+    // feed kosong (mis. respons sesaat): jangan hapus apa pun —
+    // semua lesson sumber ini dipertahankan sampai sync berikutnya
+    windowMin = Number.POSITIVE_INFINITY
+    windowMax = Number.NEGATIVE_INFINITY
+  }
+
+  const kept = existing.filter((l) => {
+    if (l.syncId !== src.id || l.source === 'manual') return true
+    if (windowMin == null || windowMax == null) return false
+    const t = new Date(l.start).getTime()
+    // di luar window rolling (lampau atau masa depan) — dipertahankan
+    return t < windowMin || t > windowMax
+  })
   const keptUids = new Set(kept.map((l) => l.uid).filter(Boolean))
   /** pelajaran lama milik sumber ini — untuk membawa ulang anotasi merged */
   const oldByUid = new Map(
@@ -293,6 +344,11 @@ export async function syncSource(
   let merged = 0
   let skipped = 0
   const codeOf = (s: string | undefined) => extractCourseCode(s)
+  /** judul bersih: format SISU vs format TimeEdit beda tata letak */
+  const titleOf = (s: string | undefined, code: string | undefined) =>
+    src.type === 'timeedit'
+      ? cleanTimeEditTitle(s, code)
+      : cleanTitle(s, code)
   const tombstones = loadTombstones()
   const overrides = loadOverrides()
   const mergedIds = new Map<string, Lesson>()
@@ -305,7 +361,7 @@ export async function syncSource(
     const lesson: Lesson = {
       id: uid(),
       source: src.type,
-      title: cleanTitle(e.summary, codeOf(e.summary)),
+      title: titleOf(e.summary, codeOf(e.summary)),
       code: codeOf(e.summary),
       type: detectLessonType(e.summary),
       location: e.location,
@@ -350,11 +406,44 @@ export async function syncSource(
     }
   }
 
-  const keptMerged = kept.map((l) => mergedIds.get(l.id) ?? l)
+  // rolling window: event yang tadinya di luar window lalu masuk kembali
+  // menimpa lesson lama sumber ini yang dipertahankan (uid sama) — buang
+  // yang lama agar tidak dobel
+  const incomingUids = new Set(
+    incoming.map((l) => l.uid).filter(Boolean) as string[],
+  )
+  const keptMerged = kept
+    .filter((l) => !(l.syncId === src.id && l.uid && incomingUids.has(l.uid)))
+    .map((l) => {
+      const withMerged = mergedIds.get(l.id) ?? l
+      // lesson rolling-window lama tidak pernah dikirim ulang feed —
+      // bersihkan judul format lama (masih memuat kode) sekali di sini.
+      // Judul hasil editan pengguna (override) tidak disentuh.
+      if (
+        src.type === 'timeedit' &&
+        l.syncId === src.id &&
+        !overrides[lessonKey(l)]?.title
+      ) {
+        const cleaned = cleanTimeEditTitle(withMerged.title, withMerged.code)
+        if (cleaned !== withMerged.title) {
+          return { ...withMerged, title: cleaned }
+        }
+      }
+      return withMerged
+    })
   const lessons = [...keptMerged, ...incoming]
   const sources = loadSources().map((s) =>
     s.id === src.id
-      ? { ...s, lastSync: new Date().toISOString(), count: incoming.length }
+      ? {
+          ...s,
+          lastSync: new Date().toISOString(),
+          count:
+            windowMs != null
+              ? [...keptMerged, ...incoming].filter(
+                  (l) => l.syncId === src.id && l.source !== 'manual',
+                ).length
+              : incoming.length,
+        }
       : s,
   )
   saveSources(sources)
@@ -370,6 +459,59 @@ export async function syncSource(
       skipped,
     },
   }
+}
+
+/**
+ * Rapikan summary TimeEdit: kode kursus muncul dua kali (di depan dan
+ * dengan nomor grup di tengah), lalu diikuti kode program studi.
+ * "K200DJ96 Finnish 1 K200DJ96-3015 · KKIE26LABH · KKIE26LUTH"
+ *   -> "Finnish 1"
+ * "KE00DA03 KE00DA03-3013 English for the Hebei University of Technology,\nKKIE26LUTH, KoBScDDhebei1, ... 1304 Tunnus 586895"
+ *   -> "English for the Hebei University of Technology"
+ */
+export function cleanTimeEditTitle(summary?: string, code?: string): string {
+  if (!summary) return 'Untitled'
+  let s = unescapeIcsText(summary)
+  // "KODE-3015" (dengan nomor grup) dibuang utuh lebih dulu
+  s = s.replace(/\b[A-Z]{1,4}\d{1,3}[A-Z]{0,3}\d{0,4}-\d{4}\b/gi, ' ')
+  if (code) s = s.replace(new RegExp(`\\b${escapeRegExp(code)}\\b`, 'gi'), ' ')
+  // sisa kode kursus apa pun (pembuka yang tidak diketahui kodenya)
+  s = s.replace(/\b[A-Z]{1,4}\d{1,3}[A-Z]{0,3}\d{0,4}\b/g, ' ')
+  const segs = s.split(/[·,]/).map((p) => p.trim())
+  const meaningful: string[] = []
+  for (const p of segs) {
+    if (!p) continue
+    if (/tunnus\s+\d+/i.test(p)) break // ID reservasi — akhir dari judul
+    if (/^\d+$/.test(p)) continue // nomor ruang yang lepas dari kolom
+    if (
+      !/\s/.test(p) &&
+      p.length >= 6 &&
+      /\d/.test(p) &&
+      /[A-Za-z]/.test(p)
+    )
+      break // kode program studi (KKIE26LABH, KoBScDDhebei1) — sisanya metadata
+    meaningful.push(p)
+    if (meaningful.length >= 3) break
+  }
+  const out = meaningful
+    .join(' · ')
+    .replace(/\s+-\d{1,4}\b/g, '') // sisa nomor grup terpotong dari SUMMARY
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return out || cleanTitle(summary, code)
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Unescape \, \; \n \\ — dipakai juga di luar parser (cleanTitle TE). */
+function unescapeIcsText(s: string): string {
+  return s
+    .replace(/\\n/gi, ' ')
+    .replace(/\\,/g, ',')
+    .replace(/\\;/g, ';')
+    .replace(/\\\\/g, '\\')
 }
 
 /** Rapikan summary SISU yang panjang: ambil nama kursus yang bermakna.

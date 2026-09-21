@@ -42,5 +42,16 @@ export interface SyncSource {
   icsUrl: string
   label: string
   lastSync?: string
+  /**
+   * Jumlah pelajaran sumber ini yang saat ini ada di daftar (ditampilkan
+   * di sidebar/settings). Sumber rolling-window (mis. TimeEdit) dihitung
+   * dari daftar gabungan, bukan hanya hasil fetch terakhir.
+   */
   count: number
+  /**
+   * Sumber dengan jendela waktu bergulir (TimeEdit hanya mengirim ~7 hari
+   * ke depan): sync TIDAK menghapus pelajaran yang jatuh di luar window —
+   * pelajaran lama dipertahankan sampai dihapus manual.
+   */
+  windowDays?: number
 }

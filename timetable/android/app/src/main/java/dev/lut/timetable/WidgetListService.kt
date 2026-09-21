@@ -31,6 +31,8 @@ class WidgetListService : RemoteViewsService() {
         /** Extra fill-in per baris tugas: id + status target. */
         const val EXTRA_TASK_ID = "taskId"
         const val EXTRA_TASK_DONE = "completed"
+        /** Extra fill-in per baris pelajaran: courseid Moodle (0 = tak dipetakan). */
+        const val EXTRA_MOODLE_ID = "moodleId"
 
         /**
          * Fill-in intent checkbox: hanya extras — templatenya dipasang provider
@@ -39,6 +41,10 @@ class WidgetListService : RemoteViewsService() {
         fun checkboxExtras(taskId: String, completed: Boolean): Intent =
             Intent().putExtra(EXTRA_TASK_ID, taskId).putExtra(EXTRA_TASK_DONE, completed)
 
+        /** Fill-in baris pelajaran: courseid Moodle (0/absen = buka app biasa). */
+        fun lessonExtras(mid: Long): Intent =
+            if (mid > 0) Intent().putExtra(EXTRA_MOODLE_ID, mid) else Intent()
+
         /** Intent untuk setRemoteAdapter (authority unik per widget agar tidak di-cache silang). */
         fun adapterIntent(ctx: Context, kind: String, widgetId: Int): Intent =
             Intent(ctx, WidgetListService::class.java)
@@ -46,18 +52,6 @@ class WidgetListService : RemoteViewsService() {
                 .putExtra(AppWidgetManagerCompat.EXTRA_WIDGET_ID, widgetId)
                 .setData(Uri.parse("lutwidget://$kind/$widgetId"))
 
-        /**
-         * Template klik baris list: setPendingIntentTemplate dipasang provider,
-         * fillInIntent per baris (dipasang factory) menentukan tujuan web —
-         * lessons → hari ini, tasks → halaman tugas (MainActivity konsumsi
-         * tt_view via window.__widgetNav).
-         */
-        fun rowClickTemplate(ctx: Context, view: String): android.app.PendingIntent =
-            android.app.PendingIntent.getActivity(
-                ctx, 2001,
-                Intent(ctx, MainActivity::class.java).putExtra("tt_view", view),
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
-            )
     }
 }
 
@@ -85,6 +79,8 @@ internal object WidgetRows {
         val room: String,
         val sms: Long,
         val ems: Long,
+        /** courseid Moodle dari tabel identitas (0 = tak dipetakan). */
+        val mid: Long,
     )
 
     data class TaskRow(
@@ -112,6 +108,7 @@ internal object WidgetRows {
                     room = o.optString("room"),
                     sms = o.optLong("sms", 0),
                     ems = o.optLong("ems", 0),
+                    mid = o.optLong("mid", 0),
                 )
             }
         } catch (_: Exception) {
@@ -203,7 +200,9 @@ internal class LessonsFactory(private val appCtx: Context) : RemoteViewsService.
             views.setViewVisibility(R.id.row_tag, GONE)
         }
         views.setViewVisibility(R.id.row_check, GONE)
-        views.setOnClickFillInIntent(R.id.row_root, android.content.Intent())
+        // Tap baris pelajaran: bawa courseid Moodle bila ada — template
+        // broadcast (lessonTemplate) membukanya di browser.
+        views.setOnClickFillInIntent(R.id.row_root, WidgetListService.lessonExtras(r.mid))
         return views
     }
 
