@@ -31,11 +31,13 @@ beforeEach(() => {
 })
 
 describe('courseIdentity persistence', () => {
-  it('writes one row per enrolled course, code only when the timetable matches', () => {
+  it('writes one row per enrolled course, code straight from the Moodle shortname', () => {
     const rows = saveIdentityFromEnrol(enrolled, lessons)
     expect(rows).toHaveLength(2)
     expect(rows[0]).toMatchObject({ courseid: 29428, code: 'CT60A4050' })
-    expect(rows[1].code).toBeNull() // web-only course: no lesson with that code
+    // 课程码直接来自 shortname 开头 —— 不再要求课表里恰好有同码课程：
+    // 无课表的 web-only 课程也拿到 code（旧实现为 null）。
+    expect(rows[1]).toMatchObject({ courseid: 29999, code: 'XX00AA11' })
     expect(loadIdentities()).toHaveLength(2)
   })
 
@@ -99,7 +101,7 @@ describe('loadIdentityIndex from storage', () => {
     saveIdentityFromEnrol(enrolled, lessons)
     const idx = loadIdentityIndex()
     expect(idx.codeFor(29428)).toBe('CT60A4050')
-    expect(idx.codeFor(29999)).toBeNull()
+    expect(idx.codeFor(29999)).toBe('XX00AA11')
   })
 
   it('empty storage → empty index, no throw', () => {
@@ -123,9 +125,31 @@ describe('saveIdentityFromEnrol — real LUT shortname extraction', () => {
       [{ id: 'l1', source: 'sisu', title: 'Math A', code: 'BM20A9200', start: '2026-09-14T08:00:00.000Z', end: '2026-09-14T10:00:00.000Z' }],
     )
     expect(rows.find((r) => r.courseid === 30565)?.code).toBe('BM20A9200')
-    // 无课表匹配的行保持 null
+    // 无可提取码的行（无码 shortname）保持 null
     expect(rows.find((r) => r.courseid === 29428)?.code).toBeNull()
     // idForCode 方向打通
     expect(loadIdentityIndex().idForCode('BM20A9200')).toBe(30565)
+  })
+
+  // 【TimeEdit → Moodle 对齐】TE 课（如 K200DJ96 Finnish 1）与 Moodle 课程共享
+  // 同一课程码时，identity 表直接从 shortname 提取即可闭环：
+  // 课表 lesson(code=K200DJ96) → idForCode → course/view.php?id=33295。
+  // 不再要求课表里恰好有这门课（CT60A4500 等真实课程曾因此永远 null）。
+  it('maps LAB/TimeEdit campus codes (K200DJ96) without needing timetable lessons', () => {
+    localStorage.clear()
+    const rows = saveIdentityFromEnrol(
+      [
+        { courseid: 33295, shortname: 'K200DJ96 Contact teaching Lahti P1, K200DJ96-3015', fullname: 'K200DJ96 Finnish 1 (LAB) - Contact teaching' },
+        { courseid: 30366, shortname: 'CT60A4500 Blended teaching, Lahti 31.8.2026-20.12.2026', fullname: 'CT60A4500 Interactive Design - Blended teaching' },
+      ],
+      [], // 空课表：纯 enrol 侧也要有完整映射
+    )
+    expect(rows.find((r) => r.courseid === 33295)?.code).toBe('K200DJ96')
+    expect(rows.find((r) => r.courseid === 30366)?.code).toBe('CT60A4500')
+    const idx = loadIdentityIndex()
+    expect(idx.idForCode('K200DJ96')).toBe(33295)
+    // 带组号后缀的码（K200DJ96-3015）归一化后同样命中
+    expect(idx.idForCode('K200DJ96-3015')).toBe(33295)
+    expect(idx.idForCode('CT60A4500')).toBe(30366)
   })
 })

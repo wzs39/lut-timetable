@@ -98,6 +98,25 @@ describe('buildWidgetPayload', () => {
     // nama kursus penuh dibawa (segmen pertama judul)
     expect(p.items[0].title).toBe('Fundamentals of Programming')
   })
+
+  it('mid: resolver diinjeksi → courseid Moodle per baris; tanpa resolver → null', () => {
+    // Resolver meniru CourseIdentityIndex.idForCode (widget klik → course page)
+    const p = buildWidgetPayload(
+      [
+        lesson('2026-09-18T08:00:00', '2026-09-18T10:00:00', 'CT60A0250'),
+        lesson('2026-09-18T12:00:00', '2026-09-18T14:00:00', 'HDD5020'),
+        lesson('2026-09-18T14:00:00', '2026-09-18T16:00:00'), // tanpa kode
+      ],
+      NOW,
+      (code) => (code === 'CT60A0250' ? 29428 : code === 'HDD5020' ? 30565 : null),
+    )
+    expect(p.items[0].mid).toBe(29428)
+    expect(p.items[1].mid).toBe(30565)
+    expect(p.items[2].mid).toBeNull()
+    // Tanpa resolver (payload lama / web): mid null — baris tetap buka app
+    const legacy = buildWidgetPayload([lesson('2026-09-18T08:00:00', '2026-09-18T10:00:00')], NOW)
+    expect(legacy.items[0].mid).toBeNull()
+  })
 })
 
 describe('nextStartMs (countdown anchor)', () => {

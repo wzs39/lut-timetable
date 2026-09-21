@@ -12,8 +12,15 @@ import type { Lesson } from '../types'
  * domain menghitung ulang heuristik pencocokan (matchCourseCode butuh daftar
  * `lessons` sebagai pembanding) dan sesi tanpa jadwal (unit test, first-run)
  * tidak punya jangkar. Tabel ini DITULIS sekali saat daftar enrol tersinkron
- * — memotong kode dari LESSONS yang cocok — lalu dibaca oleh semua domain
- * tanpa lessons sama sekali.
+ * lalu dibaca oleh semua domain tanpa lessons sama sekali.
+ *
+ * Sumber kode: EKSTRAKSI shortname Moodle sendiri ("BM20A9200 Contact
+ * teaching, …" → "BM20A9200") — kode di situ identitas resminya, tak perlu
+ * disilangkan dengan jadwal. Kursus tanpa kode yang bisa diekstrak (mis.
+ * "LUT digital orientation") tetap code=null. Kode yang cocok dengan jadwal
+ * (SISU/TimeEdit, termasuk kode kampus LAB seperti K200DJ96) menutup rantai
+ * jadwal → Moodle: tap baris pelajaran di widget/LessonDetail membuka
+ * course/view.php?id=<courseid> yang benar.
  *
  * Satu pemilik data: courses.ts memanggil saveIdentityFromEnrol() setiap
  * kali enrol di-fetch; pembaca lain hanya resolve via CourseIdentityIndex.
@@ -108,23 +115,20 @@ export function loadIdentities(): CourseIdentity[] {
   return []
 }
 
-/** Tulis/pbarui tabel dari daftar enrol + jadwal. Dipanggil courses.ts. */
+/** Tulis/pbarui tabel dari daftar enrol. Dipanggil courses.ts setiap enrol sync. */
 export function saveIdentityFromEnrol(
   enrolled: EnrolledCourse[],
-  lessons: Lesson[],
+  _lessons?: Lesson[],
 ): CourseIdentity[] {
-  // Kode unik dari jadwal, dinormalisasi → tampilan apa adanya.
-  const lessonCodes = new Map(
-    lessons.filter((l) => l.code).map((l) => [normalizeCourseCode(l.code!), l.code!]),
-  )
   const courses: CourseIdentity[] = enrolled.map((e) => ({
     courseid: e.courseid,
-    // Kode dari EKSTRAKSI shortname ("BM20A9200 Contact teaching, …" →
-    // "BM20A9200"), bukan normalizeCourseCode — itu hanya membersihkan kode
-    // murni, jadi dulu SEMUA baris ber-code null dan idForCode selalu kosong.
+    // Kode langsung dari EKSTRAKSI shortname Moodle — shortname diawali kode
+    // resminya, jadi pemetaan courseid↔kode lengkap tanpa syarat kursus itu
+    // muncul di jadwal (dulu: harus ada lesson berkode sama → baris
+    // "CT60A4500 Blended teaching" dsb. selalu null).
     code:
-      lessonCodes.get(extractCourseCode(e.shortname) ?? '') ??
-      lessonCodes.get(extractCourseCode(e.fullname) ?? '') ??
+      extractCourseCode(e.shortname) ??
+      extractCourseCode(e.fullname) ??
       null,
     shortname: e.shortname,
     fullname: e.fullname,

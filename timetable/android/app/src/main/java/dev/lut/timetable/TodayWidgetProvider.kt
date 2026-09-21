@@ -139,8 +139,11 @@ abstract class BaseWidgetProvider : AppWidgetProvider() {
             val items = payload.optJSONArray("items")
             val count = items?.length() ?: 0
             views.setRemoteAdapter(R.id.widget_list, WidgetListService.adapterIntent(context, WidgetListService.KIND_LESSONS, widgetId))
-            // Klik baris list → buka app (template + fillInIntent per baris).
-            views.setPendingIntentTemplate(R.id.widget_list, WidgetListService.rowClickTemplate(context, "today"))
+            // Klik baris list → broadcast (satu template, dua aksi): baris
+            // ber-courseid membuka Moodle course page di browser, sisanya
+            // fallback buka app. (Template getActivity lama diganti: fill-in
+            // extras hanya bekerja lewat broadcast MUTABLE.)
+            views.setPendingIntentTemplate(R.id.widget_list, WidgetToggleReceiver.lessonTemplate(context))
             if (count == 0) {
                 views.setViewVisibility(R.id.widget_list, android.view.View.GONE)
                 views.setViewVisibility(R.id.widget_empty, android.view.View.VISIBLE)

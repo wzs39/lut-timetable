@@ -43,6 +43,11 @@ export interface WidgetPayload {
     sms: number
     /** epoch ms selesai */
     ems: number
+    /**
+     * courseid Moodle (tabel identitas kursus) — baris widget klik
+     * langsung membuka course page di browser; null = buka app biasa.
+     */
+    mid: number | null
   }[]
   /** jumlah pelajaran minggu ini */
   weekCount: number
@@ -63,10 +68,13 @@ function hm(iso: string): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-/** Bangun payload murni dari daftar pelajaran (dapat diuji, tanpa I/O). */
+/** Bangun payload murni dari daftar pelajaran (dapat diuji, tanpa I/O).
+ *  `moodleIdOf` opsional: kode kursus → courseid Moodle (tabel identitas).
+ *  Dipisah agar builder tetap murni; pushWidgetData menyuntik resolver asli. */
 export function buildWidgetPayload(
   lessons: Lesson[],
   now: Date = new Date(),
+  moodleIdOf?: (code: string | undefined) => number | null,
 ): WidgetPayload {
   const day = localDate(now)
   const today = lessons
@@ -94,6 +102,7 @@ export function buildWidgetPayload(
       room: l.location || '—',
       sms: new Date(l.start).getTime(),
       ems: new Date(l.end).getTime(),
+      mid: moodleIdOf ? moodleIdOf(l.code) : null,
     })),
     weekCount,
     next: upcoming
@@ -112,9 +121,14 @@ export async function pushWidgetData(lessons: Lesson[]): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
   try {
     const { Preferences } = await import('@capacitor/preferences')
+    // Resolver identitas: kode SISU → courseid Moodle (dibaca sekali per push).
+    const { loadIdentityIndex } = await import('./courseIdentity')
+    const idIndex = loadIdentityIndex()
     await Preferences.set({
       key: PREF_KEY,
-      value: JSON.stringify(buildWidgetPayload(lessons)),
+      value: JSON.stringify(
+        buildWidgetPayload(lessons, new Date(), (code) => idIndex.idForCode(code)),
+      ),
     })
     await refreshWidgets()
   } catch {

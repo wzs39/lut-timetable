@@ -1,13 +1,20 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchIcsText } from '../lib/fetchIcs'
 import {
   backfillLessonTypes,
+  cleanTimeEditTitle,
   dedupeLessons,
   isCrossSourceDup,
   lessonKey,
+  loadSources,
   normalizeSisuUrl,
   normalizeTimeEditUrl,
+  syncSource,
 } from '../lib/store'
-import type { Lesson } from '../types'
+import type { Lesson, SyncSource } from '../types'
+
+// syncSource memanggil fetchIcsText (jaringan) — mock untuk pengujian
+vi.mock('../lib/fetchIcs', () => ({ fetchIcsText: vi.fn() }))
 
 // localStorage polyfill untuk environment node
 const store = new Map<string, string>()
@@ -226,5 +233,145 @@ describe('legitimate course repetition is never removed', () => {
     expect(out).toHaveLength(2)
     const annotated = out.find((l) => l.id === 's1')!
     expect(annotated.mergedSources).toEqual(['sisu', 'timeedit'])
+  })
+})
+
+describe('cleanTimeEditTitle', () => {
+  it('strips leading code, group code and programme codes (K200DJ96 form)', () => {
+    expect(
+      cleanTimeEditTitle(
+        'K200DJ96 Finnish 1 K200DJ96-3015 · KKIE26LABH · KKIE26LUTH',
+        'K200DJ96',
+      ),
+    ).toBe('Finnish 1')
+  })
+
+  it('handles reversed order (K200DJ99 form)', () => {
+    expect(
+      cleanTimeEditTitle(
+        'K200DJ99 K200DJ99-3014 Finnish 2 · KKIE26LABH · KKIE26LUTH',
+        'K200DJ99',
+      ),
+    ).toBe('Finnish 2')
+  })
+
+  it('strips programme codes, room number and Tunnus id (KE00DA03 form)', () => {
+    expect(
+      cleanTimeEditTitle(
+        'KE00DA03 KE00DA03-3013 English for the Hebei University of Technology, KKIE26LUTH, KoBScDDhebei1, SaBScDDhebei1, 1304 Tunnus 586895',
+        'KE00DA03',
+      ),
+    ).toBe('English for the Hebei University of Technology')
+  })
+
+  it('removes unknown leading code when code is not provided', () => {
+    expect(
+      cleanTimeEditTitle('XX0000 Guest lecture · KKIE26LABH'),
+    ).toBe('Guest lecture')
+  })
+
+  it('falls back to cleanTitle for empty results', () => {
+    expect(cleanTimeEditTitle(undefined, 'K200DJ96')).toBe('Untitled')
+  })
+})
+
+describe('syncSource rolling window (TimeEdit upsert)', () => {
+  /** ICS sintetis — window feed = [2026-09-21, 2026-12-11] */
+  const teSource = (id = 'te-src-1'): SyncSource => ({
+    id,
+    type: 'timeedit',
+    url: 'https://cloud.timeedit.net/x/y.ics',
+    icsUrl: 'https://cloud.timeedit.net/x/y.ics',
+    label: 'TimeEdit',
+    count: 0,
+    windowDays: 14,
+  })
+  const icsOf = (uid: string, day: string) =>
+    [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTART:${day}T100000Z`,
+      `DTEND:${day}T120000Z`,
+      'SUMMARY:K200DJ96 Finnish 1 K200DJ96-3015',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n')
+
+  it('preserves past lessons outside the rolling window', async () => {
+    vi.mocked(fetchIcsText).mockResolvedValue(icsOf('teA', '20260921'))
+    const past: Lesson = {
+      id: 'old1', source: 'timeedit', title: 'Past lesson',
+      code: 'K200DJ96', start: '2026-09-15T10:00:00.000Z',
+      end: '2026-09-15T12:00:00.000Z', uid: 'teOld', syncId: 'te-src-1',
+    }
+    const { lessons, result } = await syncSource(teSource(), [past])
+    expect(lessons.some((l) => l.id === 'old1')).toBe(true)
+    expect(result.total).toBe(1)
+  })
+
+  it('preserves future lessons beyond the current window too', async () => {
+    vi.mocked(fetchIcsText).mockResolvedValue(icsOf('teA', '20260921'))
+    const far: Lesson = {
+      id: 'far1', source: 'timeedit', title: 'Far future',
+      code: 'K200DJ96', start: '2027-03-03T10:00:00.000Z',
+      end: '2027-03-03T12:00:00.000Z', uid: 'teFar', syncId: 'te-src-1',
+    }
+    const { lessons } = await syncSource(teSource(), [far])
+    expect(lessons.some((l) => l.id === 'far1')).toBe(true)
+  })
+
+  it('replaces in-window lessons by uid instead of duplicating', async () => {
+    const uid = 'teA'
+    vi.mocked(fetchIcsText).mockResolvedValueOnce(icsOf(uid, '20260921'))
+    const first = await syncSource(teSource(), [])
+    vi.mocked(fetchIcsText).mockResolvedValueOnce(icsOf(uid, '20260921'))
+    const second = await syncSource(teSource(), first.lessons)
+    expect(second.lessons.filter((l) => l.uid === uid)).toHaveLength(1)
+    expect(second.result.total).toBe(1)
+  })
+
+  it('does not wipe the source when the feed comes back empty', async () => {
+    vi.mocked(fetchIcsText).mockResolvedValue(
+      'BEGIN:VCALENDAR\r\nEND:VCALENDAR',
+    )
+    const past: Lesson = {
+      id: 'old1', source: 'timeedit', title: 'Past',
+      start: '2026-09-15T10:00:00.000Z', end: '2026-09-15T12:00:00.000Z',
+      uid: 'teOld', syncId: 'te-src-1',
+    }
+    const { lessons } = await syncSource(teSource(), [past])
+    expect(lessons.some((l) => l.id === 'old1')).toBe(true)
+  })
+
+  it('still full re-syncs sources without windowDays (SISU)', async () => {
+    vi.mocked(fetchIcsText).mockResolvedValue(icsOf('sisu1', '20260921'))
+    const stale: Lesson = {
+      id: 'g1', source: 'sisu', title: 'Old sisu lesson',
+      start: '2026-09-15T10:00:00.000Z', end: '2026-09-15T12:00:00.000Z',
+      uid: 'sisuOld', syncId: 'sisu-src-1',
+    }
+    const { lessons } = await syncSource(
+      {
+        id: 'sisu-src-1', type: 'sisu', url: 'x', icsUrl: 'x',
+        label: 'SISU', count: 0,
+      },
+      [stale],
+    )
+    expect(lessons.some((l) => l.id === 'g1')).toBe(false)
+  })
+
+  it('migrates legacy TimeEdit sources by adding windowDays', () => {
+    store.set(
+      'tt_sources_v1',
+      JSON.stringify([
+        {
+          id: 'legacy', type: 'timeedit', url: 'x', icsUrl: 'x',
+          label: 'TimeEdit', count: 0,
+        },
+      ]),
+    )
+    const out = loadSources()
+    expect(out[0].windowDays).toBe(14)
   })
 })

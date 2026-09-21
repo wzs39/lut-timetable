@@ -3,6 +3,7 @@ package dev.lut.timetable
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 
 /**
@@ -25,8 +26,27 @@ import android.widget.Toast
  */
 class WidgetToggleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_TOGGLE) return
         val appCtx = context.applicationContext ?: return
+        if (intent.action == ACTION_OPEN_LESSON) {
+            // Tap baris pelajaran: bila payload membawa courseid Moodle (tabel
+            // identitas) langsung buka course page di browser — tanpa app.
+            // Tanpa courseid: fallback buka app ke view hari ini.
+            val mid = intent.getLongExtra(EXTRA_MOODLE_ID, 0L)
+            if (mid > 0) {
+                appCtx.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://moodle.lut.fi/course/view.php?id=$mid"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } else {
+                appCtx.startActivity(
+                    Intent(appCtx, MainActivity::class.java)
+                        .putExtra("tt_view", "today")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+            return
+        }
+        if (intent.action != ACTION_TOGGLE) return
         val id = intent.getStringExtra(EXTRA_ID)
         if (id == null) {
             // Tanpa taskId = tap baris biasa: buka app langsung ke halaman tugas
@@ -79,7 +99,10 @@ class WidgetToggleReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_TOGGLE = "dev.lut.timetable.WIDGET_TOGGLE_TASK"
+        /** Tap baris pelajaran (widget hari ini): buka Moodle course page / app. */
+        const val ACTION_OPEN_LESSON = "dev.lut.timetable.WIDGET_OPEN_LESSON"
         const val EXTRA_ID = "taskId"
+        const val EXTRA_MOODLE_ID = "moodleId"
         const val EXTRA_COMPLETED = "completed"
         const val OPS_KEY = "widget_task_ops_v1"
         private const val MAX_OPS = 50
@@ -95,6 +118,20 @@ class WidgetToggleReceiver : BroadcastReceiver() {
             android.app.PendingIntent.getBroadcast(
                 context, 3001,
                 Intent(context, WidgetToggleReceiver::class.java).setAction(ACTION_TOGGLE),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
+            )
+
+        /**
+         * Template tap baris daftar pelajaran (widget hari ini) — receiver
+         * yang sama dengan checkbox (satu receiver, dua action). MUTABLE
+         * wajib: fill-in extra moodleId per baris diabaikan sistem bila
+         * IMMUTABLE (API 31+). moodleId dibaca getLongExtra — fill-in
+         * memakai putExtra(Long).
+         */
+        fun lessonTemplate(context: Context): android.app.PendingIntent =
+            android.app.PendingIntent.getBroadcast(
+                context, 3002,
+                Intent(context, WidgetToggleReceiver::class.java).setAction(ACTION_OPEN_LESSON),
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
             )
     }
