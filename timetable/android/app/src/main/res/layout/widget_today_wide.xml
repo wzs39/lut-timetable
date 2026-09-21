@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget 4×2: dua kolom pelajaran + countdown, warna tema-sadar. -->
+<!-- Widget 4×2: daftar hari-ini SCROLLABLE satu kolom penuh (dual kolom statis
+     diganti ListView — semua sesi terlihat, resize ikut menambah area scroll).
+     Countdown + jumlah minggu tetap di baris bawah. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -21,35 +23,25 @@
         android:textAllCaps="true"
         android:textColor="@color/widget_text_title" />
 
-    <LinearLayout
+    <ListView
+        android:id="@+id/widget_list"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="10dp"
-        android:orientation="horizontal"
-        android:baselineAligned="false">
+        android:layout_marginTop="6dp"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none" />
 
-        <TextView
-            android:id="@+id/widget_items"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:fontFeatureSettings="tnum"
-            android:textSize="13sp"
-            android:lineSpacingExtra="4dp"
-            android:textColor="@color/widget_text_body" />
-
-        <TextView
-            android:id="@+id/widget_items2"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginStart="14dp"
-            android:fontFeatureSettings="tnum"
-            android:textSize="13sp"
-            android:lineSpacingExtra="4dp"
-            android:textColor="@color/widget_text_body" />
-    </LinearLayout>
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:textSize="12sp"
+        android:textColor="@color/widget_text_muted"
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/widget_meta"

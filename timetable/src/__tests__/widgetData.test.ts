@@ -123,7 +123,7 @@ describe('nextStartMs (countdown anchor)', () => {
   })
 })
 
-// ---- buildTasksPayload: widget tugas (deadline terdekat dulu, maks 8) ----
+// ---- buildTasksPayload: widget tugas (deadline terdekat dulu, tanpa batas) ----
 import { buildTasksPayload } from '../lib/widgetData'
 import type { Task } from '../lib/tasks'
 
@@ -158,15 +158,15 @@ describe('buildTasksPayload', () => {
     expect(p.openCount).toBe(3) // a + c + d (tanpa dueAt tetap terbuka)
   })
 
-  it('tanggal tampilan dd.MM. dan cap 8 item', () => {
+  it('tanggal tampilan dd.MM. dan tanpa cap (ListView scrollable)', () => {
     const many = Array.from({ length: 12 }, (_, i) =>
       task({ id: `t${i}`, title: `Task ${i}`, dueAt: `2026-10-${String(i + 1).padStart(2, '0')}T12:00:00` }),
     )
     const p = buildTasksPayload(many, NOW)
-    expect(p.items).toHaveLength(8)
+    expect(p.items).toHaveLength(12)
     expect(p.openCount).toBe(12)
     expect(p.items[0].d).toBe('01.10.')
-    expect(p.items[7].d).toBe('08.10.')
+    expect(p.items[11].d).toBe('12.10.')
   })
 
   it('course fallback kosong (native melewati baris course)', () => {

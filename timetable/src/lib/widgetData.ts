@@ -124,11 +124,13 @@ export async function pushWidgetData(lessons: Lesson[]): Promise<void> {
 
 export interface WidgetTasksPayload {
   updatedAt: number
-  /**
-   * Tugas belum selesai, paling dekat deadline dulu, maks 8. `d` = tanggal
-   * jatuh tempo (dd.MM., tampilan), `dms` = epoch ms — native menandai LATE
-   * bila dms < now, `late` sudah dihitung di sini juga untuk fallback.
-   */
+/**
+ * Tugas belum selesai, paling dekat deadline dulu, TANPA batas jumlah —
+ * widget ListView scrollable (semua baris tersedia via scroll).
+ * `d` = tanggal jatuh tempo (dd.MM., tampilan), `dms` = epoch ms — native
+ * menandai LATE bila dms < now, `late` sudah dihitung di sini juga untuk
+ * fallback.
+ */
   items: { t: string; c: string; d: string; dms: number; late: boolean }[]
   openCount: number
 }
@@ -142,7 +144,6 @@ export function buildTasksPayload(
   const items = open
     .filter((t) => t.dueAt)
     .sort((a, b) => (a.dueAt || '').localeCompare(b.dueAt || ''))
-    .slice(0, 8)
     .map((t) => {
       const due = new Date(t.dueAt as string)
       const p = (n: number) => String(n).padStart(2, '0')
