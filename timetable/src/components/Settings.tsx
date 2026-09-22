@@ -3,6 +3,7 @@ import { useI18n } from '../i18n'
 import Icon from './Icon'
 import { formatTime } from '../lib/date'
 import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
+import { clearEnrolledCoursesCache } from '../lib/courses'
 import { buildIcs } from '../lib/ics'
 import { downloadBlob } from '../lib/download'
 import { exportBackup, importBackupDetail } from '../lib/backup'
@@ -14,6 +15,7 @@ import { useExitAnimation } from '../lib/useExitAnimation'
 import { useMoodleData } from '../hooks/useMoodleData'
 import { openExternal } from '../lib/openExternal'
 import SyncProtection from './SyncProtection'
+import IdentityDiagnostics from './IdentityDiagnostics'
 import type { SyncSource } from '../types'
 
 interface Props {
@@ -428,6 +430,21 @@ export default function Settings({
 
           {/* 同步保护：tombstone / override 管理 */}
           <SyncProtection revision={syncMessage ?? ''} />
+
+          {/* 身份数据诊断：各源课程数 / 覆盖率 / 最近同步。
+              revision 组合两路信号：日历同步走 syncing/syncMessage（App），
+              Moodle 域同步走 md.busy（useMoodleData 内部）——二者都会改身份
+              表，任一变化都触发诊断重算。onResync 清 enrol 缓存后强制重取。 */}
+          <IdentityDiagnostics
+            sources={sources}
+            revision={`${md.busy}|${syncing}|${syncMessage ?? ''}`}
+            onResync={async () => {
+              if (!md.token) return false
+              clearEnrolledCoursesCache()
+              await md.refreshGrades()
+              return true
+            }}
+          />
 
           {/* 课程备注 */}
           <section>

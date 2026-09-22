@@ -106,13 +106,20 @@ export class CourseIdentityIndex {
 /* ------------------------------ persistence ------------------------------ */
 
 export function loadIdentities(): CourseIdentity[] {
+  return loadIdentityMeta().courses
+}
+
+/** Tabel + timestamp penulisannya (diagnostik settings) — satu bacaan. */
+export function loadIdentityMeta(): { courses: CourseIdentity[]; updatedAt: number | null } {
   try {
     const raw = readJson<IdentityShape | null>(KEYS.courseIdentity, null)
-    if (raw && Array.isArray(raw.courses)) return raw.courses
+    if (raw && Array.isArray(raw.courses)) {
+      return { courses: raw.courses, updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : null }
+    }
   } catch {
     /* non-fatal */
   }
-  return []
+  return { courses: [], updatedAt: null }
 }
 
 /** Tulis/pbarui tabel dari daftar enrol. Dipanggil courses.ts setiap enrol sync. */

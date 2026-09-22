@@ -123,3 +123,15 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **身份表 code 直接从 Moodle shortname 提取**（`extractCourseCode(e.shortname) ?? extractCourseCode(e.fullname)`），删除 lessonCodes 交集条件——真实数据里 CT60A4500/BH60A7201/KE00BX35 这些「Moodle shortname 带码但课表无同码课」的行曾永远 null，TE 码（K200DJ96）对齐全靠课表恰好有这门课才侥幸命中。
 - **emulator 的 WebView 有 DNS 负缓存**：宿主 `ping` 已恢复但 WebView 仍报 `Unable to resolve host`——重启应用进程才清掉。SISU K200DJ96 实测 `lab-cu-40081 Finnish 1`。
 - 验证技巧：`saveIdentityFromEnrol` 的行覆盖率 = `rows.filter(r => r.code).length / rows.length`，真实数据 7/11 → 10/11（唯一 null 是无码 shortname「LUT digital orientation」，正确）。
+
+## 2026-09-22 身份数据诊断区块实测
+- 诊断区块的码匹配必须复用 `normalizeCourseCode`（trim + 剥 `-dddd` 组号 + 大写），自写 trim/uppercase 会在组号课（如 `BM20A9200-3001`）上给出偏低的解析率——诊断指标必须与真实 resolver（idForCode）语义一致，否则数字误导用户。
+- Settings 的 revision 重算信号：日历同步走 `syncing/syncMessage`（App 状态），Moodle 域同步走 `md.busy`（useMoodleData 内部）——只盯其一就会漏掉另一路的刷新；组合信号 `\`${md.busy}|${syncing}|${syncMessage}\`` 覆盖两路。
+- 手动课（manual）有 code 但无 Moodle 映射需求：计入源课程数（manual 桶）、不计入解析率分母。
+- store 层 `s.count` 持久化与列表实有数可漂移（TE 35 vs 38 历史语义漂移）；诊断类 UI 应从合并列表重算而非信任持久化计数。
+
+## 2026-09-22 · 诊断区 resync 按钮 E2E（模拟器）
+- adb forward 到 WebView 调试口必须带 `localabstract:` 前缀；应用每次重启 socket 名都变（webview_devtools_remote_<pid>），先 cat /proc/net/unix 再逐个 curl /json/version 挑通的那个。
+- Node22+ 原生 WebSocket 直连 CDP 完全可用（open~50ms，消息往返 <50ms）；HTTP 面板页 /json 偶发空响应，别依赖它做 UI 自动化。
+- .freebuff 下的临时脚本 write_file/str_replace 偶发"文件不存在"竞态——先 ls 确认再重试，别推翻实现。
+- enrol 缓存 key：`tt_ics_cache_v1:enrolled_courses`（TRANSIENT，含 fetchedAt/courses）；clearEnrolledCoursesCache 清内存+该 key。验证"真的重取"看 fetchedAt 是否等于点击时刻，而不是看 key 是否存在。
