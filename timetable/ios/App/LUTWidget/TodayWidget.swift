@@ -3,8 +3,8 @@ import SwiftUI
 import UIKit
 
 // MARK: - 载荷（与 web 端 widgetData.ts 的 widget_payload_v1 同契约）
-
-private struct WidgetLesson: Decodable {
+// 注意：不能标 private——internal 的 Entry/视图成员引用它会被 Swift 访问级别检查拒绝。
+struct WidgetLesson: Decodable {
     let s: String      // hh:mm 开始（展示）
     let e: String      // hh:mm 结束
     let name: String   // 课程码，无码时为标题
@@ -14,7 +14,7 @@ private struct WidgetLesson: Decodable {
     let ems: Double    // epoch ms 结束
 }
 
-private struct WidgetPayload: Decodable {
+struct WidgetPayload: Decodable {
     struct Next: Decodable { let name: String; let room: String; let at: String }
     let updatedAt: Double
     let date: String       // yyyy-MM-dd（本地日）

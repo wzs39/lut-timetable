@@ -274,9 +274,12 @@ jobs:
       - name: Build unsigned device IPA
         working-directory: timetable/ios/App
         run: |
+          set -o pipefail
           # CODE_SIGNING_ALLOWED=NO skips the entire signing step: no identity
           # is needed at build time and AltStore replaces the (absent) signature
           # anyway. Release config so the bundle matches what users run.
+          # pipefail: xcodebuild's exit code must survive the `| tail` or a
+          # failed build silently packages an empty Payload zip.
           xcodebuild -scheme App -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
