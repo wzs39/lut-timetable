@@ -311,6 +311,16 @@ jobs:
           unzip -l "$IPA" | grep -q "Payload/App.app/$EXEC" \
             || { echo "::error::Mach-O binary $EXEC missing from the bundle"; exit 1; }
           echo "Mach-O binary: $EXEC"
+          # Widget extension must be embedded (PlugIns/LUTWidget.appex) with
+          # the same tag-derived version stamp (the sed above replaces ALL
+          # MARKETING_VERSION/CURRENT_PROJECT_VERSION occurrences, both targets).
+          unzip -p "$IPA" Payload/App.app/PlugIns/LUTWidget.appex/Info.plist > /tmp/wplist.bin \
+            || { echo "::error::widget extension missing from IPA (PlugIns/LUTWidget.appex)"; exit 1; }
+          grep -qa "$VERSION" /tmp/wplist.bin \
+            || { echo "::error::widget Info.plist does not embed $VERSION"; exit 1; }
+          WID=$(plutil -extract CFBundleIdentifier raw /tmp/wplist.bin 2>/dev/null || true)
+          [ "$WID" = "dev.lut.timetable.LUTWidget" ] || { echo "::error::unexpected widget bundle id: $WID"; exit 1; }
+          echo "widget extension: $WID (version $VERSION)"
       - uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
