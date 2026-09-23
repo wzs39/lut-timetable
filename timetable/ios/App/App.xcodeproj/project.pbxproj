@@ -17,6 +17,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		7EA1B0012DB07C7200EA8C5F /* TodayWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA100012DB07C7200EA8C5F /* TodayWidget.swift */; };
+		7EA100052DB07C7200EA8C5F /* LUTWidgetBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EA100062DB07C7200EA8C5F /* LUTWidgetBridgePlugin.swift */; };
 		7EA1B0072DB07C7200EA8C5F /* LUTWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7EA1B0022DB07C7200EA8C5F /* LUTWidget.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -60,6 +61,7 @@
 		7EA100022DB07C7200EA8C5F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7EA100032DB07C7200EA8C5F /* LUTWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = LUTWidget.entitlements; sourceTree = "<group>"; };
 		7EA100042DB07C7200EA8C5F /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		7EA100062DB07C7200EA8C5F /* LUTWidgetBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LUTWidgetBridgePlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +108,7 @@
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				7EA100062DB07C7200EA8C5F /* LUTWidgetBridgePlugin.swift */,
 				7EA100042DB07C7200EA8C5F /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -240,6 +243,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				7EA100052DB07C7200EA8C5F /* LUTWidgetBridgePlugin.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
