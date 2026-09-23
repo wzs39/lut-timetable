@@ -23,7 +23,7 @@ struct WidgetPayload: Decodable {
     let next: Next?
 }
 
-private struct TodayEntry: TimelineEntry {
+struct TodayEntry: TimelineEntry {
     let date: Date
     let payload: WidgetPayload?
     /// 该时刻正在进行的课（仅 payload 当天有效）
