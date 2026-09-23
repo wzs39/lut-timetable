@@ -295,7 +295,7 @@ jobs:
           IPA="$RUNNER_TEMP/LUT-Timetable-unsigned.ipa"
           # 1. Shape: exactly one .app inside Payload/, with a binary, bundle
           #    id and version from the same tag source as Android/Windows.
-          unzip -l "$IPA" | grep -q 'Payload/App.app/App/' \
+          unzip -l "$IPA" | grep -q 'Payload/App.app/Info.plist' \
             || { echo "::error::IPA does not contain Payload/App.app"; exit 1; }
           unzip -p "$IPA" Payload/App.app/Info.plist > /tmp/plist.bin
           grep -qa "$VERSION" /tmp/plist.bin \
@@ -304,6 +304,13 @@ jobs:
           BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw /tmp/plist.bin 2>/dev/null || true)
           [ "$BUNDLE_ID" = "dev.lut.timetable" ] || { echo "::error::unexpected bundle id: $BUNDLE_ID"; exit 1; }
           echo "bundle id: $BUNDLE_ID"
+          # The Mach-O binary must be inside the bundle (name from Info.plist,
+          # not assumed).
+          EXEC=$(plutil -extract CFBundleExecutable raw /tmp/plist.bin 2>/dev/null || true)
+          [ -n "$EXEC" ] || { echo "::error::CFBundleExecutable missing from Info.plist"; exit 1; }
+          unzip -l "$IPA" | grep -q "Payload/App.app/$EXEC" \
+            || { echo "::error::Mach-O binary $EXEC missing from the bundle"; exit 1; }
+          echo "Mach-O binary: $EXEC"
       - uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
