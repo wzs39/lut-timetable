@@ -231,7 +231,8 @@ jobs:
             timetable/release-electron/*.msi
 
   ios:
-    name: iOS (compile check, simulator, unsigned)
+    name: iOS (unsigned device IPA, for AltStore sideloading)
+    needs: version
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -240,29 +241,79 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: timetable/package-lock.json
-      - name: Install deps & build web assets
+      - id: bump
+        name: Install deps, stamp version & build web assets
         working-directory: timetable
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           npm ci
+          # Same tag-derived stamp as the Android job: the iOS bundle embeds
+          # VITE_APP_VERSION so both platforms report the identical in-app
+          # version, and the Xcode project gets matching MARKETING_VERSION /
+          # CURRENT_PROJECT_VERSION (App Store-style semantics even though
+          # this IPA is sideloaded, not shipped).
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
           npm run build
+          # Keep the committed Xcode project untouched: patch the pbxproj in
+          # the workspace only. ldflags REVERSE maps to "1.2.3 (3007)".
+          BUNDLE_VARIANT=$(awk -F. '{printf "%d.%d (%d)", $1, $2, $1*1000000 + $2*1000 + $3}' <<< "$VERSION")
+          cd ios/App
+          plutil -replace MARKETING_VERSION -string "$BUNDLE_VARIANT" App.xcodeproj/project.pbxproj
+          plutil -replace CURRENT_PROJECT_VERSION -string "$VERSION" App.xcodeproj/project.pbxproj
       - name: Sync Capacitor
         working-directory: timetable
         run: npx cap sync ios
       # Xcode 生成工程已提交；SPM 插件解析在 build 期间自动完成（无需 CocoaPods）。
-      - name: Build iOS (simulator, unsigned)
+      # Release + 真机 + 未签名：AltStore/SideStore/Sideloadly 用个人 Apple ID
+      # 重签此 IPA（个人签名 7 天有效，AltServer 同 WiFi 自动续签）。
+      - name: Build unsigned device IPA
         working-directory: timetable/ios/App
         run: |
-          xcodebuild -scheme App -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
+          # CODE_SIGNING_ALLOWED=NO skips the entire signing step: no identity
+          # is needed at build time and AltStore replaces the (absent) signature
+          # anyway. Release config so the bundle matches what users run.
+          xcodebuild -scheme App -configuration Release \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO build \
             | tail -30
-      - name: Verify .app product exists
-        run: test -d timetable/ios/App/build/Build/Products/Debug-iphonesimulator/App.app && echo "App.app built"
+          APP=build/Build/Products/Release-iphoneos/App.app
+          test -d "$APP" || { echo "::error::device .app was not produced"; exit 1; }
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -q -r "$RUNNER_TEMP/LUT-Timetable-unsigned.ipa" Payload
+          echo "IPA size: $(du -h "$RUNNER_TEMP/LUT-Timetable-unsigned.ipa" | cut -f1)"
+      - name: Verify IPA (shape + embedded version)
+        working-directory: timetable/ios/App
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          IPA="$RUNNER_TEMP/LUT-Timetable-unsigned.ipa"
+          # 1. Shape: exactly one .app inside Payload/, with a binary, bundle
+          #    id and version from the same tag source as Android/Windows.
+          unzip -l "$IPA" | grep -q 'Payload/App.app/App/' \
+            || { echo "::error::IPA does not contain Payload/App.app"; exit 1; }
+          unzip -p "$IPA" Payload/App.app/Info.plist > /tmp/plist.bin
+          if grep -qa "$VERSION" /tmp/plist.bin; then
+            echo "Info.plist embeds $VERSION (CURRENT_PROJECT_VERSION)"
+          elif grep -qa "$VERSION (" /tmp/plist.bin; then
+            echo "Info.plist embeds $VERSION (MARKETING_VERSION)"
+          else
+            echo "::error::Info.plist does not embed $VERSION"
+            exit 1
+          fi
+          BUNDLE_ID=$(plutil -extract CFBundleIdentifier raw /tmp/plist.bin 2>/dev/null || true)
+          [ "$BUNDLE_ID" = "dev.lut.timetable" ] || { echo "::error::unexpected bundle id: $BUNDLE_ID"; exit 1; }
+          echo "bundle id: $BUNDLE_ID"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/LUT-Timetable-unsigned.ipa
 
   release:
-    name: Attach APK to GitHub Release
+    name: Attach APK & iOS IPA to GitHub Release
     if: github.event_name == 'push' || inputs.publish
-    needs: [android, windows, version]
+    needs: [android, ios, windows, version]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -271,10 +322,17 @@ jobs:
         with:
           name: android-apk
           path: apk
-      - name: Upload APK to release
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-ipa
+          path: ipa
+      - name: Upload APK & IPA to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${{ needs.windows.outputs.version }}"
-          gh release upload "$TAG" apk/*.apk --clobber --repo "${{ github.repository }}"
-          echo "APK attached to $TAG"
+          # IPA is unsigned by design: AltStore/SideStore/Sideloadly re-sign it
+          # with the user's own Apple ID at install time (no paid dev account
+          # needed; free signatures expire after 7 days and AltServer renews).
+          gh release upload "$TAG" apk/*.apk ipa/*.ipa --clobber --repo "${{ github.repository }}"
+          echo "APK + IPA attached to $TAG"
