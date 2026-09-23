@@ -35,12 +35,42 @@ struct TodayEntry: TimelineEntry {
 private let groupID = "group.dev.lut.timetable"
 private let payloadKey = "widget_payload_v1"
 
+// SecTask API 不在 iOS SDK 公开头里稳定暴露，用 @_silgen_name 直接绑定——
+// 任何 SDK 版本都能编译，侧载环境（非 App Store）不受审核限制。
+@_silgen_name("SecTaskCreateFromSelf")
+private func secTaskCreateFromSelf(_ allocator: CFAllocator?) -> CFTypeRef?
+@_silgen_name("SecTaskCopyValueForEntitlement")
+private func secTaskCopyValueForEntitlement(_ task: CFTypeRef, _ entitlement: CFString, _ error: UnsafeMutablePointer<CFError?>?) -> CFTypeRef?
+
+private var cachedGroup: String?
+
+/// 运行时从代码签名 entitlements 解析实际授权的 App Group 名。
+/// 必须动态解析：免费 Apple ID 侧载重签时 group 名会被加 TeamID 前缀
+/// （group.dev.lut.timetable → <TeamID>.group.dev.lut.timetable），
+/// 硬编码名在侧载环境下必失配。读 entitlements = 重签工具授什么用什么。
+private func findAppGroup() -> String? {
+    if let cached = cachedGroup { return cached }
+    var resolved: String?
+    if let task = secTaskCreateFromSelf(nil),
+       let raw = secTaskCopyValueForEntitlement(task, "com.apple.security.application-groups" as CFString, nil),
+       let groups = raw as? [String], !groups.isEmpty {
+        resolved = groups.first(where: { $0.contains("dev.lut.timetable") }) ?? groups.first
+    }
+    // entitlements 读取失败（Xcode 开发签名通常恰好是本名）→ 确定性 fallback。
+    cachedGroup = resolved ?? "group.dev.lut.timetable"
+    return cachedGroup
+}
+
 /// 读共享数据：App Group 主通道。读不到（重签未授 App Groups）→ nil，
-/// 小组件显示引导空态，不崩溃。
+/// 小组件显示引导空态，不崩溃。兜底再试字面 group 名（dev 签名直装场景）。
 private func loadPayload() -> WidgetPayload? {
-    guard let suite = UserDefaults(suiteName: groupID),
-          let raw = suite.string(forKey: payloadKey) else { return nil }
-    return try? JSONDecoder().decode(WidgetPayload.self, from: Data(raw.utf8))
+    for group in [findAppGroup(), "group.dev.lut.timetable"] {
+        if let name = group, let suite = UserDefaults(suiteName: name),
+           let raw = suite.string(forKey: payloadKey) {
+            return try? JSONDecoder().decode(WidgetPayload.self, from: Data(raw.utf8))
+        }
+    }
+    return nil
 }
 
 private func localDay(_ d: Date) -> String {
