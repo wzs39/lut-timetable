@@ -45,7 +45,7 @@ public class LUTWidgetBridgePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func refresh(_ call: CAPPluginCall) {
         var copied = 0
         // 逐候选组尝试：解析出的组 + 字面名（两端任一命中即共享成功）。
-        var candidates = [resolveGroup(), fallbackGroup].compactMap { $0 }
+        var candidates = [Self.resolveGroup(), Self.fallbackGroup].compactMap { $0 }
         // 去重保持顺序。
         var seen = Set<String>()
         candidates = candidates.filter { seen.insert($0).inserted }
