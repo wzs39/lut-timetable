@@ -1,4 +1,3 @@
-export { default as TimelineSection } from './TimelineSection'
 export { default as GradesSection } from './GradesSection'
 export { default as CoursesSection } from './CoursesSection'
 export { default as NotificationsSection } from './NotificationsSection'
