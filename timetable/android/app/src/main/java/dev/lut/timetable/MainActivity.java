@@ -40,7 +40,9 @@ public class MainActivity extends BridgeActivity {
     private static String navViewOf(Intent i) {
         if (i == null) return null;
         String view = i.getStringExtra("tt_view");
-        if (view != null) return view;
+        // 作业模块已并入 Moodle 时间线：小组件仍发旧词 'assign'（旧缓存 APK），
+        // 边界处统一成新词表 today|week|moodle，web 端不再需要理解 assign。
+        if (view != null) return "assign".equals(view) ? "moodle" : view;
         String action = i.getAction();
         if (action == null) return null;
         switch (action) {
@@ -49,7 +51,8 @@ public class MainActivity extends BridgeActivity {
             case "dev.lut.timetable.OPEN_WEEK":
                 return "week";
             case "dev.lut.timetable.OPEN_ASSIGN":
-                return "assign";
+                // 作业模块已并入 Moodle 时间线：快捷方式仍叫「作业」但导航到 moodle。
+                return "moodle";
             default:
                 return null;
         }

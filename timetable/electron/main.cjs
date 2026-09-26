@@ -332,7 +332,8 @@ function setupJumpList() {
     app.setJumpList([
       view('today', '今日', '打开今日视图'),
       view('week', '周视图', '打开周视图'),
-      view('assign', '作业', '打开作业与任务'),
+      // 作业模块并入 Moodle 时间线：跳转列表的作业项直达 moodle。
+      view('moodle', '作业', '打开作业与任务（Moodle 时间线）'),
     ])
   } catch {
     // 跳转列表是锦上添花——失败不影响应用。

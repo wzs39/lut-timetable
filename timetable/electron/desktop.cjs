@@ -110,8 +110,8 @@ function createDesktop({ ipcMain, getWindow, createWindow, sendToRenderer }) {
       { type: 'separator' },
       { label: L.today, click: () => navigateToView('today') },
       { label: L.week, click: () => navigateToView('week') },
-      // 视图名必须用渲染端路由的词表（today|week|assign|moodle）——发错名字不会报错，只会点了没反应。
-      { label: L.assignments, click: () => navigateToView('assign') },
+      // 作业模块已并入 Moodle 时间线：托盘「作业」直达 moodle（渲染端把时间线分区置顶展示）。
+      { label: L.assignments, click: () => navigateToView('moodle') },
       { type: 'separator' },
       {
         label: L.checkUpdate,

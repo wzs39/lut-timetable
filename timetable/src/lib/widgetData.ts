@@ -274,6 +274,7 @@ export function installWidgetNavBridge(): void {
     __widgetNav?: (view: string) => void
   }
   w.__widgetNav = (view: string) => {
+    // assign 仍接受（旧快捷方式/旧小组件缓存），App 层映射到 moodle。
     if (!/^(today|week|assign|moodle)$/.test(view)) return
     location.hash = `#/view/${view}`
     void (async () => {

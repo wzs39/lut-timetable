@@ -12,6 +12,7 @@ import { pendingTasks, type Task } from './tasks'
  */
 
 export type ViewName = 'today' | 'week' | 'assign' | 'moodle'
+// 'assign' 保留为合法命令：App 派发时映射到 moodle（作业模块并入时间线）
 
 export type PaletteAction =
   | { kind: 'view'; view: ViewName }

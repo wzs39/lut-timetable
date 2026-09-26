@@ -187,6 +187,18 @@ describe('electron desktop wiring', () => {
     }
   })
 
+  it('routes external assignment entries into the Moodle timeline (assign view removed)', () => {
+    // 【2026-09-26】作业模块并入 Moodle 时间线：独立 assign 视图已删。
+    // 主进程两个入口（托盘菜单 + 跳转列表）都必须发 'moodle'，不再发 'assign'——
+    // 渲染端虽兼容映射 assign，但入口统一词表，避免两套语义并存。
+    const desktopViews = [...desktopCjs.matchAll(/navigateToView\('([a-z]+)'\)/g)].map((m) => m[1])
+    const jumpViews = [...mainCjs.matchAll(/view\('([a-z]+)'/g)].map((m) => m[1])
+    expect(desktopViews).not.toContain('assign')
+    expect(jumpViews).not.toContain('assign')
+    expect(desktopViews).toContain('moodle')
+    expect(jumpViews).toContain('moodle')
+  })
+
   it('keeps main.cjs to wiring: the desktop concern does not live there', () => {
     expect(mainCjs).toMatch(/createDesktop\(\{/)
     expect(mainCjs).toMatch(/desktop\.setup\(\)/)
