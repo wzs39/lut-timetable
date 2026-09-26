@@ -145,6 +145,18 @@ export function MoodleProvider({
   const [message, setMessage] = useState<string | null>(null)
   const [notifications, setNotifications] = useState<MoodleNotification[] | null>(() => loadCachedNotifications())
 
+  /** grades 域的提交状态（cmid 键控）→ submissions 域形状，供回退共用。 */
+  const toSubmissionStatus = useCallback(
+    (fromGrades: Map<number, import('../lib/grades').GradeCmidStatus>): Map<number, SubmissionStatus> => {
+      const out = new Map<number, SubmissionStatus>()
+      for (const [cmid, gs] of fromGrades) {
+        out.set(cmid, { state: gs.state, grade: gs.grade, submittedAt: gs.submittedAt })
+      }
+      return out
+    },
+    [],
+  )
+
   /* ---------------- Background auto-refresh (30 min tick) ----------------
    * Satu owner: interval tunggal di provider. Setiap tick menyegarkan nilai,
    * status pengumpulan, dan pengumuman secara berurutan. GAGAL = SENYAP
@@ -540,18 +552,27 @@ export function MoodleProvider({
     setBusy('subs')
     setMessage(t('subSyncing'))
     try {
-      const { status, urlByKey, statusByCmid } = await fetchSubmissionStatus(token)
+      // 教师视角 API 在 LUT 恒空 → 先拉一遍 grades 域做回退数据源。
+      // 网络往返都是真实的；grades 请求失败不阻塞 submissions 主链路。
+      let fb: Map<number, SubmissionStatus> | undefined
+      try {
+        const res = await fetchGrades(token, lessons)
+        fb = toSubmissionStatus(res.statusByCmid)
+      } catch { /* 回退不可用就按原样处理主链路 */ }
+      const { status, urlByKey, statusByCmid, fellBackToGrades } = await fetchSubmissionStatus(token, fb)
       setSubMap(status)
       setSubByCmid(statusByCmid)
       const r = applySubmissionStatus(tasks, status, urlByKey)
       if (r.archived > 0) onTasks(r.tasks)
-      setMessage(t(r.archived > 0 ? 'subSyncOk' : 'subSyncNone', { n: r.archived }))
+      if (r.archived > 0) setMessage(t('subSyncOk', { n: r.archived }))
+      else if (fellBackToGrades) setMessage(t('subSyncFromGrades'))
+      else setMessage(t('subSyncNone'))
     } catch (e) {
       setMessage(gradesErrMsg(e))
     } finally {
       setBusy('idle')
     }
-  }, [busy, token, tasks, onTasks, gradesErrMsg, t])
+  }, [busy, token, lessons, tasks, onTasks, gradesErrMsg, t])
 
   /* --------- Cold-start deep link (app dibunuh saat di browser) ---------
    * Official app menangani ini lewat checkIntent pada deviceready: Android

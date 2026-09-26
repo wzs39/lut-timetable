@@ -284,22 +284,36 @@ export function applySubmissionStatus(
 /**
  * Ambil status untuk seluruh kursus → status per taskMatchKey + URL tugas
  * (mod/assign/view.php) per kunci yang sama. Aman dipanggil tanpa token.
+ *
+ * 【回退语义（2026-09-26 真实载荷确认）】mod_assign_get_submissions/get_grades
+ * 是教师视角 API：LUT 学生 token 下 ① assignmentids 以 JSON 字符串传参直接
+ * invalid_parameter_exception，② 换成 Moodle 的 indexed 格式后请求成功但
+ * assignments 恒为空列表。mod_assign_get_assignments 本身倒是可用（能拿
+ * 名称/due/cmid）。因此：参数格式改为 indexed； submissions/grades 两步
+ * 空返回不再当成功（那会把 subMap 清空），改从 grades 域（gradeitems 的
+ * gradedatesubmitted/graded，学生可读）合成状态 —— 网络往返仍真实发生，
+ * cmid 联接口径不变。
  */
 export async function fetchSubmissionStatus(
   src: { token: string; userid?: number } | null,
-): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string>; statusByCmid: Map<number, SubmissionStatus> }> {
-  if (!src?.token) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map() }
+  fallbackStatusByCmid?: Map<number, SubmissionStatus>,
+): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string>; statusByCmid: Map<number, SubmissionStatus>; fellBackToGrades: boolean }> {
+  if (!src?.token) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), fellBackToGrades: false }
   const userid = src.userid ?? (await validateGradesToken(src.token))
   // Enrol-anchor kini dijawab moodleSync.primeEnrolAnchor dari pemanggil
   // backgroundRefresh — tidak lagi di sini (dulu duplikat 6 salinan).
   const assigns = await wsCall<{ courses?: RawCourse[] }>(src.token, 'mod_assign_get_assignments')
   const meta = parseAssignments(assigns)
-  if (meta.length === 0) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map() }
+  if (meta.length === 0) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), fellBackToGrades: false }
 
   const ids = meta.map((a) => a.id)
+  // Moodle 多值参数的 indexed 格式：assignmentids[0]=…（JSON 字符串会被
+  // invalid_parameter_exception 拒绝——见上方回退语义说明）。
+  const idsParam: Record<string, string | number> = {}
+  ids.forEach((id, i) => { idsParam[`assignmentids[${i}]`] = id })
   const [subsRes, gradesRes] = await Promise.all([
-    wsCall<unknown>(src.token, 'mod_assign_get_submissions', { assignmentids: JSON.stringify(ids) }),
-    wsCall<unknown>(src.token, 'mod_assign_get_grades', { assignmentids: JSON.stringify(ids) }),
+    wsCall<unknown>(src.token, 'mod_assign_get_submissions', idsParam),
+    wsCall<unknown>(src.token, 'mod_assign_get_grades', idsParam),
   ])
 
   const perAssignment = combineStatus(
@@ -326,7 +340,23 @@ export async function fetchSubmissionStatus(
       statusByCmid.set(a.cmid, withDue)
     }
   }
-  return { status, urlByKey, statusByCmid }
+  // 教师视角 API 空返回（LUT 恒如此）：不把 subMap 清空，改用 grades 域的
+  // 合成状态填充。命名/URL 映射（taskMatchKey + cmid 深链）照常适用。
+  let fellBack = false
+  if (perAssignment.size === 0 && fallbackStatusByCmid && fallbackStatusByCmid.size > 0) {
+    fellBack = true
+    for (const a of meta) {
+      if (!a.cmid) continue
+      const fb = fallbackStatusByCmid.get(a.cmid)
+      if (!fb) continue
+      const key = taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt })
+      const withDue: SubmissionStatus = a.dueAt ? { ...fb, dueAt: a.dueAt } : fb
+      status.set(key, withDue)
+      urlByKey.set(key, `https://moodle.lut.fi/mod/assign/view.php?id=${a.cmid}`)
+      statusByCmid.set(a.cmid, withDue)
+    }
+  }
+  return { status, urlByKey, statusByCmid, fellBackToGrades: fellBack }
 }
 
 /** Sumber token saat ini (null bila belum terhubung). */

@@ -46,7 +46,7 @@ const DEADLINE_CHANGE_RE =
  * "room/hall" sebelum kode ruang; kandidat harus bernomor atau kapital.
  */
 const ROOM_EXTRACT_RE =
-  /(?:→|->|to|now|改为|换到|变更为)\s*(?:(?:room|hall|luokka|location|教室|地点)\s*)?([A-Za-z0-9][A-Za-z0-9\-/\.]{0,11})/gi
+  /(?:→|->|to|now|改为|换到|变更为)\s*(?:(?:room|hall|luokka|location|教室|地点)\s*)?([A-Za-z0-9][A-Za-z0-9\-/.]{0,11})/gi
 
 /** Kode kursus LUT di teks: CT60A4050, BM40A0102 (huruf+huruf+angka). */
 const COURSE_CODE_RE = /\b([A-Z]{2,4}[0-9]{1,4}[A-Z]?[0-9]{0,4})\b/
@@ -79,7 +79,7 @@ export function extractRoom(text: string): string | undefined {
   let m: RegExpExecArray | null
   while ((m = ROOM_EXTRACT_RE.exec(text))) {
     // Buang tanda baca ekor (titik/koma yang menempel di akhir kalimat)
-    const cand = m[1].replace(/[\.,;:!]+$/, '')
+    const cand = m[1].replace(/[.,;:!]+$/, '')
     // Buang kata umum yang bukan ruangan
     if (/^(the|a|an|to|at|on|day|date|time|next|week|room|hall)$/i.test(cand)) continue
     // Ruangan punya setidaknya satu digit ATAU format huruf-angka kapital

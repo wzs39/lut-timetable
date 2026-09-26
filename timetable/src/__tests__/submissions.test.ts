@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   applySubmissionStatus,
   combineStatus,
+  fetchSubmissionStatus,
   parseAssignments,
   parseGrades,
   parseSubmissions,
@@ -304,5 +305,96 @@ describe('taskCmidOf (反向同步联接键)', () => {
   it('returns undefined for calendar-fallback URLs or missing url', () => {
     expect(taskCmidOf({ url: 'https://moodle.lut.fi/calendar/view.php?event=9' })).toBeUndefined()
     expect(taskCmidOf({})).toBeUndefined()
+  })
+})
+
+// 【2026-09-26 回退契约】LUT 学生 token：JSON 字符串传参 → invalid_parameter；
+// indexed 格式 → 成功但 assignments 恒空（教师视角 API）。空返回不清空
+// subMap，改从 grades 域（gradeitems 的 submitted/graded）合成状态。
+import * as gradesMod from '../lib/grades'
+
+vi.mock('../lib/grades', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../lib/grades')>()
+  return {
+    ...orig,
+    validateGradesToken: vi.fn(async () => 7),
+    wsCall: vi.fn(),
+  }
+})
+
+describe('fetchSubmissionStatus — student-token fallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const mockWs = (calls: Record<string, unknown>) => {
+    const ws = vi.mocked(gradesMod.wsCall)
+    ws.mockImplementation(async (_token: string, fn: string) => {
+      if (!(fn in calls)) throw new Error(`unexpected wsfunction ${fn}`)
+      return calls[fn]
+    })
+    return ws
+  }
+
+  it('sends assignmentids in Moodle indexed format (JSON string is rejected by the server)', async () => {
+    const ws = mockWs({
+      mod_assign_get_assignments: assignmentsResponse(),
+      mod_assign_get_submissions: { assignments: [] },
+      mod_assign_get_grades: { assignments: [] },
+    })
+    await fetchSubmissionStatus({ token: 't', userid: 7 })
+    const [, fn, params] = ws.mock.calls.find((c) => c[1] === 'mod_assign_get_submissions')!
+    expect(fn).toBe('mod_assign_get_submissions')
+    expect(params).toMatchObject({ 'assignmentids[0]': 11, 'assignmentids[1]': 12, 'assignmentids[2]': 13 })
+    expect((params as Record<string, unknown>).assignmentids).toBeUndefined() // 不再传 JSON 字符串
+  })
+
+  it('empty teacher-API response does NOT clear state; falls back to grades-domain status by cmid', async () => {
+    mockWs({
+      mod_assign_get_assignments: assignmentsResponse(),
+      mod_assign_get_submissions: { assignments: [] }, // LUT 现实：恒空
+      mod_assign_get_grades: { assignments: [] },
+    })
+    const fallback = new Map<number, SubmissionStatus>([
+      [111, { state: 'submitted', submittedAt: '2026-09-27T10:00:00Z' }],
+      [112, { state: 'graded', grade: '9/10' }],
+    ])
+    const r = await fetchSubmissionStatus({ token: 't', userid: 7 }, fallback)
+    expect(r.fellBackToGrades).toBe(true)
+    // Exercise 1（cmid 111）→ submitted，带作业元数据补的 dueAt
+    const k1 = taskMatchKey({ title: 'Exercise 1', course: 'CT60A0250', dueAt: new Date(1759000000 * 1000).toISOString() })
+    const k2 = taskMatchKey({ title: 'Exercise 2', course: 'CT60A0250', dueAt: new Date(1760000000 * 1000).toISOString() })
+    expect(r.status.get(k1)).toMatchObject({ state: 'submitted' })
+    expect(r.status.get(k1)?.dueAt).toBe(new Date(1759000000 * 1000).toISOString())
+    expect(r.status.get(k2)).toMatchObject({ state: 'graded', grade: '9/10' })
+    // cmid 副本同步填充，深链照常
+    expect(r.statusByCmid.get(111)).toMatchObject({ state: 'submitted' })
+    expect(r.urlByKey.get(k1)).toBe('https://moodle.lut.fi/mod/assign/view.php?id=111')
+  })
+
+  it('real teacher-API data still wins (fallback not applied when perAssignment is non-empty)', async () => {
+    mockWs({
+      mod_assign_get_assignments: assignmentsResponse(),
+      mod_assign_get_submissions: submissionsResponse(),
+      mod_assign_get_grades: gradesResponse(),
+    })
+    const fallback = new Map<number, SubmissionStatus>([[111, { state: 'graded', grade: 'WRONG' }]])
+    const r = await fetchSubmissionStatus({ token: 't', userid: 7 }, fallback)
+    expect(r.fellBackToGrades).toBe(false)
+    const k1 = taskMatchKey({ title: 'Exercise 1', course: 'CT60A0250', dueAt: new Date(1759000000 * 1000).toISOString() })
+    expect(r.status.get(k1)).toMatchObject({ state: 'submitted' })
+    expect(r.status.get(k1)?.grade).toBeUndefined() // 没有被 WRONG 污染
+  })
+
+  it('no fallback available → clean empty result (existing behavior preserved)', async () => {
+    mockWs({
+      mod_assign_get_assignments: assignmentsResponse(),
+      mod_assign_get_submissions: { assignments: [] },
+      mod_assign_get_grades: { assignments: [] },
+    })
+    const r = await fetchSubmissionStatus({ token: 't', userid: 7 })
+    expect(r.fellBackToGrades).toBe(false)
+    expect(r.status.size).toBe(0)
+    expect(r.statusByCmid.size).toBe(0)
   })
 })
