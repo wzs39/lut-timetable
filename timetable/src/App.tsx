@@ -16,7 +16,6 @@ import BatchFilter from './components/BatchFilter'
 import ConflictCheck from './components/ConflictCheck'
 import NotificationManager from './components/NotificationManager'
 import Settings from './components/Settings'
-import AssignmentsView from './components/AssignmentsView'
 import MoodleView from './components/MoodleView'
 import {
   ensureTranslatorSession,
@@ -102,16 +101,43 @@ function AppInner({
   // 小组件后台回调（勾选回灌 + 任务变化时重抓后台种子）全在 useWidgetTaskBridge。
   useWidgetTaskBridge({ tasks, setTasks, pushTaskCompletion: md.pushTaskCompletion })
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
-  const [view, setView] = useState<'today' | 'week' | 'assign' | 'moodle'>(() => {
-    // Windows 跳转列表 / 深链入口：#/view/today|week|assign|moodle
+  const [view, setView] = useState<'today' | 'week' | 'moodle'>(() => {
+    // Windows 跳转列表 / 深链入口：#/view/today|week|moodle
+    // 【2026-09-26】作业模块并入 Moodle 时间线：#/view/assign 兼容映射到 moodle。
     const m = /^#\/view\/(today|week|assign|moodle)$/.exec(location.hash)
-    return (m?.[1] as 'today' | 'week' | 'assign' | 'moodle') || 'today'
+    const v = m?.[1] === 'assign' ? 'moodle' : (m?.[1] as 'today' | 'week' | 'moodle')
+    return v || 'today'
   })
-  /** 作业页进入时预置的分组筛选。null = 无预置（侧栏/深链普通导航），
-   *  只有 Moodle 时间线/成绩卡跳转才带具体筛选；AssignmentsView 把 null
-   *  当 'all' 用。默认必须 null：普通导航带着旧 'overdue' 会把列表过滤成空。 */
+  /** 作业模块（Moodle 时间线内嵌）的预置筛选/搜索词。null filter = 无预置。
+   *  跳转点：成绩卡未评项、今日页横幅、课程详情、命令面板任务项。 */
   const [assignFilter, setAssignFilter] = useState<'overdue' | 'due7' | 'later' | null>(null)
   const [assignQuery, setAssignQuery] = useState<string | undefined>(undefined)
+  /** 跳到作业模块（Moodle 时间线内嵌）的唯一入口：筛选/搜索词与视图一起变，
+   *  各跳转点不再各自拼 setAssignFilter/setAssignQuery/setView 三连。 */
+  const openAssignments = useCallback(
+    (filter: 'overdue' | 'due7' | 'later' | null, query?: string) => {
+      setAssignFilter(filter)
+      setAssignQuery(query)
+      setView('moodle')
+    },
+    [],
+  )
+  /** 清掉预置但不动视图（时间线卡片点击时用：卡片筛选接管列表）。 */
+  const clearAssignPreset = useCallback(() => {
+    setAssignFilter(null)
+    setAssignQuery(undefined)
+  }, [])
+  /** 传给 MoodleView 的跳转预置：只有真带筛选/搜索词才非 null。
+   *  必须按值 memo——内联对象每次渲染都是新引用，MoodleView 里「预置到达
+   *  就切时间线」的 effect 会在每次 App 重渲染（后台同步、未读数变化…）
+   *  时把用户从成绩/课程页拽回时间线。 */
+  const assignPreset = useMemo(
+    () =>
+      assignFilter != null || assignQuery != null
+        ? { filter: assignFilter, query: assignQuery }
+        : null,
+    [assignFilter, assignQuery],
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // 分享 / 导入、诊断、订阅各是一个关注点——状态都在自己的 hook 里，App 只接线。
   const share = useShareLinks({
@@ -225,7 +251,8 @@ function AppInner({
       const m = /^#\/view\/(today|week|assign|moodle)$/.exec(location.hash)
       if (m) {
         if (m[1] === 'assign') { setAssignFilter(null); setAssignQuery(undefined) } // 普通深链不带筛选
-        setView(m[1] as 'today' | 'week' | 'assign' | 'moodle')
+        // assign 视图已并入 Moodle 时间线：hash 兼容映射。
+        setView(m[1] === 'assign' ? 'moodle' : (m[1] as 'today' | 'week' | 'moodle'))
       }
       // 分享链接：#/import/<payload> — 挂载时和运行中改 hash 都要处理
       const payload = parseShareHash(location.hash)
@@ -466,10 +493,11 @@ function AppInner({
       switch (action.kind) {
         case 'view':
           if (action.view === 'assign') {
-            setAssignFilter(null)
-            setAssignQuery(undefined)
+            // assign 视图已并入 Moodle 时间线：命令面板的「作业」落到 moodle。
+            openAssignments(null)
+          } else {
+            setView(action.view)
           }
-          setView(action.view)
           break
         case 'week':
           if (action.delta === 0) setWeekStart(startOfWeek(new Date()))
@@ -486,9 +514,7 @@ function AppInner({
           break
         case 'task': {
           const task = tasks.find((x) => x.id === action.taskId)
-          setAssignFilter(null)
-          setAssignQuery(task?.title)
-          setView('assign')
+          openAssignments(null, task?.title)
           break
         }
         case 'settings':
@@ -517,13 +543,11 @@ function AppInner({
           void share.shareWeek()
           break
         case 'quickAddTask': {
-          // 命令面板一行话直接落库：新增任务 + 跳到作业页看到它
+          // 命令面板一行话直接落库：新增任务 + 跳到作业模块看到它
           applyTasks(
             addTask(tasks, { title: action.title, course: '', dueAt: action.dueAt, note: '' }),
           )
-          setAssignFilter(null)
-          setAssignQuery(undefined)
-          setView('assign')
+          openAssignments(null)
           break
         }
         case 'checkUpdate':
@@ -534,7 +558,7 @@ function AppInner({
           break
       }
     },
-    [applyTasks, checkForUpdate, jumpToLesson, openSettings, share.shareWeek, tasks, tt, weekStart],
+    [applyTasks, checkForUpdate, jumpToLesson, openAssignments, openSettings, share.shareWeek, tasks, tt, weekStart],
   )
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
@@ -602,9 +626,8 @@ function AppInner({
       if (e.key === '1') setView('today')
       else if (e.key === '2') setView('week')
       else if (e.key === '3') {
-        setAssignFilter(null)
-        setAssignQuery(undefined)
-        setView('assign')
+        // 「3」= 作业模块（并入 Moodle 时间线）：与命令面板同语义
+        openAssignments(null)
       } else if (e.key === '4') setView('moodle')
       else if (e.key === 'ArrowLeft') {
         setView('week')
@@ -623,6 +646,7 @@ function AppInner({
     onNextWeek,
     onPrevWeek,
     onThisWeek,
+    openAssignments,
     paletteOpen,
     selectedId,
     showBatchFilter,
@@ -656,28 +680,16 @@ function AppInner({
             <button onClick={() => setView('week')} aria-pressed={view === 'week'}>
               {t('viewWeek')}
             </button>
-            <button
-              onClick={() => {
-                setAssignFilter(null) // 侧栏导航 = 无预置筛选
-                setAssignQuery(undefined)
-                setView('assign')
-              }}
-              aria-pressed={view === 'assign'}
-              title={t('assignTitle')}
-            >
-                <span className="inline-flex items-center gap-2"><Icon name="graduation" size={16} /><span className="hidden sm:inline"> {t('assignNav')}</span></span>
-              {pendingTaskCount > 0 && (
-                /* .app-badge 携带自己的 bg/fg 对（surface-2 + text-2），所以数字在
-                   选中（accent 底、accent-text 继承）和未选中两种状态下都可读。 */
-                <span className="app-badge ml-1 font-semibold tabular-nums">{pendingTaskCount}</span>
-              )}
-            </button>
+            {/* 作业模块已并入 Moodle 时间线：导航三项，任务数徽标挂在 Moodle 上 */}
             <button
               onClick={() => setView('moodle')}
               aria-pressed={view === 'moodle'}
               title={t('moodleNav')}
             >
               <span className="inline-flex items-center gap-2"><Icon name="book" size={15} /><span className="hidden sm:inline"> {t('moodleNav')}</span></span>
+              {pendingTaskCount > 0 && (
+                <span className="app-badge ml-1 font-semibold tabular-nums">{pendingTaskCount}</span>
+              )}
               <MoodleUnreadBadge />
             </button>
           </div>
@@ -826,11 +838,9 @@ function AppInner({
               tasks={tasks}
               onJumpToCourse={jumpToCourse}
               onToggleTask={(task, completed) => setTasks(updateTask(tasks, task.id, { completed }))}
-              onOpenAssignments={() => {
-                setAssignFilter(null) // 今日页横幅/卡片：无预置筛选
-                setAssignQuery(undefined)
-                setView('assign')
-              }}
+              onOpenAssignments={() =>
+                openAssignments(null) /* 今日页横幅/卡片：无预置筛选，作业模块在 Moodle 时间线里 */
+              }
               onOpenSettings={openSettings}
               hasSources={tt.sources.length > 0}
               subscriptions={subscriptions}
@@ -853,24 +863,12 @@ function AppInner({
             <MoodleView
               tasks={tasks}
               lessons={tt.lessons}
+              onTasks={applyTasks}
               onJumpToCourse={jumpToCourse}
-              onOpenAssignments={(filter, query) => {
-                setAssignFilter(filter)
-                setAssignQuery(query)
-                setView('assign')
-              }}
+              assignPreset={assignPreset}
+              onOpenAssignments={openAssignments}
+              onClearAssignPreset={clearAssignPreset}
               onOpenSettings={openSettings}
-            />
-          )}
-          {view === 'assign' && (
-            <AssignmentsView
-              tasks={tasks}
-              lessons={tt.lessons}
-              onChange={applyTasks}
-              key={`${assignFilter ?? 'all'}|${assignQuery ?? ''}`}
-              initialFilter={assignFilter}
-              initialQuery={assignQuery}
-              onJumpToCourse={jumpToCourse}
             />
           )}
           </div>
@@ -885,17 +883,14 @@ function AppInner({
           [
             { key: 'today', icon: 'live', label: t('viewToday'), badge: 0 },
             { key: 'week', icon: 'clock', label: t('viewWeek'), badge: 0 },
-            { key: 'assign', icon: 'graduation', label: t('assignNav'), badge: pendingTaskCount },
-            { key: 'moodle', icon: 'book', label: t('moodleNav'), badge: md.unread },
+            // 作业模块已并入 Moodle 时间线：底部标签三项 + 更多抽屉
+            { key: 'moodle', icon: 'book', label: t('moodleNav'), badge: md.unread + pendingTaskCount },
           ] as const
         ).map((item) => (
           <button
             key={item.key}
             onClick={() => {
-              if (item.key === 'assign') {
-                setAssignFilter(null) // 底部导航 = 无预置筛选（同侧栏）
-                setAssignQuery(undefined)
-              }
+              clearAssignPreset() // 底部导航 = 无预置筛选（同侧栏）
               setView(item.key)
             }}
             aria-pressed={view === item.key}
@@ -981,9 +976,7 @@ function AppInner({
           assignments={tasks}
           onOpenAssignments={() => {
             setSelectedId(null)
-            setAssignFilter(null) // 课程详情跳转：无预置筛选
-            setAssignQuery(undefined)
-            setView('assign')
+            openAssignments(null) // 课程详情跳转：无预置筛选，作业模块在 Moodle 时间线里
           }}
         />
       )}

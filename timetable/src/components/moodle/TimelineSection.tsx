@@ -1,23 +1,47 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNow } from '../../lib/useNow'
 import { timelineBuckets, type Task } from '../../lib/tasks'
 import { useI18n } from '../../i18n'
-import Icon from '../Icon'
+import type { Lesson } from '../../types'
+import AssignmentsView from '../AssignmentsView'
+import type { AssignPreset } from '../MoodleView'
 
-/** Empat ember waktu gaya Timeline resmi; kartu dapat diklik → filter 作业页. */
+/**
+ * 时间线分区 = 官方 App 的四桶概览卡片 + 完整作业模块。
+ *
+ * 【2026-09-26】独立的 assign 视图已并入这里：卡片数字与下方任务列表同源
+ * （同一个 timelineBuckets 口径），点卡片切换下方列表的分组筛选，不再跳
+ * 别的视图。跳转点（成绩卡未评项、命令面板任务项）的预置筛选经
+ * `assignPreset`（App 级、按值 memo）进入并优先于卡片；卡片点击时回调
+ * `onClearAssignPreset` 清掉预置，本地 cardFilter 才能接管。
+ */
 export default function TimelineSection({
   tasks,
-  onOpenAssignments,
+  lessons,
+  onTasks,
+  onJumpToCourse,
+  assignPreset,
+  onClearAssignPreset,
 }: {
   tasks: Task[]
-  onOpenAssignments: (filter: 'overdue' | 'due7' | 'later') => void
+  lessons: Lesson[]
+  /** 作业模块的写操作（带删除撤销），由 App 的 applyTasks 提供 */
+  onTasks: (tasks: Task[]) => void
+  onJumpToCourse?: (code: string) => void
+  /** 跳转点预置的筛选/搜索词；非空时优先于本地卡片点击。 */
+  assignPreset?: AssignPreset
+  /** 卡片点击时清掉 App 级预置（否则预置恒胜，卡片筛选不生效）。 */
+  onClearAssignPreset?: () => void
 }) {
   const { t } = useI18n()
   const nowMs = useNow()
   const buckets = useMemo(() => timelineBuckets(tasks, nowMs), [tasks, nowMs])
+  // 生效中的筛选：外部预置 > 本地卡片点击（派生值，两处状态不会失步）。
+  const [cardFilter, setCardFilter] = useState<'overdue' | 'due7' | 'later' | null>(null)
+  const activeFilter = assignPreset != null ? assignPreset.filter : cardFilter
+  const preset = assignPreset ?? { filter: cardFilter, query: undefined }
 
-  // 'today' jatuh ke ember due7 di 作业页 (bucket sama, sub-dari-7-hari);
-  // 'month' → 'later'. Pemetaan eksplisit agar kartu & filter konsisten.
+  // 卡片口径与作业页分组一致：today ⊂ due7（7 天内），month → later。
   const cards: Array<{
     key: string
     n: number
@@ -31,13 +55,21 @@ export default function TimelineSection({
     { key: 'month', n: buckets.month, label: t('timelineNext30'), filter: 'later' },
   ]
 
+  // 预置变化 = key 变化 = AssignmentsView 以 initialFilter/initialQuery 重建
+  // （与原 App 层导航重建同模式，初值始终生效）。
+  const presetKey = `${preset.filter ?? 'all'}|${preset.query ?? ''}`
+
   return (
     <section className="space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {cards.map((c) => (
           <button
             key={c.key}
-            onClick={() => onOpenAssignments(c.filter)}
+            onClick={() => {
+              setCardFilter(cardFilter === c.filter ? null : c.filter)
+              onClearAssignPreset?.() // 卡片筛选接管列表：先清掉外部预置
+            }}
+            aria-pressed={activeFilter === c.filter}
             title={t('moodleTimelineLink')}
             className={
               'rounded-lg border p-3 text-center transition hover:brightness-110 ' +
@@ -58,11 +90,17 @@ export default function TimelineSection({
           </button>
         ))}
       </div>
-      <button onClick={() => onOpenAssignments('overdue')} className="app-btn w-full px-3 py-2 text-xs" type="button">
-        <span className="inline-flex items-center justify-center gap-1.5">
-          {t('moodleTimelineLink')} <Icon name="chevron-right" size={12} />
-        </span>
-      </button>
+
+      {/* 完整作业模块（原独立「作业」视图整体内嵌） */}
+      <AssignmentsView
+        key={presetKey}
+        tasks={tasks}
+        lessons={lessons}
+        onChange={onTasks}
+        onJumpToCourse={onJumpToCourse}
+        initialFilter={preset.filter}
+        initialQuery={preset.query}
+      />
     </section>
   )
 }

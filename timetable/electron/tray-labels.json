@@ -3,7 +3,7 @@
     "show": "显示主窗口",
     "today": "今日",
     "week": "周视图",
-    "assignments": "作业",
+    "assignments": "作业（Moodle）",
     "checkUpdate": "检查更新",
     "quit": "退出"
   },
@@ -11,7 +11,7 @@
     "show": "Show window",
     "today": "Today",
     "week": "Week",
-    "assignments": "Assignments",
+    "assignments": "Assignments (Moodle)",
     "checkUpdate": "Check for updates",
     "quit": "Quit"
   }
