@@ -1,8 +1,18 @@
 import { useMemo, useState } from 'react'
 import type { CourseGrades, GradeItem } from '../lib/grades'
-import { contributionOf, courseProjection, effectiveGrade } from '../lib/gradeCalc'
+import { contributionOf, courseProjection, effectiveGrade, gradeTargetPlan } from '../lib/gradeCalc'
+import { KEYS, readString, writeString } from '../lib/storage'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
+
+/** 目标档位（百分制）。LUT 的 1–5 换算各课不同，所以直接用百分比，不替用户换算。 */
+const GRADE_TARGETS = [60, 70, 80, 90]
+const DEFAULT_TARGET = 80
+
+function loadTarget(): number {
+  const saved = Number(readString(KEYS.gradeTarget))
+  return GRADE_TARGETS.includes(saved) ? saved : DEFAULT_TARGET
+}
 
 /**
  * Kartu satu kursus di daftar nilai: proyeksi what-if.
@@ -27,8 +37,21 @@ export default function GradeCourseCard({
   const [expanded, setExpanded] = useState(false)
 
   const proj = useMemo(() => courseProjection(c, overrides), [c, overrides])
-  // LUT tidak mengekspos bobot: meta memakai hitungan item, bukan persen.
+  // 目标分数：全局偏好（一次选定，所有课共用），存 storage 以便重开后仍在
+  const [target, setTarget] = useState<number>(loadTarget)
+  const pickTarget = (v: number) => {
+    setTarget(v)
+    writeString(KEYS.gradeTarget, String(v))
+  }
+  const plan = useMemo(
+    () => gradeTargetPlan(c.items, overrides, target),
+    [c.items, overrides, target],
+  )
+  // LUT tidak selalu mengekspos bobot per item: meta memakai hitungan item
+  // bila tak ada bobot sama sekali, dan menandai sebagian berbobot.
   const weighted = proj.coveredWeight > 0
+  const weightTotal = c.items.reduce((s, it) => s + (it.weight != null ? it.weight : 0), 0)
+  const partialWeight = weighted && weightTotal > 0 && weightTotal < 100 - 0.5
   const gradedCount = c.items.filter((it) => it.grade != null).length
 
   const filtered = useMemo(() => {
@@ -100,6 +123,7 @@ export default function GradeCourseCard({
           {weighted
             ? t('gradeCovered', { w: proj.coveredWeight.toFixed(0) })
             : t('gradeGradedOf', { g: gradedCount, n: c.items.length })}
+          {partialWeight && ` · ${t('gradePartialWeight', { w: weightTotal.toFixed(0) })}`}
           {proj.ungraded > 0 && ` · `}
           {proj.ungraded > 0 && onOpenUngradedTasks ? (
             <button
@@ -128,6 +152,42 @@ export default function GradeCourseCard({
       {/* Isi: filter + item */}
       {expanded && (
         <div className="animate-modal-in mt-2 space-y-1.5">
+          {/* 目标模式：选一个目标分，看剩下未评分的部分平均需要多少 */}
+          <div className="flex flex-wrap items-center gap-1 text-[10px]">
+            <span className="shrink-0 text-[var(--text-3)]">{t('gradeTargetLabel')}</span>
+            {GRADE_TARGETS.map((v) => (
+              <button
+                key={v}
+                onClick={() => pickTarget(v)}
+                aria-pressed={v === target}
+                className={
+                  'shrink-0 rounded-full border px-1.5 py-px tabular-nums ' +
+                  (v === target
+                    ? 'border-[var(--info)] text-[var(--info)]'
+                    : 'border-[var(--line)] text-[var(--text-2)] hover:bg-[var(--hover-1)]')
+                }
+              >
+                {v}%
+              </button>
+            ))}
+            <span
+              className={
+                'ml-auto shrink-0 text-right tabular-nums ' +
+                (plan.status === 'unreachable'
+                  ? 'text-[var(--due)]'
+                  : plan.status === 'reached'
+                    ? 'text-[var(--ok)]'
+                    : 'text-[var(--text-2)]')
+              }
+            >
+              {plan.status === 'possible' &&
+                t('gradeTargetNeed', { n: Math.ceil(plan.requiredAvg ?? 0) })}
+              {plan.status === 'reached' && t('gradeTargetReached')}
+              {plan.status === 'unreachable' &&
+                t('gradeTargetUnreachable', { max: plan.maxFinal.toFixed(0) })}
+              {plan.status === 'done' && t('gradeTargetDone')}
+            </span>
+          </div>
           {c.items.length > 3 && (
             <input
               value={q}
@@ -206,12 +266,17 @@ function GradeItemRow({
         {editing && <span className="mr-1 inline-flex align-[-1px] text-[var(--info)]">✎</span>}
         {it.name}
       </span>
-      {(it.weight != null || contrib != null) && (
+      {(it.weight != null || contrib != null || it.classAvg != null) && (
         <span className="shrink-0 tabular-nums text-[var(--text-3)]">
           {it.weight != null && `${t('gradesWeight')} ${it.weight}%`}
           {contrib != null && (
             <span className="ml-1 text-[var(--info)]" title={t('gradeContribTitle')}>
               +{contrib.toFixed(1)}
+            </span>
+          )}
+          {it.classAvg != null && (
+            <span className="ml-1" title={t('gradesClassAvg')}>
+              {t('gradesClassAvgShort')} {it.classAvg}%
             </span>
           )}
         </span>

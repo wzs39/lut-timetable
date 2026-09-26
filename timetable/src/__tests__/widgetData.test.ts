@@ -117,6 +117,25 @@ describe('buildWidgetPayload', () => {
     const legacy = buildWidgetPayload([lesson('2026-09-18T08:00:00', '2026-09-18T10:00:00')], NOW)
     expect(legacy.items[0].mid).toBeNull()
   })
+
+  it('chg: hanya baris yang tersentuh perubahan sinkron terakhir yang ditandai', () => {
+    const p = buildWidgetPayload(
+      [
+        lesson('2026-09-18T08:00:00', '2026-09-18T10:00:00', 'CT60A0250'),
+        lesson('2026-09-18T12:00:00', '2026-09-18T14:00:00', 'HDD5020'),
+      ],
+      NOW,
+      undefined,
+      { codes: ['CT60A0250'], n: 2 },
+    )
+    expect(p.items[0].chg).toBe(true)
+    expect(p.items[1].chg).toBeUndefined()
+    expect(p.chgN).toBe(2)
+    // tanpa marks（无变动 / 过期）→ 字段不出现，原生就不打标
+    const plain = buildWidgetPayload([lesson('2026-09-18T08:00:00', '2026-09-18T10:00:00')], NOW)
+    expect(plain.items[0].chg).toBeUndefined()
+    expect(plain.chgN).toBeUndefined()
+  })
 })
 
 describe('nextStartMs (countdown anchor)', () => {

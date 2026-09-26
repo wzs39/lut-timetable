@@ -32,11 +32,9 @@ export default function CourseSearch() {
     openExternal(`https://sisu.lut.fi/student/courseunit/${c.id}`)
   }
 
+  // 标题由外层分区（Sidebar 的 Group / Section）提供，这里只负责查询体
   return (
     <div>
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
-        {t('courseSearch')}
-      </h2>
       <div className="flex gap-1.5">
         <input
           value={term}

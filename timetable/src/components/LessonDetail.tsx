@@ -14,10 +14,21 @@ import { isOverdue, pendingTasks, type Task } from '../lib/tasks'
 import { openExternal } from '../lib/openExternal'
 import ExternalLink from './ExternalLink'
 
+/** 同一天内的翻课导航（App 用 date.sameDayQueue 算出位置后传入） */
+export interface LessonNav {
+  /** 该天内的序号，0 起 */
+  index: number
+  total: number
+  onPrev?: () => void
+  onNext?: () => void
+}
+
 interface Props {
   lesson: Lesson
   onSave: (id: string, patch: Partial<Lesson>) => void
   onDelete: (id: string) => void
+  /** 同一天的上一节/下一节（不传则不显示翻课按钮） */
+  nav?: LessonNav
   /** URL halaman TimeEdit sumber lesson ini (bila ada) */
   timeEditUrl?: string
   /** Sembunyikan tanpa menghapus (tanpa tombstone) */
@@ -31,6 +42,10 @@ interface Props {
   assignments?: Task[]
   /** Buka panel Tugas (from lesson detail) */
   onOpenAssignments?: () => void
+  /** 已订阅「这门课有变动就提醒我」 */
+  watched?: boolean
+  /** 切换订阅（不传则不显示该按钮） */
+  onWatch?: (on: boolean) => void
 }
 
 function toTimeInput(iso: string): string {
@@ -45,8 +60,11 @@ export default function LessonDetail({
   lesson,
   onSave,
   onDelete,
+  nav,
   timeEditUrl,
   onHide,
+  watched,
+  onWatch,
   onClose,
   note,
   onSaveNote,
@@ -146,6 +164,18 @@ export default function LessonDetail({
   const [closing, requestClose] = useExitAnimation(onClose)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 同一天内前后翻课：输入框内自行退出（不抢编辑光标）
+    const inField =
+      e.target instanceof HTMLElement &&
+      (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)
+    if (!inField && !editing && nav && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const go = e.key === 'ArrowLeft' ? nav.onPrev : nav.onNext
+      if (go) {
+        e.preventDefault()
+        go()
+        return
+      }
+    }
     if (e.key === 'Escape') {
       if (editing) setEditing(false)
       else requestClose()
@@ -176,7 +206,9 @@ export default function LessonDetail({
     <div
       className={
         (closing ? 'animate-fade-out ' : 'animate-fade-in ') +
-        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+        // 自适应：窄屏底部面板（从下浮入），≥768px 右侧侧栏（从右滑入）——
+        // master-detail：详情贴着网格打开，不再遮住整张课表。
+        'fixed inset-0 z-50 flex items-end justify-center bg-black/60 md:items-stretch md:justify-end'
       }
       onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
       onKeyDown={handleKeyDown}
@@ -184,21 +216,48 @@ export default function LessonDetail({
     >
       <div
         className={
-          (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
-          'w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl'
+          (closing ? 'animate-sheet-out ' : 'animate-sheet-in ') +
+          'w-full max-h-[86vh] overflow-y-auto rounded-t-2xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl ' +
+          'md:h-full md:max-h-none md:max-w-[420px] md:rounded-none md:rounded-l-2xl'
         }
+        style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
       >
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">
             {editing ? t('editTitle') : t('detailTitle')}
           </h3>
-          <button
-            onClick={requestClose}
-            className="text-[var(--text-3)] hover:text-[var(--text-1)]"
-            title={t('closeHint')}
-          >
-            <Icon name="close" size={13} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {!editing && nav && nav.total > 1 && (
+              <>
+                <button
+                  onClick={nav.onPrev}
+                  disabled={!nav.onPrev}
+                  className="app-btn px-1.5 py-0.5 disabled:opacity-40"
+                  title={t('prevLesson')}
+                >
+                  <Icon name="chevron-left" size={12} />
+                </button>
+                <span className="text-[10px] tabular-nums text-[var(--text-3)]">
+                  {t('lessonPosition', { i: nav.index + 1, n: nav.total })}
+                </span>
+                <button
+                  onClick={nav.onNext}
+                  disabled={!nav.onNext}
+                  className="app-btn px-1.5 py-0.5 disabled:opacity-40"
+                  title={t('nextLesson')}
+                >
+                  <Icon name="chevron-right" size={12} />
+                </button>
+              </>
+            )}
+            <button
+              onClick={requestClose}
+              className="text-[var(--text-3)] hover:text-[var(--text-1)]"
+              title={t('closeHint')}
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
         </div>
 
         {editing ? (
@@ -421,6 +480,26 @@ export default function LessonDetail({
                   </button>
                 )
               })()}
+
+              {/* 订阅式提醒：这门课一有变动（时间/教室/取消）就推一条 */}
+              {onWatch && (
+                <button
+                  onClick={() => onWatch(!watched)}
+                  aria-pressed={!!watched}
+                  className={
+                    'flex w-full items-center justify-between rounded-md border px-2.5 py-2 text-[11px] transition ' +
+                    (watched
+                      ? 'border-[var(--line-info)] bg-[var(--tint-info)] text-[var(--info)]'
+                      : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-2)] hover:bg-[var(--hover-1)]')
+                  }
+                  title={t('subCourseHint')}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name="warn" size={12} /> {t('subCourseWatch')}
+                  </span>
+                  <span className="shrink-0">{watched ? t('subOn') : t('subOff')}</span>
+                </button>
+              )}
 
               {/* Catatan kursus: berlaku untuk semua pelajaran dengan kode+jenis sama */}
               {onSaveNote && (

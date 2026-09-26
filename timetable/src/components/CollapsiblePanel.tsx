@@ -36,7 +36,11 @@ export default function CollapsiblePanel({ storageKey, label, right, children }:
           title={t('toggleHint')}
           aria-expanded={open}
         >
-          <span className="collapse-chevron shrink-0 text-[var(--text-3)]" aria-hidden>
+          {/* .open 必须显式给出：chevron 只有这个类才会转正（CSS 无祖先选择器） */}
+          <span
+            className={'collapse-chevron shrink-0 text-[var(--text-3)]' + (open ? ' open' : '')}
+            aria-hidden
+          >
             <Icon name="chevron-down" size={12} />
           </span>
           <span className="min-w-0 truncate">{label}</span>

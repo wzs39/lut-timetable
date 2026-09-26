@@ -8,8 +8,15 @@ import { readString, writeString } from './storage'
  * pilihan pengguna bertahan setelah reload. Dipakai oleh setiap panel yang
  * bisa dilipat (TodayView) sehingga cara menyimpannya tidak digandakan.
  */
-export function useCollapse(key: string): [boolean, () => void] {
-  const [open, setOpen] = useState(() => readString(key) !== '0')
+/**
+ * `defaultOpen` hanya dipakai saat pengguna BELUM pernah memilih (kunci belum
+ * ada) — panel yang jarang dipakai bisa default tertutup tanpa memaksa.
+ */
+export function useCollapse(key: string, defaultOpen = true): [boolean, () => void] {
+  const [open, setOpen] = useState(() => {
+    const stored = readString(key)
+    return stored === null ? defaultOpen : stored !== '0'
+  })
 
   const toggle = () => {
     const next = !open

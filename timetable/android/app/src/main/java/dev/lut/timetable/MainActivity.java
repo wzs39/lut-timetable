@@ -32,18 +32,38 @@ public class MainActivity extends BridgeActivity {
         pushWidgetNavToWeb();
     }
 
-    private void saveWidgetNav(Intent i) {
-        if (i == null || !i.hasExtra("tt_view")) return;
+    /**
+     * 深链 view 的唯一解读者：小组件/快捷方式写入的 tt_view extra 优先，
+     * 没有 extra 时看 intent action（长按图标快捷方式用自定义 action，
+     * 见 res/xml/shortcuts.xml）。返回 null = 这次启动不带导航意图。
+     */
+    private static String navViewOf(Intent i) {
+        if (i == null) return null;
         String view = i.getStringExtra("tt_view");
+        if (view != null) return view;
+        String action = i.getAction();
+        if (action == null) return null;
+        switch (action) {
+            case "dev.lut.timetable.OPEN_TODAY":
+                return "today";
+            case "dev.lut.timetable.OPEN_WEEK":
+                return "week";
+            case "dev.lut.timetable.OPEN_ASSIGN":
+                return "assign";
+            default:
+                return null;
+        }
+    }
+
+    private void saveWidgetNav(Intent i) {
+        String view = navViewOf(i);
         if (view == null) return;
         getSharedPreferences("CapacitorStorage", MODE_PRIVATE)
                 .edit().putString("widget_nav_v1", view).apply();
     }
 
     private void pushWidgetNavToWeb() {
-        Intent i = getIntent();
-        if (i == null || !i.hasExtra("tt_view")) return;
-        final String view = i.getStringExtra("tt_view");
+        final String view = navViewOf(getIntent());
         if (view == null) return;
         try {
             final WebView wv = bridge != null ? bridge.getWebView() : null;

@@ -44,12 +44,32 @@ function mockWide(wide: boolean) {
   })) as unknown as typeof window.matchMedia
 }
 
-function renderGrid() {
+function renderGrid(onShiftWeek?: (delta: -1 | 1) => void) {
   return render(
     <I18nProvider>
-      <WeekGrid lessons={LESSONS} weekStart={WEEK_START} onSelect={() => {}} />
+      <WeekGrid
+        lessons={LESSONS}
+        weekStart={WEEK_START}
+        onSelect={() => {}}
+        onShiftWeek={onShiftWeek}
+      />
     </I18nProvider>,
   )
+}
+
+/**
+ * Sapuan di cabang mobile: touchstart/touchend pada konten hari mana pun —
+ * event menggelembung ke kontainer pembungkus yang memasang handler.
+ */
+function swipe(dx: number, dy = 0) {
+  // Baris tab hari: selalu ada di cabang mobile (空课日也在)，事件冒泡到
+  // 外层容器上的 handler。
+  const target = document.querySelector('.flex.gap-1.px-3') as HTMLElement
+  expect(target).toBeTruthy()
+  fireEvent.touchStart(target, { touches: [{ clientX: 200, clientY: 300 }] })
+  fireEvent.touchEnd(target, {
+    changedTouches: [{ clientX: 200 + dx, clientY: 300 + dy }],
+  })
 }
 
 function conflictChips(): string[] {
@@ -95,6 +115,64 @@ describe('WeekGrid conflict display', () => {
     // grup yang diabaikan menyusut jadi kartu tunggal → sisa satu kontainer
     expect(screen.getAllByText('同时段 2 节').length).toBe(1)
     expect(screen.getByText('已忽略 1 处冲突')).toBeTruthy()
+  })
+
+  it('swipes to the next day on mobile (Tuesday → empty Wednesday)', () => {
+    mockWide(false)
+    renderGrid()
+    expect(screen.getAllByText('同时段 2 节').length).toBe(2)
+
+    swipe(-120)
+
+    // Rabu tanpa pelajaran → empty state, kontainer konflik hilang
+    // （滑到的那天不是「今天」，用当天措辞而不是「今天没有课程」）
+    expect(screen.queryAllByText('同时段 2 节').length).toBe(0)
+    expect(screen.getByText('当天没有课程')).toBeTruthy()
+  })
+
+  it('swipes back to the previous day (Tuesday → empty Monday)', () => {
+    mockWide(false)
+    renderGrid()
+
+    swipe(120)
+
+    expect(screen.queryAllByText('同时段 2 节').length).toBe(0)
+    expect(screen.getAllByText('当天没有课程').length).toBeGreaterThan(0)
+  })
+
+  it('ignores vertical scroll gestures', () => {
+    mockWide(false)
+    renderGrid()
+
+    swipe(-140, 200)
+
+    // hari tidak berubah: dua kontainer konflik masih ada
+    expect(screen.getAllByText('同时段 2 节').length).toBe(2)
+  })
+
+  it('asks for the previous week when swiping right off Monday', () => {
+    mockWide(false)
+    const onShiftWeek = vi.fn()
+    renderGrid(onShiftWeek)
+
+    swipe(120) // Selasa → Senin
+    expect(onShiftWeek).not.toHaveBeenCalled()
+
+    swipe(120) // Senin → minggu lalu (Minggu)
+    expect(onShiftWeek).toHaveBeenCalledWith(-1)
+  })
+
+  it('asks for the next week when swiping left off Sunday', () => {
+    mockWide(false)
+    const onShiftWeek = vi.fn()
+    renderGrid(onShiftWeek)
+
+    // Selasa → … → Minggu (5 sapuan ke kiri), lalu satu lagi lintasi minggu
+    for (let i = 0; i < 5; i++) swipe(-120)
+    expect(onShiftWeek).not.toHaveBeenCalled()
+
+    swipe(-120)
+    expect(onShiftWeek).toHaveBeenCalledWith(1)
   })
 
   it('keeps a dismissal made on mobile after switching to the desktop grid', () => {

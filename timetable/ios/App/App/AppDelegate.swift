@@ -7,7 +7,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // 后台刷新任务必须在启动完成前注册（BGTaskScheduler 的硬性要求），
+        // 否则系统唤起时找不到 handler，任务会被丢弃。
+        BackgroundSyncRunner.register()
         return true
     }
 
@@ -17,8 +19,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {
-        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
-        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
+        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.        // BGAppRefreshTask 的请求只生效一次，必须每次进后台续期。
+        // 刷新意图（分钟数）存在 Preferences 里，由 JS 侧写入（src/lib/backgroundSchedule.ts）。
+        BackgroundSyncRunner.rescheduleIfEnabled()
     }
 
     func applicationWillEnterForeground(_ application: UIApplication) {

@@ -20,6 +20,50 @@ body,
   margin: 0;
 }
 
+/* ============================================================
+   无障碍偏好（uiPrefs.textScale / contrast）
+
+   字号用 zoom 而不是改字体基准：界面里字号绝大多数是 px 写死的
+   （text-[11px]、text-[10px]…），改 :root 字号或 rem 不会生效。
+   zoom 会连图标、间距、行高一起等比放大，等价于系统的「放大显示」。
+   对比度只加强次要文字与分隔线，不动色相——主题仍然认得出来。
+   ============================================================ */
+:root[data-a11y-size='large'] {
+  --a11y-zoom: 1.15;
+}
+:root[data-a11y-size='large'] body {
+  zoom: var(--a11y-zoom);
+}
+
+/* zoom 不缩放视口单位：弹层的 max-height（写的是 vh）在放大后会超出屏幕，
+   顶边被切掉。这里按放大倍数折算回来。新增弹层时把它的 max-h 值加进来。 */
+:root[data-a11y-size='large'] .max-h-\[90vh\] {
+  max-height: calc(88vh / var(--a11y-zoom));
+}
+:root[data-a11y-size='large'] .max-h-\[86vh\],
+:root[data-a11y-size='large'] .max-h-\[85vh\] {
+  max-height: calc(84vh / var(--a11y-zoom));
+}
+:root[data-a11y-size='large'] .max-h-\[85dvh\] {
+  max-height: calc(82dvh / var(--a11y-zoom));
+}
+:root[data-a11y-size='large'] .max-h-\[52vh\] {
+  max-height: calc(50vh / var(--a11y-zoom));
+}
+
+/* 放在主题/预设规则之后（同特异性时后者胜） */
+:root[data-a11y-contrast='high'] {
+  --text-2: #c9c9d1;
+  --text-3: #b1b1bc;
+  --line: #41414d;
+  --hover-line: #52525b;
+}
+:root[data-a11y-contrast='high'][data-theme='light'] {
+  --text-2: #3f3f46;
+  --text-3: #52525b;
+  --line: #b4b4bd;
+}
+
 /* Safe-area untuk layar mobile berponi (notch) */
 .safe-top {
   padding-top: env(safe-area-inset-top, 0px);
@@ -164,6 +208,13 @@ body {
   background: var(--surface-0);
   color: var(--text-1);
 }
+
+/* 组件层：所有 ``.app-*`` / ``.animate-*`` 类放进 @layer components，
+   这样 Tailwind 工具类（hidden / md:flex / xl:block …）能按预期覆盖它们。
+   此前这些规则是无层的，无层样式永远赢过 utilities —— 于是 ``hidden md:flex``
+   的桌面视图切换器在手机上照样显示、``xl:hidden`` 也失效。
+   令牌块（:root / data-theme）与 safe-area 保持无层，避免被 utilities 抢走。 */
+@layer components {
 
 /* Card: the single panel container used across all views */
 .app-card {
@@ -485,6 +536,24 @@ body {
   to { transform: translateX(0); }
 }
 
+/* 移动端底部抽屉（更多功能）：整块从底边升起 / 落下 */
+.animate-sheet-rise {
+  animation: sheet-rise var(--dur-med) var(--ease-out) both;
+}
+.animate-sheet-fall {
+  animation: sheet-fall var(--dur-fast) ease-in both;
+}
+
+@keyframes sheet-rise {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes sheet-fall {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+
 /* Main view switch (今日 / 周 / 作业): a short, quiet rise so the change of
    context reads without making the app feel slow. */
 .animate-view-in {
@@ -494,6 +563,44 @@ body {
 @keyframes view-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- 侧滑面板（课程详情）：<768px 从下浮入，≥768px 从右滑入 ---------
+   同两个类在断点内换 keyframes，组件只需切 in/out 两个类名。 */
+.animate-sheet-in {
+  animation: sheet-up var(--dur-med) var(--ease-out) both;
+}
+.animate-sheet-out {
+  animation: sheet-down var(--dur-fast) ease-in both;
+}
+
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sheet-down {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(16px); }
+}
+
+@keyframes sheet-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes sheet-out-right {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(24px); }
+}
+
+@media (min-width: 768px) {
+  .animate-sheet-in {
+    animation-name: sheet-in-right;
+  }
+  .animate-sheet-out {
+    animation-name: sheet-out-right;
+  }
 }
 
 /* ---- Collapsible panels ------------------------------------------------- */
@@ -548,7 +655,11 @@ body {
   .animate-exit-down,
   .animate-exit-left,
   .animate-drawer-in,
-  .animate-view-in {
+  .animate-sheet-rise,
+  .animate-sheet-fall,
+  .animate-view-in,
+  .animate-sheet-in,
+  .animate-sheet-out {
     animation: none;
   }
   .collapse-wrap,
@@ -564,3 +675,5 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+} /* @layer components */

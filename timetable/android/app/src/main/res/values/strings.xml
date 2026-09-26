@@ -11,6 +11,7 @@
     <string name="widget_empty_body">Open the app once to load the widget</string>
     <string name="widget_week_count">%1$d lessons this week</string>
     <string name="widget_now">Now!</string>
+    <string name="widget_changed">CHANGED</string>
     <string name="widget_in_hm">Next in %1$dh %2$02dm</string>
     <string name="widget_in_m">Next in %1$d min</string>
 
@@ -22,4 +23,12 @@
     <string name="widget_open_tasks">%1$d open</string>
     <!-- Toast feedback after checkbox toggle in the widget. -->
     <string name="widget_toggle_done">Task checked off</string>
+
+    <!-- App shortcuts (long-press the launcher icon). -->
+    <string name="shortcut_today">Today</string>
+    <string name="shortcut_today_long">Today\'s lessons</string>
+    <string name="shortcut_week">This week</string>
+    <string name="shortcut_week_long">This week\'s timetable</string>
+    <string name="shortcut_assign">Assignments</string>
+    <string name="shortcut_assign_long">Assignments and tasks</string>
 </resources>

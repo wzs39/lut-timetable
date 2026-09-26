@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only：允许明文 HTTP，供本机 fixture 服务器（adb reverse / 10.0.2.2）
+     做真机 E2E。release 构建不含这份 manifest —— 线上全部走 HTTPS，明文一律拒绝。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:usesCleartextTraffic="true"
+        tools:replace="android:usesCleartextTraffic" />
+</manifest>

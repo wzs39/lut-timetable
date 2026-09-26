@@ -77,6 +77,9 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    // 后台刷新的隐藏 WebView 宿主（WebViewAssetLoader：把 assets 挂在 https origin，
+    // 否则 ES module 在 file:// 会被 CORS 拦住）。版本已在 variables.gradle 里。
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

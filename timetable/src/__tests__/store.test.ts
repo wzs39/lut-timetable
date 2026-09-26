@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchIcsText } from '../lib/fetchIcs'
 import {
+  addHiddenKeys,
   backfillLessonTypes,
   cleanTimeEditTitle,
   dedupeLessons,
   isCrossSourceDup,
   lessonKey,
+  loadHiddenKeys,
   loadSources,
   normalizeSisuUrl,
   normalizeTimeEditUrl,
+  removeHiddenKeys,
+  sourceFromUrl,
   syncSource,
 } from '../lib/store'
 import type { Lesson, SyncSource } from '../types'
@@ -375,3 +379,68 @@ describe('syncSource rolling window (TimeEdit upsert)', () => {
     expect(out[0].windowDays).toBe(14)
   })
 })
+
+/** 隐藏 / 撤销隐藏：设置与批量筛选共用的存储层 */
+const hiddenFixture = (id: string, code: string): Lesson => ({
+  id,
+  source: 'manual',
+  title: `Lesson ${id}`,
+  code,
+  start: '2026-09-21T08:00:00.000Z',
+  end: '2026-09-21T10:00:00.000Z',
+})
+
+describe('removeHiddenKeys', () => {
+  it('removes only the given keys so undo restores the rest', () => {
+    const a = hiddenFixture('a', 'X1')
+    const b = hiddenFixture('b', 'X2')
+    addHiddenKeys([a, b])
+    expect(loadHiddenKeys().size).toBe(2)
+    removeHiddenKeys([lessonKey(a)])
+    expect([...loadHiddenKeys()]).toEqual([lessonKey(b)])
+  })
+
+  it('is a no-op for unknown keys and empty input', () => {
+    addHiddenKeys([hiddenFixture('a', 'X1')])
+    removeHiddenKeys(['nope'])
+    removeHiddenKeys([])
+    expect(loadHiddenKeys().size).toBe(1)
+  })
+})
+
+describe('sourceFromUrl', () => {
+  it('builds a SISU source from a calendar-share link (trimmed)', () => {
+    const src = sourceFromUrl(`  ${FAKE_SISU_URL}  `)
+    expect(src).toMatchObject({
+      type: 'sisu',
+      url: FAKE_SISU_URL,
+      icsUrl: FAKE_SISU_URL,
+      label: 'SISU calendar-share',
+      count: 0,
+    })
+    expect(src?.id).toBeTruthy()
+  })
+
+  it('builds a TimeEdit source from a .html page link', () => {
+    expect(sourceFromUrl(FAKE_TIMEEDIT_HTML)).toMatchObject({
+      type: 'timeedit',
+      icsUrl: FAKE_TIMEEDIT_ICS,
+      label: 'TimeEdit',
+    })
+  })
+
+  it('accepts an already-.ics TimeEdit link too', () => {
+    expect(sourceFromUrl(FAKE_TIMEEDIT_ICS)?.icsUrl).toBe(FAKE_TIMEEDIT_ICS)
+  })
+
+  it('rejects empty and unrecognised URLs', () => {
+    expect(sourceFromUrl('')).toBeNull()
+    expect(sourceFromUrl('   ')).toBeNull()
+    expect(sourceFromUrl('https://example.com/calendar.ics')).toBeNull()
+  })
+
+  it('mints a fresh id per added source', () => {
+    expect(sourceFromUrl(FAKE_SISU_URL)?.id).not.toBe(sourceFromUrl(FAKE_SISU_URL)?.id)
+  })
+})
+

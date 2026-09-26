@@ -193,13 +193,17 @@ describe('buildIcs', () => {
         uid: 'xyz-123',
       },
     ])
-    expect(ics.startsWith('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//LUT Timetable//EN\r\nCALSCALE:GREGORIAN\r\n')).toBe(true)
+    expect(
+      ics.startsWith(
+        'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//LUT Timetable//EN\r\nCALSCALE:GREGORIAN\r\nX-WR-CALNAME:LUT Timetable\r\n',
+      ),
+    ).toBe(true)
     expect(ics).toContain('BEGIN:VEVENT\r\n')
     expect(ics).toContain('\r\nUID:xyz-123@lut-timetable\r\n')
     expect(ics).toContain('\r\nDTSTART:20261214T063000Z\r\n')
     expect(ics).toContain('\r\nDTEND:20261214T093000Z\r\n')
-    // koma dan titik-koma di-escape (\\ = satu backslash literal)
-    expect(ics).toContain('\r\nSUMMARY:Math\\, A\\; Intro\r\n')
+    // 摘要带课程代码，且逗号/分号被转义（\\ = 一个反斜杠）
+    expect(ics).toContain('\r\nSUMMARY:BM20A9200 · Math\\, A\\; Intro\r\n')
     expect(ics).toContain('\r\nLOCATION:M19_D247\r\n')
     expect(ics).toContain('\r\nCATEGORIES:sisu\r\n') // type kosong -> hanya source
     expect(ics.endsWith('\r\nEND:VCALENDAR\r\n')).toBe(true)
@@ -228,5 +232,39 @@ describe('buildIcs', () => {
     expect(continuations).toBeGreaterThan(1)
     // UID fallback ke id saat uid kosong
     expect(ics).toContain('\r\nUID:c@lut-timetable\r\n')
+  })
+
+  it('folds by UTF-8 octets so CJK titles stay RFC-compliant', () => {
+    // 25 个汉字 = 75 字节：按字符数算就会漏过，按字节才会折
+    const cjk = '软件工程与算法设计导论实践课程'.repeat(3)
+    const ics = buildIcs([
+      {
+        id: 'cjk',
+        source: 'sisu',
+        code: 'CT60A4050',
+        title: cjk,
+        start: '2026-01-01T08:00:00Z',
+        end: '2026-01-01T09:00:00Z',
+      },
+    ])
+    const octets = (s: string) =>
+      [...s].reduce((n, ch) => {
+        const cp = ch.codePointAt(0) ?? 0
+        return n + (cp <= 0x7f ? 1 : cp <= 0x7ff ? 2 : cp <= 0xffff ? 3 : 4)
+      }, 0)
+    for (const line of ics.split('\r\n')) expect(octets(line)).toBeLessThanOrEqual(75)
+    // 续行必须以单个空格开头，接回去要等于原文（没有被截断/丢字符）
+    const unfolded = ics.replace(/\r\n /g, '')
+    expect(unfolded).toContain(`SUMMARY:CT60A4050 · ${cjk}`)
+    expect(ics.split('\r\n ').length).toBeGreaterThan(1)
+  })
+
+  it('accepts an injected clock and calendar name', () => {
+    const ics = buildIcs(
+      [{ id: 'n', source: 'manual', title: 'X', start: '2026-03-03T08:00:00Z', end: '2026-03-03T09:00:00Z' }],
+      { now: new Date('2026-03-01T12:34:56.789Z'), calName: 'My LUT, 2026' },
+    )
+    expect(ics).toContain('\r\nDTSTAMP:20260301T123456Z\r\n')
+    expect(ics).toContain('\r\nX-WR-CALNAME:My LUT\\, 2026\r\n')
   })
 })

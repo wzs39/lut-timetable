@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core'
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
+import { logError } from './errorLog'
 
 /**
  * Jembatan data widget layar utama (Android AppWidget).
@@ -12,9 +13,11 @@ import type { Task } from './tasks'
  * langsung, satu pemilik data: payload ini.
  */
 
-const PREF_KEY = 'widget_payload_v1'
+/** 小组件载荷键 —— 契约：Android TasksWidgetProvider/TodayWidgetProvider、iOS
+ *  LUTWidget 与后台刷新 pass（lib/backgroundSync）都读写这两个键。 */
+export const PREF_KEY = 'widget_payload_v1'
 /** Tasks widget payload — TasksWidgetProvider.kt membaca key ini. */
-const PREF_TASK_KEY = 'widget_tasks_payload_v1'
+export const PREF_TASK_KEY = 'widget_tasks_payload_v1'
 /** Deep-link nav dari widget tap: MainActivity menulis, web boot mengonsumsi. */
 const PREF_NAV_KEY = 'widget_nav_v1'
 
@@ -48,6 +51,12 @@ export interface WidgetPayload {
      * langsung membuka course page di browser; null = buka app biasa.
      */
     mid: number | null
+    /**
+     * Sesi ini terlibat dalam perubahan sinkron terakhir (waktu geser /
+     * ruang ganti / dibatalkan) — native menandai baris supaya perubahan
+     * tidak lewat begitu saja. Hanya diisi bila push membawa `marks`.
+     */
+    chg?: boolean
   }[]
   /** jumlah pelajaran minggu ini */
   weekCount: number
@@ -55,6 +64,8 @@ export interface WidgetPayload {
   next?: { name: string; room: string; at: string } | null
   /** epoch ms mulai kelas berikutnya — widget menghitung mundur sendiri. */
   nextStartMs?: number | null
+  /** 最近一次同步里值得标记的变动条数（小组件用它显示变动提示） */
+  chgN?: number
 }
 
 function localDate(d: Date): string {
@@ -75,6 +86,7 @@ export function buildWidgetPayload(
   lessons: Lesson[],
   now: Date = new Date(),
   moodleIdOf?: (code: string | undefined) => number | null,
+  marks?: { codes: string[]; n: number } | null,
 ): WidgetPayload {
   const day = localDate(now)
   const today = lessons
@@ -90,6 +102,8 @@ export function buildWidgetPayload(
     return t >= weekStart && t < weekEnd
   }).length
   const upcoming = today.find((l) => new Date(l.end) > now)
+  // 变动标记按「代码优先、无代码用标题」匹配，与 syncAudit 的 label 同口径
+  const marked = marks ? new Set(marks.codes) : null
 
   return {
     updatedAt: now.getTime(),
@@ -103,8 +117,10 @@ export function buildWidgetPayload(
       sms: new Date(l.start).getTime(),
       ems: new Date(l.end).getTime(),
       mid: moodleIdOf ? moodleIdOf(l.code) : null,
+      ...(marked?.has(l.code || l.title) ? { chg: true } : {}),
     })),
     weekCount,
+    ...(marks && marks.n > 0 ? { chgN: marks.n } : {}),
     next: upcoming
       ? {
           name: upcoming.code || upcoming.title,
@@ -123,16 +139,20 @@ export async function pushWidgetData(lessons: Lesson[]): Promise<void> {
     const { Preferences } = await import('@capacitor/preferences')
     // Resolver identitas: kode SISU → courseid Moodle (dibaca sekali per push).
     const { loadIdentityIndex } = await import('./courseIdentity')
+    const { loadAudits, recentChangeMarks } = await import('./syncAudit')
     const idIndex = loadIdentityIndex()
+    const marks = recentChangeMarks(loadAudits(), Date.now())
     await Preferences.set({
       key: PREF_KEY,
       value: JSON.stringify(
-        buildWidgetPayload(lessons, new Date(), (code) => idIndex.idForCode(code)),
+        buildWidgetPayload(lessons, new Date(), (code) => idIndex.idForCode(code), marks),
       ),
     })
     await refreshWidgets()
-  } catch {
-    // Widget adalah bonus — kegagalan push tidak boleh mengganggu app.
+  } catch (e) {
+    // Widget 是加分项——推送失败不能影响主流程，但必须留痕：
+    // “小组件没数据”是用户最常报的问题，没日志就只能猜。
+    logError('widget', e)
   }
 }
 

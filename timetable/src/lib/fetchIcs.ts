@@ -1,5 +1,6 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { TRANSIENT_KEYS } from './storage'
+import { bgHost, hasBgHost } from './bgHost'
 
 export const ICS_CACHE_TTL = 2 * 60 * 60 * 1000
 const ICS_CACHE_PREFIX = TRANSIENT_KEYS.icsCachePrefix
@@ -110,15 +111,28 @@ function devProxyUrl(url: string): string | null {
 
 /**
  * Rantai fetch bersama untuk SEMUA sumber (ICS kalender + Moodle web service):
- * CapacitorHttp → Electron bridge → dev proxy → langsung → proxy publik.
+ * host background → CapacitorHttp → Electron bridge → dev proxy → langsung → proxy publik.
  * Setiap langkah mencoba berurutan; kegagalan dikumpulkan untuk pesan akhir.
  */
 async function fetchChain(
   url: string,
-  opts: { accept: string; ttlMs: number; cacheKeyOf?: (u: string) => string },
+  opts: {
+    accept: string
+    ttlMs: number
+    cacheKeyOf?: (u: string) => string
+    /** 网络全没成、这趟拿的是缓存时回调（原因 = 最后一次失败）。
+     *  调用方（后台 pass）靠它分辨「刷新了」和「只是又读了一遍旧数据」。 */
+    onDegraded?: (reason: string) => void
+  },
 ): Promise<string> {
   const keyOf = opts.cacheKeyOf ?? cacheKey
   const cached = loadCached(keyOf(url), opts.ttlMs)
+
+  /** 走缓存返回：语义是「这趟没拿到新东西」，不能装作成功。 */
+  const serveCached = (text: string, error?: unknown): string => {
+    opts.onDegraded?.(error instanceof Error ? error.message : String(error ?? 'network unavailable'))
+    return text
+  }
 
   /** Respons error Moodle ({ exception: ... }) tidak boleh masuk cache —
    *  kalau ter-cache, error "Invalid parameter" bertahan 2 jam walau
@@ -128,6 +142,22 @@ async function fetchChain(
     const t = text.trimStart()
     if (t.startsWith('{') && /"exception"/.test(t.slice(0, 200))) return false
     return true
+  }
+
+  // 0. Host background (WebView tersembunyi Android / WKWebView iOS): tidak ada
+  //    Capacitor, tidak ada CORS — hanya HTTP native yang disuntikkan host.
+  //    Bentuknya sama dengan bridge Electron di bawah (satu jalur, bukan cabang baru).
+  if (hasBgHost()) {
+    try {
+      const host = bgHost()
+      if (!host) throw new Error('bg host tidak tersedia')
+      const text = await host.fetchText(url, opts.accept)
+      if (cacheable(text)) saveCached(keyOf(url), text)
+      return text
+    } catch (error) {
+      if (cached) return serveCached(cached.text, error)
+      throw error
+    }
   }
 
   if (Capacitor.isNativePlatform()) {
@@ -150,7 +180,7 @@ async function fetchChain(
       if (cacheable(text)) saveCached(keyOf(url), text)
       return text
     } catch (error) {
-      if (cached) return cached.text
+      if (cached) return serveCached(cached.text, error)
       throw error
     }
   }
@@ -161,7 +191,7 @@ async function fetchChain(
       if (cacheable(text)) saveCached(keyOf(url), text)
       return text
     } catch (error) {
-      if (cached) return cached.text
+      if (cached) return serveCached(cached.text, error)
       throw error
     }
   }
@@ -196,15 +226,18 @@ async function fetchChain(
       errors.push(e)
     }
   }
-  if (cached) return cached.text
+  if (cached) return serveCached(cached.text, errors[errors.length - 1])
   throw new Error(
     `Gagal memuat ICS (CORS/jaringan). Coba lagi atau cek koneksi. ${errors.map((e) => String(e)).join(' | ')}`,
   )
 }
 
 /** ICS kalender (SISU/TimeEdit/Moodle) — perilaku lama `fetchIcsText`. */
-export async function fetchIcsText(url: string): Promise<string> {
-  return fetchChain(url, { accept: 'text/calendar', ttlMs: ICS_CACHE_TTL })
+export async function fetchIcsText(
+  url: string,
+  onDegraded?: (reason: string) => void,
+): Promise<string> {
+  return fetchChain(url, { accept: 'text/calendar', ttlMs: ICS_CACHE_TTL, onDegraded })
 }
 
 /**

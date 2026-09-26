@@ -113,6 +113,56 @@ export async function refreshNotifications(
   }
 }
 
+/**
+ * 立即弹一条通知（不是预约，而是「同步时发现了改动」这类事后提示）。
+ *
+ * 与 refreshNotifications 同一条路径：先过权限闸门再碰插件（否则 Android 13+
+ * 未授权时插件在原生线程 NPE 直接杀进程），失败一律静默——审计日志已经落盘，
+ * 通知只是锦上添花。
+ */
+export async function notifyNow(
+  title: string,
+  body: string,
+  seed = body,
+): Promise<boolean> {
+  try {
+    const granted = await ensurePermission()
+    if (!granted) return false
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: notifId('sync-change:' + seed),
+          title,
+          body,
+          schedule: { at: new Date(Date.now() + 500) },
+          smallIcon: 'ic_stat_lesson',
+          iconColor: '#e7e5e4',
+        },
+      ],
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 只取消「课程提醒」，不动任务提醒与每日摘要——内容开关关掉时用，
+ * 比 cancelAllNotifications 精准（否则会把用户开着的其它通知一起清掉）。
+ */
+export async function cancelLessonReminders(lessons: Lesson[]): Promise<void> {
+  try {
+    const ids = new Set(lessons.map((l) => notifId(l.id)))
+    const pending = await LocalNotifications.getPending()
+    const mine = pending.notifications.filter((n) => ids.has(n.id))
+    if (mine.length > 0) {
+      await LocalNotifications.cancel({ notifications: mine.map((n) => ({ id: n.id })) })
+    }
+  } catch {
+    /* 静默：通知清理失败不影响应用 */
+  }
+}
+
 export async function cancelAllNotifications(): Promise<void> {
   const pending = await LocalNotifications.getPending()
   if (pending.notifications.length > 0) {

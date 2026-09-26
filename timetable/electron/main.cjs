@@ -3,6 +3,8 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { autoUpdater } = require('electron-updater')
 const { attachExternalLinkHandling } = require('./external-links.cjs')
+const { appIconPath } = require('./app-icon.cjs')
+const { createDesktop } = require('./desktop.cjs')
 
 const isDev = !app.isPackaged
 
@@ -82,6 +84,13 @@ ipcMain.handle('lut-proxy-fetch', async (_event, { url, method, headers, body })
 
 let mainWindow = null
 
+const desktop = createDesktop({
+  ipcMain,
+  getWindow: () => mainWindow,
+  createWindow,
+  sendToRenderer,
+})
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -98,6 +107,10 @@ function createWindow() {
   })
   mainWindow = win
 
+  // 关窗策略（收进托盘 / 无托盘时降级退出）的唯一决策点在 desktop.cjs ——
+  // 这里只接线，见 electron/desktop.cjs 的 handleClose。
+  win.on('close', (e) => desktop.handleClose(e))
+
   // Tautan luar (SISU, TimeEdit, Moodle, APK) keluar ke browser default OS.
   attachExternalLinkHandling(win.webContents, isInternalUrl)
 
@@ -108,20 +121,14 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
   // 跳转列表启动参数：加载后把视图 hash 写入（web 侧 hashchange 消费）。
+  // 和在跑的应用里点托盘菜单是同一件事——复用 desktop.navigateToView。
   const viewArg = process.argv.find((a) => a.startsWith('--open-view='))
-  if (viewArg) {
-    const view = viewArg.split('=')[1]
-    win.webContents.once('did-finish-load', () => {
-      win.webContents.executeJavaScript(
-        `location.hash = '#/view/${view}'`,
-      ).catch(() => {})
-    })
-  }
+  if (viewArg) desktop.navigateToView(viewArg.split('=')[1])
 }
 
 function broadcastUpdate(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('lut-update-event', payload)
+    sendToRenderer('lut-update-event', payload)
   }
 }
 
@@ -151,15 +158,18 @@ function deliverSsoUrl(url) {
 /** Windows: instance kedua diluncurkan OS dengan URL skema sebagai argv. */
 const gotSingleLock = app.requestSingleInstanceLock()
 if (!gotSingleLock) {
-  app.quit()
+  // 拿不到锁 = 已有一个实例在跑。必须**同步**退出：app.quit() 是异步的，whenReady
+  // 可能在它生效前就触发，于是这个进程会建自己的 BrowserWindow 与托盘、重新注册
+  // SSO 协议、再起一条 updater 定时器链，还和活着的实例抢同一份 userData
+  // （实测：它自己的 stdout 里有 tray ready 和 Unable to move the cache）。
+  // app.exit 不发 quit 事件、立即结束，正好是这里想要的。
+  app.exit(0)
 } else {
   app.on('second-instance', (_e, argv) => {
     const url = argv.find((a) => isSsoLaunchUrl(a))
     if (url) deliverSsoUrl(url)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
+    // 把已有窗口拉到前台：同一套逻辑（restore + show + focus）在 desktop.cjs 里。
+    desktop.showWindow()
   })
 }
 
@@ -257,11 +267,14 @@ function setupAutoUpdater() {
   setInterval(check, 6 * 60 * 60 * 1000)
 }
 
-app.whenReady().then(() => {
+// 启动工作整体挂在 gotSingleLock 上：即使 app.exit() 在某个时序下被推迟，拿不到锁的
+// 进程也不会进 whenReady。对正常实例是恒真条件，没有别的副作用。
+if (gotSingleLock) app.whenReady().then(() => {
   registerSsoProtocols()
   setupAutoUpdater()
   setupJumpList()
   createWindow()
+  desktop.setup()
 
   // Shudio lama versi (Cache/Code Cache WebView) tumbuh tanpa batas; versi
   // baru TIDAK otomatis menghapus cache lama (user data dipertahankan).
@@ -305,7 +318,7 @@ app.on('window-all-closed', () => {
  *  hashchange 消费者）。非 Windows 平台是 no-op。 */
 function setupJumpList() {
   if (process.platform !== 'win32' || typeof app.setJumpList !== 'function') return
-  const icon = path.join(process.resourcesPath || '', 'icon.ico')
+  const icon = appIconPath() || ''
   const view = (name, title, desc) => ({
     type: 'task',
     title,
@@ -319,9 +332,13 @@ function setupJumpList() {
     app.setJumpList([
       view('today', '今日', '打开今日视图'),
       view('week', '周视图', '打开周视图'),
-      view('assignments', '作业', '打开作业与任务'),
+      view('assign', '作业', '打开作业与任务'),
     ])
   } catch {
     // 跳转列表是锦上添花——失败不影响应用。
   }
+}
+
+function sendToRenderer(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
 }

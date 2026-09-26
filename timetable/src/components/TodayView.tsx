@@ -7,6 +7,8 @@ import { formatTime, nextLessonDay, sameDay, formatDateTime, formatLongDay } fro
 import { TYPE_META } from '../lib/lessonTypes'
 import { SOURCE_ICON } from '../lib/sources'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
+import { roomHops } from '../lib/roomHop'
+import { isSubscribed, type Subscription } from '../lib/subscriptions'
 import { noteForLesson, type NotesMap } from '../lib/notes'
 import {
   dueOn,
@@ -37,6 +39,13 @@ interface Props {
   onToggleTask?: (task: Task, completed: boolean) => void
   /** 打开作业页面 */
   onOpenAssignments?: () => void
+  /** 打开设置（空课表时的「添加课表源」入口） */
+  onOpenSettings?: () => void
+  /** 是否已有同步源；false 时空态横幅会给出「添加课表源」按钮 */
+  hasSources?: boolean
+  /** 订阅式提醒：空闲教室行上的「空出提醒我」开关 */
+  subscriptions?: Subscription[]
+  onWatchRoom?: (target: string, label: string, on: boolean) => void
 }
 
 /** Dua tab 今日视图: 课程 (jadwal + navigasi) / 动态 (tugas, ujian, ruangan). */
@@ -87,7 +96,7 @@ function LessonNoticeChip({ notice }: { notice?: LessonNotice }) {
  *  - 动态: ruangan kosong, ujian, pengumuman, tugas jatuh tempo.
  * Tab terakhir dipakai kembali saat buka (persisten).
  */
-export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments }: Props) {
+export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments, onOpenSettings, hasSources = true, subscriptions = [], onWatchRoom }: Props) {
   const { t, locale } = useI18n()
   const now = useNow()
   const [tab, setTab] = useState<TodayTab>(loadTab)
@@ -220,10 +229,12 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
 
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
-      <div className="mx-auto max-w-xl space-y-3">
-        <div className="flex items-center justify-between gap-2">
+      {/* ≥1280px：课程与动态并排（两栏信息密度更高，不用来回切 tab）；
+          窄屏保持单栏 + tab 切换。 */}
+      <div className="mx-auto max-w-xl space-y-3 xl:grid xl:max-w-5xl xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-5 xl:space-y-0">
+        <div className="flex items-center justify-between gap-2 xl:col-span-2">
           <h2 className="text-sm font-semibold text-[var(--text-2)]">{todayLabel}</h2>
-          <div className="app-seg" role="tablist">
+          <div className="app-seg xl:hidden" role="tablist">
             <button role="tab" aria-selected={tab === 'lessons'} onClick={() => switchTab('lessons')} className="px-2.5 py-1 text-[11px]">
               {t('todayTabLessons')}
             </button>
@@ -234,8 +245,7 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
           </div>
         </div>
 
-        {tab === 'lessons' ? (
-          <>
+        <div className={'space-y-3' + (tab === 'lessons' ? '' : ' hidden xl:block')}>
             <div className={'px-3 py-2.5 text-xs ' + bannerCls}>
               {banner.lesson ? (
                 <div className="flex items-center justify-between gap-2">
@@ -262,7 +272,19 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                   </span>
                 </div>
               ) : (
-                <span>{banner.text}</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>{banner.text}</span>
+                  {banner.tone === 'empty' && !hasSources && onOpenSettings && (
+                    <button
+                      onClick={onOpenSettings}
+                      className="app-btn-primary shrink-0 px-2.5 py-1 text-[11px]"
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <Icon name="plus" size={12} /> {t('addTimetableSource')}
+                      </span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -299,9 +321,9 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
             ) : (
               <LessonList lessons={today} notices={notices} notes={notes} locale={locale} onSelect={onSelect} now={now} />
             )}
-          </>
-        ) : (
-          <>
+        </div>
+
+        <div className={'space-y-3' + (tab === 'feed' ? '' : ' hidden xl:block')}>
             {/* ---- 空闲教室 ---- */}
             {freeRooms.length > 0 && (
               <CollapsiblePanel
@@ -313,19 +335,46 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 }
               >
                 <div className="space-y-1">
-                  {freeRooms.map((r) => (
-                    <div key={`${r.building}_${r.room}`} className="text-[11px]">
-                      <span className="font-semibold text-[var(--text-1)] inline-flex items-center gap-1"><Icon name="building" size={12} /> {r.building}</span>
-                      <span className="ml-2 text-[var(--text-2)]">
-                        {r.room}
-                        {r.nextBusyAt && (
-                          <span className="ml-1.5 text-[var(--text-3)]">
-                            · {t('freeUntil', { time: formatBusyAt(r.nextBusyAt, locale) })}
+                  {freeRooms.map((r) => {
+                    const key = `${r.building}_${r.room}`
+                    const watched = isSubscribed(subscriptions, 'room-free', key)
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-[11px]">
+                        <span className="min-w-0 flex-1 truncate">
+                          <span className="font-semibold text-[var(--text-1)] inline-flex items-center gap-1"><Icon name="building" size={12} /> {r.building}</span>
+                          <span className="ml-2 text-[var(--text-2)]">
+                            {r.room}
+                            {r.nextBusyAt && (
+                              <span className="ml-1.5 text-[var(--text-3)]">
+                                · {t('freeUntil', { time: formatBusyAt(r.nextBusyAt, locale) })}
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                    </div>
-                  ))}
+                        </span>
+                        {/* 订阅：这间教室空出来就推一条（再点取消） */}
+                        <button
+                          onClick={() =>
+                            onWatchRoom?.(
+                              key,
+                              // 展示用：楼号与房间号相同时（数据里常这么写）不重复一遍
+                              r.building === r.room ? r.room : `${r.building} ${r.room}`,
+                              !watched,
+                            )
+                          }
+                          aria-pressed={watched}
+                          className={
+                            'shrink-0 rounded px-1.5 py-0.5 text-[10px] transition ' +
+                            (watched
+                              ? 'bg-[var(--tint-info)] text-[var(--info)]'
+                              : 'text-[var(--text-3)] hover:bg-[var(--hover-1)]')
+                          }
+                          title={t('subRoomHint')}
+                        >
+                          {watched ? t('subOn') : t('subRoomWatch')}
+                        </button>
+                      </div>
+                    )
+                  })}
                 </div>
               </CollapsiblePanel>
             )}
@@ -450,8 +499,7 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 </div>
               </section>
             )}
-          </>
-        )}
+        </div>
       </div>
     </div>
   )
@@ -475,6 +523,8 @@ function LessonList({
   now?: number
 }) {
   const { t } = useI18n()
+  // 连堂赶课提示：挂在「上一节」下面（空档 + 步行估计）
+  const hops = useMemo(() => roomHops(lessons), [lessons])
   return (
     <ul className="space-y-2">
       {lessons.map((l) => {
@@ -535,6 +585,25 @@ function LessonList({
                 </div>
               </div>
             </button>
+            {(() => {
+              const hop = hops.get(l.id)
+              if (!hop) return null
+              return (
+                <div
+                  className={
+                    'mt-1 flex flex-wrap items-center gap-1.5 px-1 text-[10px] ' +
+                    (hop.tight ? 'text-[var(--due)]' : 'text-[var(--text-3)]')
+                  }
+                >
+                  <Icon name="jump" size={11} />
+                  <span>
+                    {t('hopTo', { loc: hop.to })} · {t('hopGap', { n: hop.gapMin })} ·{' '}
+                    {t(hop.crossBuilding ? 'hopWalkCross' : 'hopWalk', { n: hop.walkMin })}
+                  </span>
+                  {hop.tight && <span className="app-badge app-badge-due px-1.5">{t('hopTight')}</span>}
+                </div>
+              )
+            })()}
           </li>
         )
       })}

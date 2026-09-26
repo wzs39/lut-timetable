@@ -31,6 +31,33 @@ class WidgetBridgePlugin : Plugin() {
     }
 
     /**
+     * 开/关后台周期刷新（契约：src/lib/backgroundSchedule.ts）。
+     * 调度只发生在原生，JS 不持有周期状态——所以 status 也由这里回答。
+     */
+    @PluginMethod
+    fun scheduleBackgroundSync(call: PluginCall) {
+        val minutes = call.getInt("minutes") ?: 360
+        val scheduled = BackgroundSyncScheduler.schedule(context, minutes)
+        call.resolve(JSObject().put("scheduled", scheduled).put("intervalMinutes", minutes))
+    }
+
+    @PluginMethod
+    fun cancelBackgroundSync(call: PluginCall) {
+        BackgroundSyncScheduler.cancel(context, "disabled by autoSync")
+        call.resolve(JSObject().put("scheduled", false))
+    }
+
+    /** 诊断用：设置页/诊断报告能看到后台任务到底有没有排上。 */
+    @PluginMethod
+    fun backgroundStatus(call: PluginCall) {
+        call.resolve(
+            JSObject()
+                .put("scheduled", BackgroundSyncScheduler.isScheduled(context))
+                .put("jobId", BackgroundSyncScheduler.JOB_ID),
+        )
+    }
+
+    /**
      * Buang APK unduhan lama di Downloads/ (versi sebelumnya yang sudah
      * terpasang). Dipanggil web tepat sebelum memulai unduhan APK baru —
      * APK lama makan storage percuma. Hapus file apk yang usianya > 1 hari

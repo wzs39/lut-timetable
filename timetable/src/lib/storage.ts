@@ -25,6 +25,8 @@ export const KEYS = {
   moodleSource: 'tt_moodle_source_v1',
   gradesSource: 'tt_grades_source_v1',
   gradesSort: 'tt_grades_sort',
+  /** 成绩冷启动快照：重启/断网时先展示上次数据，刷新成功后覆盖 */
+  gradesCache: 'tt_grades_cache_v1',
   filterPresets: 'tt_filter_presets',
   translatorUrl: 'tt_translator_url',
   translatorSessions: 'tt_translator_sessions_v1',
@@ -41,6 +43,27 @@ export const KEYS = {
   themePreset: 'tt_theme_preset',
   autosync: 'tt_autosync',
   notif: 'tt_notif',
+  /** 每日摘要通知（早上推送当天课程） */
+  digest: 'tt_daily_digest',
+  /** 成绩目标模式：想在课程总分里达到的百分比 */
+  gradeTarget: 'tt_grade_target_v1',
+  /** 作业页：按影响分（课程剩余权重 × 紧迫度）排序 */
+  assignImpact: 'tt_assign_impact',
+  /** 本地错误环形缓冲（最近 N 条，导出诊断用） */
+  errorLog: 'tt_error_log_v1',
+  /** 订阅式提醒（课程变动 / 教室空出） */
+  subscriptions: 'tt_subscriptions_v1',
+  onboardingDone: 'tt_onboarding_done',
+  uiPrefs: 'tt_ui_prefs_v1',
+  sidebarManualOpen: 'tt_sidebar_manual_open',
+  sidebarLinksOpen: 'tt_sidebar_links_open',
+  /** 同步变更审计：最近几次同步的差异明细（新增/时间变动/换教室/取消） */
+  syncAudit: 'tt_sync_audit_v1',
+  /** 移动端「更多」抽屉的分区折叠状态（与侧栏各记各的） */
+  sheetSourcesOpen: 'tt_sheet_sources_open',
+  sheetManualOpen: 'tt_sheet_manual_open',
+  sheetSearchOpen: 'tt_sheet_search_open',
+  sheetLinksOpen: 'tt_sheet_links_open',
   ntfRead: 'tt_ntf_read_v1',
   ntfCache: 'tt_ntf_cache_v1',
 } as const

@@ -157,6 +157,70 @@ export function courseProjection(
   }
 }
 
+/**
+ * 目标模式：「想拿 T 分，剩下没评分的部分平均要多少」。
+ *
+ * 与 what-if 互补——what-if 是「如果我这项考 X 分，最终是多少」，
+ * 这里是反解：「要想到 T，剩下的平均得考多少」。
+ *
+ * 口径：
+ * - `remainingWeight` = 既没有 Moodle 分数、也没有 what-if 覆盖的项的权重和
+ *   （被覆盖的项已经按期望分计入 earned，不再是“未知”）；
+ * - `earned` = Σ w·g/100（未评分计 0）——同 Moodle 的进行中总分；
+ * - `requiredAvg` = (T − earned) / remainingWeight × 100，可能 <0（已达标）
+ *   或 >100（不可能）。
+ */
+export interface GradeTargetPlan {
+  target: number
+  /** 目前已得点数（0–100） */
+  earned: number
+  /** 已定分（含 what-if 覆盖）的权重和 */
+  settledWeight: number
+  /** 尚未确定的权重和（占课程总分的百分比） */
+  remainingWeight: number
+  /** 剩余部分需要的平均分；null = 没有剩余项 */
+  requiredAvg: number | null
+  /** 剩余全满分能达到的上限（0–100），便于解释“不可能” */
+  maxFinal: number
+  status: 'done' | 'reached' | 'possible' | 'unreachable'
+}
+
+export function gradeTargetPlan(
+  items: GradeItem[],
+  overrides: Record<number, number>,
+  target: number,
+): GradeTargetPlan {
+  let remainingWeight = 0
+  let settledWeight = 0
+  for (let i = 0; i < items.length; i++) {
+    const w = items[i].weight
+    if (w == null || w <= 0) continue
+    const known = items[i].grade != null || overrides[i] != null
+    if (known) settledWeight += w
+    else remainingWeight += w
+  }
+  const earned = weightedRunningTotal(items, overrides)
+  const requiredAvg = remainingWeight > 0 ? ((target - earned) / remainingWeight) * 100 : null
+  const status: GradeTargetPlan['status'] =
+    remainingWeight <= 0
+      ? 'done'
+      : (requiredAvg as number) <= 0
+        ? 'reached'
+        : (requiredAvg as number) > 100
+          ? 'unreachable'
+          : 'possible'
+  return {
+    target,
+    earned,
+    settledWeight,
+    remainingWeight,
+    requiredAvg,
+    // 剩余项全满分（含 what-if 覆盖）时能拿到的总分上限
+    maxFinal: Math.min(100, earned + remainingWeight),
+    status,
+  }
+}
+
 /* ------------------------- sorting & filtering ------------------------- */
 
 /** Urutan daftar kursus di segmen nilai. */

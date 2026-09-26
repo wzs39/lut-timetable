@@ -65,6 +65,29 @@ export function normalizeSisuUrl(raw: string): string | null {
   }
 }
 
+/**
+ * URL yang ditempel pengguna → SyncSource (null = tidak dikenali).
+ * Satu pemilik untuk Settings dan onboarding agar keduanya tidak pernah
+ * menerima bentuk URL yang berbeda.
+ */
+export function sourceFromUrl(raw: string): SyncSource | null {
+  const url = raw.trim()
+  if (!url) return null
+  const sisu = normalizeSisuUrl(url)
+  const timeedit = sisu ? null : normalizeTimeEditUrl(url)
+  const icsUrl = sisu || timeedit
+  if (!icsUrl) return null
+  const type = sisu ? 'sisu' : 'timeedit'
+  return {
+    id: uid(),
+    type,
+    url,
+    icsUrl,
+    label: type === 'sisu' ? 'SISU calendar-share' : 'TimeEdit',
+    count: 0,
+  }
+}
+
 /** TimeEdit: halaman .html → URL langganan .ics yang setara */
 export function normalizeTimeEditUrl(raw: string): string | null {
   try {
@@ -143,6 +166,17 @@ export function addHiddenKeys(lessons: Lesson[]) {
 /** Tampilkan lagi semua lesson yang disembunyikan */
 export function clearHiddenKeys() {
   writeJson(KEYS.hidden, [])
+}
+
+/** Cabut sebagian key tersembunyi (dipakai undo 「batalkan sembunyikan」) */
+export function removeHiddenKeys(keys: string[]) {
+  if (keys.length === 0) return
+  const set = loadHiddenKeys()
+  let changed = false
+  for (const k of keys) {
+    if (set.delete(k)) changed = true
+  }
+  if (changed) saveHiddenKeys(set)
 }
 
 /** Ingat pelajaran yang dihapus pengguna — tidak akan diimpor ulang saat sync */
@@ -287,8 +321,10 @@ export function backfillLessonTypes(lessons: Lesson[]): Lesson[] {
 export async function syncSource(
   src: SyncSource,
   existing: Lesson[],
+  /** feed 没拿到、退回了本地缓存时回调；不传就是不要这个信号（前台不在乎）。 */
+  onDegraded?: (reason: string) => void,
 ): Promise<{ lessons: Lesson[]; result: SyncResult }> {
-  const text = await fetchIcsText(src.icsUrl)
+  const text = await fetchIcsText(src.icsUrl, onDegraded)
   const events = parseIcs(text)
 
   const windowMs =

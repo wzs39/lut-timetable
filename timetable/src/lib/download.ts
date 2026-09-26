@@ -37,6 +37,32 @@ export async function downloadBlob(filename: string, blob: Blob): Promise<boolea
   return false
 }
 
+/**
+ * 分享一个链接（课表分享链接）：原生走 share sheet，其它平台复制到剪贴板。
+ * 返回值告诉界面该提示什么——"已复制"和"已分享"不是同一句话。
+ */
+export async function shareLinkText(
+  url: string,
+  title: string,
+): Promise<'native' | 'clipboard' | 'failed'> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const { Share } = await import('@capacitor/share')
+      await Share.share({ title, url, dialogTitle: title })
+      return 'native'
+    } catch {
+      // 用户取消 / 分享失败：退回剪贴板还是静默？取消是常见操作，保持静默。
+      return 'failed'
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    return 'clipboard'
+  } catch {
+    return 'failed'
+  }
+}
+
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()

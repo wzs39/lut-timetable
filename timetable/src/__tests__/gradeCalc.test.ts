@@ -6,6 +6,7 @@ import {
   effectiveGrade,
   filterGrades,
   getFinalCourseGrade,
+  gradeTargetPlan,
   gradedWeight,
   sortGrades,
   ungradedCount,
@@ -301,5 +302,56 @@ describe('getFinalCourseGrade — unified priority chain', () => {
 
   it('6. nothing at all → null', () => {
     expect(getFinalCourseGrade([item({ grade: null, weight: null })], null)).toBeNull()
+  })
+})
+
+// 【目标模式契约】反解「剩下未评分的部分平均要多少」：已得 + 剩余权重×平均 = 目标。
+describe('gradeTargetPlan', () => {
+  it('solves the remaining average for the target', () => {
+    // 已评 40% 拿了 30 点；剩余 60% 要凑到 80 → 还需 50/60 = 83.33%
+    const items = [
+      item({ grade: 75, weight: 40 }),
+      item({ grade: null, weight: 30 }),
+      item({ grade: null, weight: 30 }),
+    ]
+    const plan = gradeTargetPlan(items, {}, 80)
+    expect(plan.earned).toBeCloseTo(30, 5)
+    expect(plan.settledWeight).toBe(40)
+    expect(plan.remainingWeight).toBe(60)
+    expect(plan.requiredAvg).toBeCloseTo(83.333, 2)
+    expect(plan.status).toBe('possible')
+    expect(plan.maxFinal).toBe(90)
+  })
+
+  it('counts what-if overrides as settled, not as remaining', () => {
+    const items = [item({ grade: 50, weight: 50 }), item({ grade: null, weight: 50 })]
+    // 把未评分项期望为 100 → 剩余权重归零，不再需要“平均多少”
+    const plan = gradeTargetPlan(items, { 1: 100 }, 75)
+    expect(plan.earned).toBeCloseTo(75, 5)
+    expect(plan.remainingWeight).toBe(0)
+    expect(plan.requiredAvg).toBeNull()
+    expect(plan.status).toBe('done')
+  })
+
+  it('reports already-reached and out-of-reach targets', () => {
+    const items = [item({ grade: 100, weight: 60 }), item({ grade: null, weight: 40 })]
+    // 已得 60 点 → 目标 55 已达标（剩余全 0 也够）
+    expect(gradeTargetPlan(items, {}, 55).status).toBe('reached')
+    expect(gradeTargetPlan(items, {}, 55).requiredAvg).toBeLessThan(0)
+    // 上限 = 60 + 40 = 100；目标 101 不可能（目标 100 则恰好可能）
+    expect(gradeTargetPlan(items, {}, 101).status).toBe('unreachable')
+    expect(gradeTargetPlan(items, {}, 100).status).toBe('possible')
+    expect(gradeTargetPlan(items, {}, 100).requiredAvg).toBe(100)
+  })
+
+  it('ignores weightless items and survives an empty course', () => {
+    const items = [item({ grade: 90, weight: null }), item({ grade: null, weight: 20 })]
+    const plan = gradeTargetPlan(items, {}, 70)
+    expect(plan.settledWeight).toBe(0)
+    expect(plan.remainingWeight).toBe(20)
+    expect(plan.earned).toBe(0)
+    expect(plan.requiredAvg).toBeCloseTo(350, 5) // 无权重已评分项不进总分
+    expect(plan.status).toBe('unreachable')
+    expect(gradeTargetPlan([], {}, 80).status).toBe('done')
   })
 })
