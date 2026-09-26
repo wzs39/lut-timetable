@@ -333,3 +333,11 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **部分权重提示**：权重总和 <100% 时卡片 meta 行追加 `权重共 {w}%`（老师还没公布其余权重，别把「已计入 28%」误读成总分）。30361 的 HA 链全部无显式权重，正好落在这类。
 - 测试：`grades.test.ts` 新增分类权重继承 4 条（均摊/不碰有权成员/丢 category+course 行/running total 计入继承权重，反向算过 106.25 = Baseline 100 + HA1 6.25）；`gradesSnapshot.test.tsx` 新增 6 条（快照往返/空数组与坏 JSON 拒收/清除/classAvg 渲染/部分权重出现与不出现）。门禁：tsc ✓ / **640 测试 71 文件** ✓ / consistent 640:640 ✓ / oxlint 0 error 25 warning 既有 ✓ / build ✓。
 - 【坑】vitest `--root` 换目录跑临时测试会把项目里 70 个测试文件全拉进来再逐个报 `Cannot find module`（include 相对 root 解析）——真实载荷回放用 `vite-node` 跑临时 `.mts` 脚本更干净。CDP 断网用 `Network.emulateNetworkConditions`（渲染层 `navigator.onLine` 同步变 false），比拔网卡可编程。
+
+## 2026-09-26 · 「同步提交状态」报错修复（教师视角 API 空返回的回退语义）
+
+- **用户报「点击同步提交状态会出错」——真 token 复现链**：`mod_assign_get_assignments` 可用（29 个作业），但 ②`get_submissions` ③`get_grades` 直接 `invalid_parameter_exception`。分三步探参才定位全貌：① 代码传的 `assignmentids=JSON.stringify(ids)`（JSON 字符串）确实被拒；② 换 Moodle 的 indexed 格式（`assignmentids[0]=…`，URLSearchParams 键名带 `[0]` 即可，服务端接受 %5B 编码）后请求**成功但 assignments 恒为空**——mod_assign 提交/评分查询是教师视角 API，AGENTS.md 铁律②早有记录，但这里的表现不是报错而是**静默空**，更具迷惑性；③ 结论：LUT 学生 token 下该域**永远没有数据**，此前「成功」返回只是空集。
+- **修法（两处）**：`fetchSubmissionStatus` 参数改 indexed 格式；新增 `fallbackStatusByCmid` 参数 + `fellBackToGrades` 返回——教师 API 空返回时不再把 subMap 清空（旧代码会把已有状态清掉），改从 grades 域（`gradeStatusByCmid`，93 个 mod 项里 submitted=33/graded=57，学生可读）按 cmid 合成状态，作业元数据（名称/dueAt/cmid 深链）仍来自可用的 `get_assignments`。`syncSubmissions` 点击时先拉一遍 grades 域做回退源（失败不阻塞主链路），消息条显示「Moodle 未开放提交查询，已用成绩单里的提交状态刷新」而不是报错。**打包产物真验证**：真点击按钮 → FALLBACK_MSG 文案出现，无异常。
+- 【教训】「API 返回空」与「API 被拒绝」在 Moodle WS 上是两种失败：`invalid_parameter` 会抛（ gradesErrMsg 兜住），权限不足可能**静默空集**——解析层必须区分「网络成功但业务无数据」（回退/提示）与「网络失败」（报错）。参数格式教训同条：多值参数永远用 indexed 键名，别赌 JSON 字符串（curl 单发验证过 ≠ 服务器全局接受）。
+- 顺手清掉 `lessonAlerts.ts` 两处既有 `no-useless-escape` warning（字符类里的 `\.`），oxlint 25→24 warning。
+- 测试：`submissions.test.ts` 新增 4 条（indexed 参数形状/空返回回退且带 dueAt 与深链/真数据优先不被回退污染/无回退源时保持空集契约），vi.mock `wsCall`+`validateGradesToken`。门禁：tsc ✓ / **644 测试 71 文件** ✓ / consistent 644:644 ✓ / oxlint 0 error **24** warning ✓ / build ✓。
