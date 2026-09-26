@@ -256,6 +256,69 @@ describe('parseGradeItems — category rows, officialTotal & weighted fallback',
   })
 })
 
+// 【2026-09-26】Bobot kategori (baris 'category' berbobot) diratakan ke item
+// anggota tanpa bobot sendiri — pola nyata LUT: KE00DA03 (25% kategori dengan
+// satu anggota) & CT60A4050 (Attendance 10% dengan 10 anggota).
+describe('parseGradeItems — category weight inheritance', () => {
+  // Bentuk nyata: kategori berbobot + anggota tanpa weightraw + anggota
+  // berbobot sendiri + kategori tanpa bobot + weightraw 0 (tidak dihitung).
+  const nested = {
+    usergrades: [
+      {
+        courseid: 900,
+        gradeitems: [
+          // Kategori "Assignments" 25% dengan 2 anggota tanpa bobot → 12.5 each
+          { itemname: 'HA1', itemtype: 'mod', graderaw: 5, grademax: 10, categoryid: 421060 },
+          { itemname: 'HA2', itemtype: 'mod', graderaw: null, grademax: 10, categoryid: 421060 },
+          { itemname: null, itemtype: 'category', iteminstance: 421060, weightraw: 0.25, grademax: 20 },
+          // Kategori "Other" 25% dengan SATU anggota tanpa bobot → 25
+          { itemname: 'Optional practice', itemtype: 'mod', graderaw: null, grademax: 5, categoryid: 420910 },
+          { itemname: null, itemtype: 'category', iteminstance: 420910, weightraw: 0.25, grademax: 5 },
+          // Anggota berbobot sendiri: TIDAK disentuh (dosen yang menentukan)
+          { itemname: 'Baseline video', itemtype: 'mod', graderaw: 2, grademax: 2, weightraw: 1, categoryid: 420620 },
+          { itemname: null, itemtype: 'category', iteminstance: 420620, grademax: 2 },
+          // Kategori TANPA bobot: anggotanya tetap null (jangan mengarang bobot)
+          { itemname: 'Free form', itemtype: 'mod', graderaw: 1, grademax: 1, categoryid: 429990 },
+          { itemname: null, itemtype: 'category', iteminstance: 429990, grademax: 1 },
+          // Tanpa kategori (loose): tetap null
+          { itemname: 'Loose item', itemtype: 'mod', graderaw: 3, grademax: 3 },
+        ],
+      },
+    ],
+  }
+
+  it('spreads a weighted category evenly over its unweighted members', () => {
+    const [c] = parseGradeItems(nested)
+    const byName = (n: string) => c.items.find((i) => i.name === n)!
+    expect(byName('HA1').weight).toBeCloseTo(12.5, 2)
+    expect(byName('HA2').weight).toBeCloseTo(12.5, 2)
+    // Satu anggota → dapat bobot penuh kategorinya
+    expect(byName('Optional practice').weight).toBe(25)
+  })
+
+  it('never touches items with their own weightraw, loose items, or unweighted-category members', () => {
+    const [c] = parseGradeItems(nested)
+    const byName = (n: string) => c.items.find((i) => i.name === n)!
+    expect(byName('Baseline video').weight).toBe(100)
+    expect(byName('Free form').weight).toBeNull()
+    expect(byName('Loose item').weight).toBeNull()
+  })
+
+  it('drops category and course rows from the item list', () => {
+    const [c] = parseGradeItems(nested)
+    expect(c.items.map((i) => i.name)).toEqual([
+      'HA1', 'HA2', 'Optional practice', 'Baseline video', 'Free form', 'Loose item',
+    ])
+  })
+
+  it('uses inherited weights in the running total (ungraded count as 0)', () => {
+    // Baseline 100%×100% = 100 poin + HA1 5/10 × 12.5% = 6.25 → 106.25;
+    // HA2/Optional belum dinilai dihitung 0 (bukan dikecualikan).
+    const [c] = parseGradeItems(nested)
+    expect(c.average).toBeCloseTo(106.25, 2)
+  })
+})
+
 // Item skala (scaleid ≠ null): nilai teks resmi ("Passed") dipertahankan —
 // persen 1/2 = 50% menyesatkan untuk skala Fail–Pass.
 describe('parseGradeItems — scale items carry gradeText', () => {

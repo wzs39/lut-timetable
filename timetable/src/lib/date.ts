@@ -40,6 +40,49 @@ export function findCourseTarget(lessons: Lesson[], code: string): Lesson | unde
   )
 }
 
+/**
+ * 标题精确匹配（trim + 大小写不敏感）的跳转目标：口径与 findCourseTarget
+ * 一致（最早的未来一节课，否则最后一节过去的）。给无代码的手动课用——
+ * 命令面板里选中它们时不能像按代码匹配那样静默无反应。
+ */
+export function findLessonByTitle(lessons: Lesson[], title: string): Lesson | undefined {
+  const key = title.trim().toUpperCase()
+  if (!key) return undefined
+  const matches = lessons.filter((l) => (l.title ?? '').trim().toUpperCase() === key)
+  return (
+    matches
+      .slice()
+      .sort((a, b) => a.start.localeCompare(b.start))
+      .find((l) => new Date(l.end).getTime() >= Date.now()) ??
+    matches.slice().sort((a, b) => b.start.localeCompare(a.start))[0]
+  )
+}
+
+/**
+ * 同一天内的课程队列位置（课程详情面板的「上一节/下一节」）。
+ * 只认同一天（本地日期）且按开始时间排序，跨天时 index 为该天内的序号。
+ * 返回 null = 传进来的 id 不在列表里。
+ */
+export function sameDayQueue(
+  lessons: Lesson[],
+  id: string,
+): { index: number; total: number; prevId?: string; nextId?: string } | null {
+  const target = lessons.find((l) => l.id === id)
+  if (!target) return null
+  const day = new Date(target.start)
+  const queue = lessons
+    .filter((l) => sameDay(new Date(l.start), day))
+    .sort((a, b) => a.start.localeCompare(b.start))
+  const index = queue.findIndex((l) => l.id === id)
+  if (index < 0) return null
+  return {
+    index,
+    total: queue.length,
+    prevId: queue[index - 1]?.id,
+    nextId: queue[index + 1]?.id,
+  }
+}
+
 export function lessonsInRange(lessons: Lesson[], from: Date, to: Date): Lesson[] {
   const fromMs = from.getTime()
   const toMs = to.getTime()

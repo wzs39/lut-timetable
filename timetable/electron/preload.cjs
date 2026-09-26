@@ -31,3 +31,16 @@ contextBridge.exposeInMainWorld('lutUpdate', {
   install: () => ipcRenderer.invoke('lut-update-install'),
   check: () => ipcRenderer.invoke('lut-update-check'),
 })
+
+// 桌面常驻桥：托盘/全局快捷键的偏好由主进程持有（userData/desktop-prefs.json），
+// 渲染端只读写状态；托盘文案由渲染端推过去，这样菜单跟着 App 语言走。
+contextBridge.exposeInMainWorld('lutDesktop', {
+  getState: () => ipcRenderer.invoke('lut-desktop-get-state'),
+  setPrefs: (patch) => ipcRenderer.invoke('lut-desktop-set-prefs', patch),
+  setTrayLabels: (labels) => ipcRenderer.send('lut-tray-labels', labels),
+  onCommand: (callback) => {
+    const listener = (_event, payload) => callback(payload)
+    ipcRenderer.on('lut-tray-command', listener)
+    return () => ipcRenderer.removeListener('lut-tray-command', listener)
+  },
+})

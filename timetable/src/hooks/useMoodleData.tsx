@@ -9,9 +9,12 @@ import {
   type MoodleSource,
 } from '../lib/moodle'
 import {
+  clearGradesSnapshot,
   fetchGrades,
   gradesErrorKind,
+  loadGradesSnapshot,
   loadGradesSource,
+  saveGradesSnapshot,
   saveGradesSource,
   validateGradesToken,
   type CourseGrades,
@@ -116,7 +119,8 @@ export function MoodleProvider({
   const { t, locale } = useI18n()
   const [ics, setIcs] = useState<MoodleSource | null>(() => loadMoodleSource())
   const [token, setToken] = useState(() => loadGradesSource())
-  const [grades, setGrades] = useState<CourseGrades[] | null>(null)
+  // 冷启动快照：重启/断网时先展示上次成绩（首屏即有内容），网络刷新成功后覆盖。
+  const [grades, setGrades] = useState<CourseGrades[] | null>(() => loadGradesSnapshot()?.courses ?? null)
   const [subMap, setSubMap] = useState<Map<string, SubmissionStatus>>(new Map())
   const [subByCmid, setSubByCmid] = useState<Map<number, SubmissionStatus>>(new Map())
   /**
@@ -182,6 +186,7 @@ export function MoodleProvider({
         if (gradesR.status === 'fulfilled') {
           setGrades(gradesR.value.courses)
           mergeGradeStatus(gradesR.value.statusByCmid)
+          saveGradesSnapshot(gradesR.value.courses)
           saveGradesSource({ ...tk, lastSync: new Date().toISOString() })
           setToken((prev) => (prev ? { ...prev, lastSync: new Date().toISOString() } : prev))
         }
@@ -318,6 +323,7 @@ export function MoodleProvider({
     saveGradesSource(null)
     setToken(null)
     setGrades(null)
+    clearGradesSnapshot()
     setSubMap(new Map())
     setSubByCmid(new Map())
     setMessage(null)
@@ -480,6 +486,7 @@ export function MoodleProvider({
       const res = await fetchGrades(token, lessons)
       setGrades(res.courses)
       mergeGradeStatus(res.statusByCmid)
+      saveGradesSnapshot(res.courses)
       const withTime = { ...token, lastSync: new Date().toISOString() }
       saveGradesSource(withTime)
       setToken(withTime)

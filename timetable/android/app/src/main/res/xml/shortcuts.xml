@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  长按桌面图标 → 今日课表 / 本周课表 / 作业。
+
+  action 名必须与 MainActivity.viewFromAction() 一一对应。这里刻意用自定义
+  action（而不是 android.intent.action.MAIN + <extra>）：
+    · 显式组件启动（targetPackage + targetClass），不依赖系统解析；
+    · 可直接用
+      adb shell am start -a dev.lut.timetable.OPEN_ASSIGN -n dev.lut.timetable/.MainActivity
+      验证深链，与小组件的 tt_view 通道汇入同一个 view。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="today"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_today"
+        android:shortcutLongLabel="@string/shortcut_today_long">
+        <intent
+            android:action="dev.lut.timetable.OPEN_TODAY"
+            android:targetPackage="dev.lut.timetable"
+            android:targetClass="dev.lut.timetable.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="week"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_week"
+        android:shortcutLongLabel="@string/shortcut_week_long">
+        <intent
+            android:action="dev.lut.timetable.OPEN_WEEK"
+            android:targetPackage="dev.lut.timetable"
+            android:targetClass="dev.lut.timetable.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="assignments"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_assign"
+        android:shortcutLongLabel="@string/shortcut_assign_long">
+        <intent
+            android:action="dev.lut.timetable.OPEN_ASSIGN"
+            android:targetPackage="dev.lut.timetable"
+            android:targetClass="dev.lut.timetable.MainActivity" />
+    </shortcut>
+</shortcuts>

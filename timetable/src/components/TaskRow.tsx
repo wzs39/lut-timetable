@@ -26,6 +26,8 @@ interface Props {
   onJumpToCourse?: (code: string) => void
   /** 标题行右侧显示截止倒计时徽章（今日页）。 */
   showCountdown?: boolean
+  /** 影响分排序下的「建议先做」提示（含原因，作为 title 展示）。 */
+  priorityHint?: string
 }
 
 /**
@@ -45,6 +47,7 @@ export default function TaskRow({
   onDelete,
   onJumpToCourse,
   showCountdown,
+  priorityHint,
 }: Props) {
   const { t, locale } = useI18n()
   const md = useMoodleData()
@@ -89,6 +92,14 @@ export default function TaskRow({
               <ModBadge task={task} />
               {task.title}
             </div>
+            {priorityHint && !task.completed && (
+              <span
+                className="app-badge shrink-0 px-1.5 text-[var(--info)]"
+                title={priorityHint}
+              >
+                <Icon name="jump" size={10} /> {t('taskDoFirst')}
+              </span>
+            )}
             {leftMin != null && (
               <span className="app-badge app-badge-due shrink-0">
                 <Icon name="hourglass" size={11} /> {leftMin >= 60 ? t('durationHM', { h: Math.floor(leftMin / 60), m: leftMin % 60 }) : t('durationM', { m: leftMin })}

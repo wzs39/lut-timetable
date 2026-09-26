@@ -100,6 +100,22 @@ export async function refreshDueNotifications(
   }
 }
 
+/**
+ * Batalkan pengingat tenggat tugas (tanpa menyentuh pengingat pelajaran /
+ * ringkasan harian) — dipakai saat saklar tugas dimatikan.
+ */
+export async function cancelDueReminders(tasks: Task[]): Promise<void> {
+  try {
+    const pending = await LocalNotifications.getPending()
+    const mine = pending.notifications.filter((n) => isDueNotifId(n.id, tasks))
+    if (mine.length > 0) {
+      await LocalNotifications.cancel({ notifications: mine.map((n) => ({ id: n.id })) })
+    }
+  } catch {
+    /* diam: pembersihan notifikasi gagal bukan hal fatal */
+  }
+}
+
 /** Apakah id notifikasi ini milik pengingat tenggat tugas? */
 function isDueNotifId(id: number, tasks: Task[]): boolean {
   for (const task of tasks) {

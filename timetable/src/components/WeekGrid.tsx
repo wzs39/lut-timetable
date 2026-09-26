@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type TouchEvent } from 'react'
 import type { Lesson } from '../types'
-import { addDays, sameDay, startOfWeek, formatTime, formatDay } from '../lib/date'
+import {
+  addDays,
+  sameDay,
+  startOfWeek,
+  formatTime,
+  formatDay,
+  isoWeekNumber,
+  formatWeekRange,
+} from '../lib/date'
 import { useI18n } from '../i18n'
 import { useNowDate } from '../lib/useNow'
 import { KEYS } from '../lib/storage'
@@ -13,13 +21,20 @@ import {
 } from '../lib/layout'
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle } from '../lib/display'
+import { swipeIntent } from '../lib/swipe'
+import { WEEK_DENSITIES, hourPxOf, type WeekDensity } from '../lib/uiPrefs'
 import { noteForLesson, type NotesMap } from '../lib/notes'
 import LessonNote from './LessonNote'
 import Icon from './Icon'
 
 const START_HOUR = 8
 const END_HOUR = 20
+/** 标准档每小时像素；实际值来自 uiPrefs（紧凑/标准/宽松） */
 const HOUR_PX = 56
+/** 标准档下各文本层的显示阈值（px），随密度按比例缩放 */
+const TITLE_MIN_PX = 68
+const LOCATION_MIN_PX = 84
+const COMPACT_MAX_PX = 50
 /** Tinggi header hari (text-xs + py-1.5) — garis "sekarang" harus melewatinya */
 const DAY_HEADER_PX = 28
 
@@ -29,6 +44,13 @@ interface Props {
   onSelect: (id: string) => void
   /** Catatan kursus: kode+jenis -> teks */
   notes?: NotesMap
+  /** Geser satu minggu (dipakai sapuan horizontal di tampilan mobile) */
+  onShiftWeek?: (delta: -1 | 1) => void
+  /** 回到本周（移动端周导航内的「本周」按钮） */
+  onThisWeek?: () => void
+  /** 周视图密度（每小时行高）；不传 = 标准档 */
+  density?: WeekDensity
+  onDensity?: (d: WeekDensity) => void
 }
 
 const LS_DISMISS = KEYS.conflictDismissed
@@ -47,21 +69,33 @@ function useIsWideScreen(): boolean {
   return wide
 }
 
-export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: Props) {
+export default function WeekGrid({
+  lessons,
+  weekStart,
+  onSelect,
+  notes = {},
+  onShiftWeek,
+  onThisWeek,
+  density = 'standard',
+  onDensity,
+}: Props) {
   const { lang, t, locale } = useI18n()
   const isWide = useIsWideScreen()
   const scrollRef = useRef<HTMLDivElement>(null)
   // Garis "sekarang" ikut jam bersama aplikasi (satu timer, bukan per-komponen)
   const now = useNowDate()
 
-  // Auto-scroll ke jam sekarang saat pertama dibuka
+  // 实际行高来自密度偏好；比例 r 用于同步缩放文字层阈值
+  const hourPx = hourPxOf(density)
+  const r = hourPx / HOUR_PX
+
+  // Auto-scroll 到当前时刻（打开时；切密度时也重算，保持「现在」在视口内）
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const nowH = now.getHours() + now.getMinutes() / 60
-    el.scrollTop = Math.max(0, (nowH - START_HOUR) * HOUR_PX - HOUR_PX * 1.5)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    const nowH = new Date().getHours() + new Date().getMinutes() / 60
+    el.scrollTop = Math.max(0, (nowH - START_HOUR) * hourPx - hourPx * 1.5)
+  }, [hourPx])
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -76,9 +110,16 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
     () => sameDay(startOfWeek(now), weekStart),
     [now, weekStart],
   )
+  // 周导航文案（移动端内联导航；桌面端表头沿用同一对 helper）
+  const weekNum = isoWeekNumber(weekStart)
+  const weekRangeText = formatWeekRange(weekStart, locale)
+  /** 手机窄屏用的短日期段：第 39 周 · 9/21 – 9/27（完整文案留在 title 里） */
+  const weekRangeShort = `${weekDays[0].getMonth() + 1}/${weekDays[0].getDate()} – ${
+    weekDays[6].getMonth() + 1
+  }/${weekDays[6].getDate()}`
   const nowH = now.getHours() + now.getMinutes() / 60
   // offset header hari agar garis sejajar persis dengan grid jam
-  const nowTop = DAY_HEADER_PX + (nowH - START_HOUR) * HOUR_PX
+  const nowTop = DAY_HEADER_PX + (nowH - START_HOUR) * hourPx
   const showNowLine = isCurrentWeek && nowH >= START_HOUR && nowH <= END_HOUR
   const todayIndex = (now.getDay() + 6) % 7
 
@@ -149,13 +190,41 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
   const [mobileDay, setMobileDay] = useState(() =>
     sameDay(startOfWeek(now), weekStart) ? (now.getDay() + 6) % 7 : 0,
   )
+  // Pergantian minggu: default "minggu ini → hari ini, minggu lain → Senin",
+  // TETAPI sapuan yang melewati batas minggu ingin mendarat di hari tujuan
+  // (Minggu → Senin minggu depan, Senin → Minggu minggu lalu): ref menimpa.
+  const pendingDayRef = useRef<number | null>(null)
   useEffect(() => {
-    setMobileDay(
-      sameDay(startOfWeek(new Date()), weekStart)
+    const target =
+      pendingDayRef.current ??
+      (sameDay(startOfWeek(new Date()), weekStart)
         ? (new Date().getDay() + 6) % 7
-        : 0,
-    )
+        : 0)
+    pendingDayRef.current = null
+    setMobileDay(target)
   }, [weekStart])
+
+  // ---- Sapuan horizontal (mobile): ganti hari, lintasi batas minggu ----
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null)
+  const onTouchStart = (e: TouchEvent) => {
+    const t0 = e.touches[0]
+    touchStartRef.current = t0 ? { x: t0.clientX, y: t0.clientY } : null
+  }
+  const onTouchEnd = (e: TouchEvent) => {
+    const start = touchStartRef.current
+    touchStartRef.current = null
+    const t0 = e.changedTouches[0]
+    if (!start || !t0) return
+    const intent = swipeIntent(mobileDay, t0.clientX - start.x, t0.clientY - start.y)
+    if (!intent) return
+    if (intent.weekDelta === 0) {
+      setMobileDay(intent.day)
+      return
+    }
+    if (!onShiftWeek) return
+    pendingDayRef.current = intent.day
+    onShiftWeek(intent.weekDelta)
+  }
 
   // Urutan visual hari mobile: group yang masih tampil menjadi satu kontainer;
   // pelajaran biasa / group yang sudah diabaikan menjadi kartu tunggal.
@@ -266,7 +335,46 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
     const placed = byDay.get(mobileDay)?.placed || []
     const hiddenToday = hiddenGroupsOf(mobileDay)
     return (
-      <div className="flex-1 flex flex-col min-h-0">
+      <div
+        className="flex-1 flex flex-col min-h-0"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        {/* 周导航（<768px）：跟内容在一起——表头只留应用名 + 搜索，不再多一行按钮 */}
+        {onShiftWeek && (
+          <div className="flex items-center gap-1 px-3 pt-2">
+            <button
+              onClick={() => onShiftWeek(-1)}
+              className="app-btn shrink-0 min-h-8 px-2"
+              aria-label={t('prevWeek')}
+              title={t('prevWeek')}
+            >
+              <Icon name="chevron-left" size={15} />
+            </button>
+            <span
+              className="min-w-0 flex-1 truncate text-center text-[11px] tabular-nums text-[var(--text-2)]"
+              title={t('weekRange', { w: weekNum, range: weekRangeText })}
+            >
+              {t('weekRange', { w: weekNum, range: weekRangeShort })}
+            </span>
+            <button
+              onClick={() => onShiftWeek(1)}
+              className="app-btn shrink-0 min-h-8 px-2"
+              aria-label={t('nextWeek')}
+              title={t('nextWeek')}
+            >
+              <Icon name="chevron-right" size={15} />
+            </button>
+            {!isCurrentWeek && onThisWeek && (
+              <button
+                onClick={onThisWeek}
+                className="app-btn-primary shrink-0 min-h-8 px-2 text-[11px]"
+              >
+                {t('thisWeek')}
+              </button>
+            )}
+          </div>
+        )}
         {weekStrip && (
           <div className="px-3 pt-2 pb-0 text-[11px] text-[var(--text-2)]">
             {weekStrip}
@@ -310,10 +418,9 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
           )}
           {placed.length === 0 ? (
             <div
-              className="rounded-lg border border-dashed border-[var(--line)] py-8 text-center text-xs text-[var(--text-3)]"
-              style={EMPTY_HATCH}
-            >
-              {t('noLessonsToday')}
+              className="rounded-lg border border-dashed border-[var(--line)] py-8 text-center text-xs text-[var(--text-3)]"            style={EMPTY_HATCH}
+          >
+              {sameDay(weekDays[mobileDay], now) ? t('noLessonsToday') : t('noLessonsThatDay')}
             </div>
           ) : (
             mobileSegments.map((seg) =>
@@ -327,20 +434,43 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {weekStrip && (
-        <div className="px-4 pt-2 pb-0 text-[11px] text-[var(--text-2)]">
+      {/* 工具条：本周冲突摘要（左） + 密度切换（右） */}
+      <div className="flex items-center gap-3 px-4 pt-2 pb-1">
+        <div className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-2)]">
           {weekStrip}
         </div>
-      )}
+        {onDensity && (
+          <div className="app-seg shrink-0" role="group" title={t('densityTitle')}>
+            {WEEK_DENSITIES.map((d) => (
+              <button
+                key={d}
+                aria-pressed={density === d}
+                onClick={() => onDensity(d)}
+                className="px-2 py-0.5 text-[10px]"
+                title={t('densityTitle')}
+              >
+                {t(
+                  d === 'compact'
+                    ? 'densityCompact'
+                    : d === 'standard'
+                      ? 'densityStandard'
+                      : 'densityComfortable',
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div ref={scrollRef} className="flex-1 overflow-auto px-4 pb-4">
         <div className="flex min-w-[720px]">
-          {/* Jam */}
-          <div className="w-12 shrink-0" style={{ paddingTop: 28 }}>
+          {/* 时间列：表头占位块与日期表头等高（h-7），随滚动一起吸顶 */}
+          <div className="w-12 shrink-0">
+            <div className="sticky top-0 z-30 h-7 bg-[var(--surface-0)]" aria-hidden />
             {hours.map((h) => (
               <div
                 key={h}
                 className="text-[10px] text-[var(--text-3)] text-right pr-2"
-                style={{ height: HOUR_PX }}
+                style={{ height: hourPx }}
               >
                 {h.toString().padStart(2, '0')}:00
               </div>
@@ -353,7 +483,8 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
               <div key={i} className="flex-1 min-w-0 border-l border-[var(--line)]">
                 <div
                   className={
-                    'text-center text-xs py-1.5 ' +
+                    // 表头吸顶：纵向滚动时日期/冲突徽标始终可见（外层统一 h-7 = 28px）
+                    'sticky top-0 z-30 bg-[var(--surface-0)] text-center text-xs py-1.5 ' +
                     (sameDay(day, new Date())
                       ? 'text-[var(--text-1)] font-medium'
                       : 'text-[var(--text-3)]')
@@ -390,7 +521,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                 </div>
                 <div
                   className="relative"
-                  style={{ height: hours.length * HOUR_PX }}
+                  style={{ height: hours.length * hourPx }}
                 >
                   {/* 无课日占位：斜纹铺满整列（叠在网格线下方需在最前渲染，
                       但置于网格线之上更清晰——放在线之前让线保持锐利） */}
@@ -406,7 +537,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                     <div
                       key={h}
                       className="absolute left-0 right-0 border-t border-[var(--line)]/60"
-                      style={{ top: idx * HOUR_PX }}
+                      style={{ top: idx * hourPx }}
                     />
                   ))}
                   {(byDay.get(i)?.placed || []).map((p) => {
@@ -429,17 +560,18 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                       0.25,
                       (end.getTime() - start.getTime()) / 3600000,
                     )
-                    const top = Math.max(0, startH) * HOUR_PX
-                    const height = Math.min(durH, END_HOUR - START_HOUR) * HOUR_PX
+                    const top = Math.max(0, startH) * hourPx
+                    const height = Math.min(durH, END_HOUR - START_HOUR) * hourPx
                     const widthPct = 100 / cols
                     const cc = courseColor(l)
                     const note = noteForLesson(notes, l)
                     const titleText = displayTitle(l)
-                    const compact = height < 50
+                    // 阈值随密度等比缩放：紧凑档里的 1 小时课同样按「窄块」渲染
+                    const compact = height < COMPACT_MAX_PX * r
                     const showTitle =
-                      height >= 68 &&
+                      height >= TITLE_MIN_PX * r &&
                       titleText.toLowerCase() !== (l.code || '').toLowerCase()
-                    const showLocation = height >= 84 && !!l.location
+                    const showLocation = height >= LOCATION_MIN_PX * r && !!l.location
                     return (
                       <button
                         key={l.id}
@@ -518,7 +650,7 @@ export default function WeekGrid({ lessons, weekStart, onSelect, notes = {} }: P
                               <div
                                 className={
                                   'text-[10px] leading-tight opacity-95 ' +
-                                  (height >= 84 ? 'line-clamp-2' : 'truncate')
+                                  (height >= LOCATION_MIN_PX * r ? 'line-clamp-2' : 'truncate')
                                 }
                               >
                                 {titleText}

@@ -3,6 +3,11 @@ import type { Lesson, SyncSource } from './types'
 import { useTimetable } from './hooks/useTimetable'
 import { useMoodleData } from './hooks/useMoodleData'
 import { MoodleProvider } from './hooks/useMoodleData'
+import { useDesktopBridge } from './hooks/useDesktopBridge'
+import { useSubscriptions } from './hooks/useSubscriptions'
+import { useDiagnostics } from './hooks/useDiagnostics'
+import { useShareLinks } from './hooks/useShareLinks'
+import { useWidgetTaskBridge } from './hooks/useWidgetTaskBridge'
 import WeekGrid from './components/WeekGrid'
 import TodayView from './components/TodayView'
 import LessonDetail from './components/LessonDetail'
@@ -19,16 +24,49 @@ import {
   saveTranslatorUrl,
 } from './lib/translator'
 import Sidebar from './components/Sidebar'
+import MoreSheet from './components/MoreSheet'
+import type { SheetAction } from './lib/sheetActions'
+import CommandPalette from './components/CommandPalette'
+import Onboarding from './components/Onboarding'
 import { useI18n } from './i18n'
-import { loadTasks, pendingTasks, saveTasks, updateTask, type Task } from './lib/tasks'
-import { installWidgetNavBridge, pushTasksData, drainWidgetTaskOps } from './lib/widgetData'
-import { taskCmidOf } from './lib/submissions'
+import { KEYS as STORE_KEYS, readString as readStored, writeString as writeStored } from './lib/storage'
+import { sourceFromUrl } from './lib/store'
+import { exportBackup } from './lib/backup'
+import { exportTimetableIcs } from './lib/exportIcs'
+import { parseShareHash } from './lib/shareLink'
+import { isSubscribed } from './lib/subscriptions'
+import ShareImportDialog from './components/ShareImportDialog'
+import ShareQrDialog from './components/ShareQrDialog'
+import { buildPalette, type PaletteAction } from './lib/palette'
+import {
+  applyA11y,
+  SIDEBAR_DEFAULT_PX,
+  clampSidebarWidth,
+  loadUiPrefs,
+  saveUiPrefs,
+  type Contrast,
+  type TextScale,
+  type WeekDensity,
+} from './lib/uiPrefs'
+import { openExternal } from './lib/openExternal'
+import { addTask, loadTasks, pendingTasks, saveTasks, updateTask, type Task } from './lib/tasks'
+import { installWidgetNavBridge, pushTasksData } from './lib/widgetData'
 import { useDelayedUnmount } from './lib/useExitAnimation'
 import { checkApkUpdate } from './lib/apkUpdate'
 import { maybeCleanOldApks } from './lib/apkUpdate'
 import Icon from './components/Icon'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
-import { startOfWeek, addDays, lessonsInRange, sameDay, formatWeekRange, isoWeekNumber, findCourseTarget } from './lib/date'
+import {
+  startOfWeek,
+  addDays,
+  lessonsInRange,
+  sameDay,
+  formatWeekRange,
+  isoWeekNumber,
+  findCourseTarget,
+  findLessonByTitle,
+  sameDayQueue,
+} from './lib/date'
 import {
   loadNotes,
   noteForLesson,
@@ -61,37 +99,8 @@ function AppInner({
   const { lang, locale, setLang, t } = useI18n()
   const md = useMoodleData()
 
-  // Widget 小组件勾选回灌：boot 与每次回前台时排空 widget_task_ops_v1 队列。
-  // 复选框可能发生在应用被杀时——在最早的机会把变更写回任务列表（updateTask
-  // 自带 updatedAt 盖戳 + saveTasks 持久化）；Moodle 活动任务再走 pushTask-
-  // Completion 服务器反向同步，与 UI 内勾选完全同一链路。手动任务只改本地。
-  const tasksRef = useRef<Task[]>(tasks)
-  tasksRef.current = tasks
-  const widgetOpsBusyRef = useRef(false)
-  useEffect(() => {
-    const drain = async () => {
-      if (widgetOpsBusyRef.current) return
-      widgetOpsBusyRef.current = true
-      try {
-        for (const op of await drainWidgetTaskOps()) {
-          const t0 = tasksRef.current.find((x) => x.id === op.id)
-          if (!t0 || t0.completed === op.completed) continue
-          setTasks(updateTask(tasksRef.current, op.id, { completed: op.completed }))
-          const cmid = taskCmidOf(t0)
-          if (cmid !== undefined) md.pushTaskCompletion(cmid, op.completed)
-        }
-      } finally {
-        widgetOpsBusyRef.current = false
-      }
-    }
-    void drain()
-    const onVis = () => {
-      if (document.visibilityState === 'visible') void drain()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-    // pushTaskCompletion 稳定（useCallback [token]）；tasks 经 ref 读取避免重挂。
-  }, [md.pushTaskCompletion, setTasks])
+  // 小组件后台回调（勾选回灌 + 任务变化时重抓后台种子）全在 useWidgetTaskBridge。
+  useWidgetTaskBridge({ tasks, setTasks, pushTaskCompletion: md.pushTaskCompletion })
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
   const [view, setView] = useState<'today' | 'week' | 'assign' | 'moodle'>(() => {
     // Windows 跳转列表 / 深链入口：#/view/today|week|assign|moodle
@@ -104,13 +113,29 @@ function AppInner({
   const [assignFilter, setAssignFilter] = useState<'overdue' | 'due7' | 'later' | null>(null)
   const [assignQuery, setAssignQuery] = useState<string | undefined>(undefined)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // 分享 / 导入、诊断、订阅各是一个关注点——状态都在自己的 hook 里，App 只接线。
+  const share = useShareLinks({
+    lessons: tt.visibleLessons,
+    weekStart,
+    t,
+    importLessons: tt.importSharedLessons,
+  })
+  const { errorCount, reloadErrorCount, exportDiagnostics, clearErrorLog } = useDiagnostics({
+    locale,
+    t,
+    sourceCount: tt.sources.length,
+    lessonCount: tt.lessons.length,
+    taskCount: tasks.length,
+  })
+  const { subscriptions, watchCourse, watchRoom, markFiredAt, toggle, remove } = useSubscriptions()
   const [showDupResolver, setShowDupResolver] = useState(false)
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [showConflicts, setShowConflicts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showMoreActions, setShowMoreActions] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const drawerMounted = useDelayedUnmount(menuOpen)
+  /** 移动端「更多」抽屉（<md 才渲染）：低频入口全部收进去，主界面只留信息 */
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const sheetMounted = useDelayedUnmount(sheetOpen)
   const [notes, setNotes] = useState<NotesMap>(() => loadNotes())
   const [updateState, setUpdateState] = useState<{
     version: string
@@ -122,6 +147,75 @@ function AppInner({
   const [updateChecking, setUpdateChecking] = useState(false)
   const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
   const [translatorMsg, setTranslatorMsg] = useState<string | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  // 布局偏好（周视图密度 / 侧栏宽度）——单一存储键，改动即持久化。
+  const [uiPrefs, setUiPrefs] = useState(() => loadUiPrefs())
+  useEffect(() => saveUiPrefs(uiPrefs), [uiPrefs])
+  // 无障碍偏好是 DOM 属性（CSS 读它）——存储与显示分开，这里只负责同步
+  useEffect(() => applyA11y(uiPrefs), [uiPrefs])
+  /** 侧栏拖拽调宽：拖动期间实时更新（state 即持久化），双击恢复默认 */
+  const startSidebarResize = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startW = uiPrefs.sidebarWidth
+      const onMove = (ev: PointerEvent) =>
+        setUiPrefs((prev) => ({
+          ...prev,
+          sidebarWidth: clampSidebarWidth(startW + ev.clientX - startX),
+        }))
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp)
+    },
+    [uiPrefs.sidebarWidth],
+  )
+  // 首次启动引导：仅「无来源 + 无课程 + 未看过」时自动弹出；可从菜单/命令面板重开。
+  const [showOnboarding, setShowOnboarding] = useState(
+    () =>
+      !readStored(STORE_KEYS.onboardingDone) &&
+      tt.sources.length === 0 &&
+      tt.lessons.length === 0,
+  )
+  // 撤销条：一条消息 + 一个复原动作，6 秒后自动消失（新操作顶掉旧的）。
+  const [undoNotice, setUndoNotice] = useState<{ message: string } | null>(null)
+  const undoActionRef = useRef<(() => void) | null>(null)
+  const undoTimerRef = useRef<number | null>(null)
+  const clearUndoTimer = useCallback(() => {
+    if (undoTimerRef.current !== null) {
+      window.clearTimeout(undoTimerRef.current)
+      undoTimerRef.current = null
+    }
+  }, [])
+  const dismissUndo = useCallback(() => {
+    clearUndoTimer()
+    undoActionRef.current = null
+    setUndoNotice(null)
+  }, [clearUndoTimer])
+  const showUndo = useCallback(
+    (message: string, action: () => void) => {
+      undoActionRef.current = action
+      setUndoNotice({ message })
+      clearUndoTimer()
+      undoTimerRef.current = window.setTimeout(() => {
+        undoTimerRef.current = null
+        undoActionRef.current = null
+        setUndoNotice(null)
+      }, 6000)
+    },
+    [clearUndoTimer],
+  )
+  const runUndo = useCallback(() => {
+    const action = undoActionRef.current
+    undoActionRef.current = null
+    clearUndoTimer()
+    setUndoNotice(null)
+    action?.()
+  }, [clearUndoTimer])
+  useEffect(() => clearUndoTimer, [clearUndoTimer])
 
   // Widget 深链：view 只在挂载时读一次 hash，运行中由 widget tap 经
   // MainActivity → __widgetNav 写 hash；此 listener 把 hash 变化接到 view 状态。
@@ -133,10 +227,23 @@ function AppInner({
         if (m[1] === 'assign') { setAssignFilter(null); setAssignQuery(undefined) } // 普通深链不带筛选
         setView(m[1] as 'today' | 'week' | 'assign' | 'moodle')
       }
+      // 分享链接：#/import/<payload> — 挂载时和运行中改 hash 都要处理
+      const payload = parseShareHash(location.hash)
+      if (payload) share.openShareImport(payload)
     }
+    onHash()
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [])
+  }, [share.openShareImport])
+
+  /**
+   * 打开设置：顺手刷新错误条数（后台报的错要能及时看到）。
+   * 放在这里而不是 useEffect——effect 里同步 setState 会触发一次额外渲染。
+   */
+  const openSettings = useCallback(() => {
+    reloadErrorCount()
+    setShowSettings(true)
+  }, [reloadErrorCount])
 
   // Manual one-click link: only touches Lecture Translator when the user
   // presses the sidebar button — never automatic, never in the background.
@@ -218,25 +325,216 @@ function AppInner({
     )
     return off
   }, [appVersion])
+
+  // ---- 桌面端（Electron）：托盘 + 全局快捷键的接线全在 useDesktopBridge，
+  // 状态的唯一所有者在主进程（userData/desktop-prefs.json）。
+  const { desktop, applyDesktopPrefs } = useDesktopBridge(lang, checkForUpdate)
+
   const selectedLesson: Lesson | null = useMemo(
     () => tt.lessons.find((l) => l.id === selectedId) ?? null,
     [tt.lessons, selectedId],
   )
   const dupGroups = useMemo(() => findDuplicateGroups(tt.lessons), [tt.lessons])
   const dupCount = removableCount(dupGroups)
+
+  /**
+   * 移动端抽屉动作：桌面 ⋯ 菜单 + 语言开关的等价集合。
+   * 这里只声明「有没有待处理事项」（pending 数量 / attention）与优先权重，
+   * 排前/置底由 `orderSheetActions` 决定（见 lib/sheetActions.ts）。
+   */
+  const sheetActions = useMemo<SheetAction[]>(() => {
+    // 后台已经拿到新版本（ready）/ 正在下载 / 已发现可下载 APK：都算「有事要做」
+    const updatePending =
+      !!updateState &&
+      (updateState.kind === 'available' ||
+        updateState.kind === 'ready' ||
+        updateState.kind === 'downloading')
+    return [
+      {
+        key: 'update',
+        icon: 'sync',
+        label: updatePending
+          ? t(updateState?.kind === 'ready' ? 'updateTileReady' : 'updateTileAvailable', {
+              v: updateState?.version ?? '',
+            })
+          : updateChecking
+            ? t('updateChecking')
+            : t('updateCheck'),
+        onRun: () => void checkForUpdate(),
+        attention: updatePending,
+        priority: 4,
+      },
+      {
+        key: 'dups',
+        icon: 'puzzle',
+        label: t('dupsTile'),
+        onRun: () => setShowDupResolver(true),
+        pending: dupCount,
+        priority: 3,
+      },
+      {
+        key: 'unhide',
+        icon: 'eye-off',
+        label: t('unhideTile'),
+        onRun: () => tt.unhideAll(),
+        pending: tt.hiddenKeys.size,
+        priority: 2,
+      },
+      { key: 'settings', icon: 'settings', label: t('settingsTitle'), onRun: openSettings },
+      { key: 'batch', icon: 'search', label: t('batchButton'), onRun: () => setShowBatchFilter(true) },
+      { key: 'conflicts', icon: 'warn', label: t('conflictsButton'), onRun: () => setShowConflicts(true) },
+      {
+        key: 'lang',
+        icon: 'globe',
+        label: `${t('langTitle')} · ${lang === 'zh' ? 'EN' : '中文'}`,
+        onRun: () => setLang(lang === 'zh' ? 'en' : 'zh'),
+      },
+      { key: 'onboarding', icon: 'compass', label: t('obReplay'), onRun: () => setShowOnboarding(true) },
+    ]
+  }, [checkForUpdate, dupCount, lang, openSettings, setLang, t, tt, updateChecking, updateState])
   const pendingTaskCount = pendingTasks(tasks).length
+  /** 课程详情里的「上一节/下一节」：同一天内的队列位置 */
+  const lessonQueue = useMemo(
+    () => (selectedLesson ? sameDayQueue(tt.visibleLessons, selectedLesson.id) : null),
+    [selectedLesson, tt.visibleLessons],
+  )
 
   /** Lompat ke minggu kemunculan berikutnya dari kode kursus + pilih sesinya.
    *  Satu pemilik untuk ketiga view (today/moodle/assign). */
+  /** 跳到某节课所在周并选中它（视图跳转的公共尾部） */
+  const jumpToLesson = useCallback((target: Lesson | undefined) => {
+    if (!target) return
+    setWeekStart(startOfWeek(new Date(target.start)))
+    setView('week')
+    setSelectedId(target.id)
+  }, [])
+
   const jumpToCourse = useCallback(
-    (code: string) => {
-      const target = findCourseTarget(tt.visibleLessons, code)
-      if (!target) return
-      setWeekStart(startOfWeek(new Date(target.start)))
-      setView('week')
-      setSelectedId(target.id)
+    (code: string) => jumpToLesson(findCourseTarget(tt.visibleLessons, code)),
+    [jumpToLesson, tt.visibleLessons],
+  )
+
+  /** 删除 / 隐藏课程的唯一入口：把 useTimetable 的快照挂到撤销条上 */
+  const removeLessonsUndoable = useCallback(
+    (ids: string[], mode: 'delete' | 'hide') => {
+      const snapshot = mode === 'delete' ? tt.removeMany(ids) : tt.hideLessons(ids)
+      if (!snapshot) return
+      showUndo(
+        mode === 'delete'
+          ? t('undoRemovedLessons', { n: snapshot.slots.length })
+          : t('undoHiddenLessons', { n: snapshot.hidden.length }),
+        () => tt.restoreUndo(snapshot),
+      )
     },
-    [tt.visibleLessons],
+    [showUndo, t, tt],
+  )
+
+  /** 课程备注删除（设置页 + 课程详情共用同一条可撤销路径） */
+  const removeNoteUndoable = useCallback(
+    (key: string) => {
+      const snapshot = notes
+      if (!snapshot[key]) return
+      setNotes(removeNote(snapshot, key))
+      showUndo(t('undoNoteRemoved'), () => setNotes(snapshot))
+    },
+    [notes, showUndo, t],
+  )
+
+  /** 作业页的所有写操作：数组变短 = 删除了条目 → 给一次撤销机会 */
+  const applyTasks = useCallback(
+    (next: Task[]) => {
+      if (next.length < tasks.length) {
+        const snapshot = tasks
+        showUndo(t('undoTaskRemoved', { n: tasks.length - next.length }), () =>
+          setTasks(saveTasks(snapshot)),
+        )
+      }
+      setTasks(saveTasks(next))
+    },
+    [setTasks, showUndo, t, tasks],
+  )
+
+  const paletteItems = useMemo(
+    () => (paletteOpen ? buildPalette({ t, locale, lessons: tt.lessons, tasks, dupCount }) : []),
+    [paletteOpen, t, locale, tt.lessons, tasks, dupCount],
+  )
+
+  /** 命令面板动作的唯一派发点 */
+  const runPaletteAction = useCallback(
+    (action: PaletteAction) => {
+      setPaletteOpen(false)
+      switch (action.kind) {
+        case 'view':
+          if (action.view === 'assign') {
+            setAssignFilter(null)
+            setAssignQuery(undefined)
+          }
+          setView(action.view)
+          break
+        case 'week':
+          if (action.delta === 0) setWeekStart(startOfWeek(new Date()))
+          else setWeekStart(addDays(weekStart, action.delta * 7))
+          if (action.delta !== 0) setView('week')
+          break
+        case 'course':
+          // 有代码走代码前缀；无代码的手动课回退到标题匹配
+          jumpToLesson(
+            action.code
+              ? findCourseTarget(tt.visibleLessons, action.code)
+              : findLessonByTitle(tt.visibleLessons, action.title),
+          )
+          break
+        case 'task': {
+          const task = tasks.find((x) => x.id === action.taskId)
+          setAssignFilter(null)
+          setAssignQuery(task?.title)
+          setView('assign')
+          break
+        }
+        case 'settings':
+          openSettings()
+          break
+        case 'sync':
+          void tt.syncAll()
+          break
+        case 'batch':
+          setShowBatchFilter(true)
+          break
+        case 'conflicts':
+          setShowConflicts(true)
+          break
+        case 'dupes':
+          setShowDupResolver(true)
+          break
+        case 'exportBackup':
+          void exportBackup()
+          break
+        case 'exportIcs':
+          // 导出的是用户实际看到的课表（含手动课，已去掉隐藏项）
+          void exportTimetableIcs(tt.visibleLessons)
+          break
+        case 'shareWeek':
+          void share.shareWeek()
+          break
+        case 'quickAddTask': {
+          // 命令面板一行话直接落库：新增任务 + 跳到作业页看到它
+          applyTasks(
+            addTask(tasks, { title: action.title, course: '', dueAt: action.dueAt, note: '' }),
+          )
+          setAssignFilter(null)
+          setAssignQuery(undefined)
+          setView('assign')
+          break
+        }
+        case 'checkUpdate':
+          void checkForUpdate()
+          break
+        case 'onboarding':
+          setShowOnboarding(true)
+          break
+      }
+    },
+    [applyTasks, checkForUpdate, jumpToLesson, openSettings, share.shareWeek, tasks, tt, weekStart],
   )
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
@@ -254,33 +552,104 @@ function AppInner({
   const onNextWeek = useCallback(() => setWeekStart(addDays(weekStart, 7)), [weekStart])
   const onThisWeek = useCallback(() => setWeekStart(startOfWeek(new Date())), [])
 
+  /** 添加来源 = 立刻拉一次；不让用户加完再自己找「同步」按钮 */
+  const addSourceNow = useCallback(
+    (src: SyncSource) => {
+      tt.addSource([...tt.sources, src])
+      void tt.sync(src)
+    },
+    [tt],
+  )
+
+  /** 首次引导用：URL → 来源（sourceFromUrl 是唯一的链接解析器） */
+  const addSourceFromUrl = useCallback(
+    (url: string): string | null => {
+      const src = sourceFromUrl(url)
+      if (!src) return null
+      addSourceNow(src)
+      return src.id
+    },
+    [addSourceNow],
+  )
+
+  // 键盘快捷键：Ctrl/Cmd+K 面板 · 1-4 切视图 · ←/→ 切周 · T 回到本周。
+  // 输入框内、带修饰键的组合、弹层打开时一律让路（不抢键）。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      const typing =
+        !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setPaletteOpen((open) => !open)
+        return
+      }
+      if (typing || mod || e.altKey || paletteOpen) return
+      if (e.key === 'Escape') {
+        setShowMoreActions(false)
+        setSheetOpen(false)
+        return
+      }
+      const overlayOpen =
+        showSettings ||
+        showDupResolver ||
+        showBatchFilter ||
+        showConflicts ||
+        showOnboarding ||
+        !!selectedId
+      if (overlayOpen) return
+      if (e.key === '1') setView('today')
+      else if (e.key === '2') setView('week')
+      else if (e.key === '3') {
+        setAssignFilter(null)
+        setAssignQuery(undefined)
+        setView('assign')
+      } else if (e.key === '4') setView('moodle')
+      else if (e.key === 'ArrowLeft') {
+        setView('week')
+        onPrevWeek()
+      } else if (e.key === 'ArrowRight') {
+        setView('week')
+        onNextWeek()
+      } else if (e.key === 't' || e.key === 'T') {
+        setView('week')
+        onThisWeek()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [
+    onNextWeek,
+    onPrevWeek,
+    onThisWeek,
+    paletteOpen,
+    selectedId,
+    showBatchFilter,
+    showConflicts,
+    showDupResolver,
+    showOnboarding,
+    showSettings,
+  ])
+
   // Catatan kursus: kunci = kode kursus ternormalisasi + jenis sesi.
   const saveNoteForLesson = useCallback((lesson: Lesson, text: string) => {
     setNotes((prev) => saveNote(prev, lesson, text))
-  }, [])
-  const removeNoteByKey = useCallback((key: string) => {
-    setNotes((prev) => removeNote(prev, key))
   }, [])
 
   return (
     <div className="app-shell h-screen flex flex-col">
       <header className="app-header safe-top flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-[var(--line)]">
         <div className="flex items-center gap-3">
-          <button
-            className="app-btn md:hidden px-2.5 min-h-9"
-            onClick={() => setMenuOpen(true)}
-            title="菜单"
-          >
-            <Icon name="menu" size={16} />
-          </button>
+          {/* 移动端不再放汉堡按钮：主导航已下到底部标签栏（拇指可达） */}
           <h1 className="text-sm font-semibold">{t('appName')}</h1>
           <span className="hidden sm:inline text-[11px] text-[var(--text-3)]">
             {t('lessonsSources', { n: tt.lessons.length, m: tt.sources.length })}
           </span>
         </div>
         <div className="app-actions flex flex-wrap items-center justify-end gap-1.5 text-xs ml-auto">
-          {/* 视图切换：今日 / 周 / 作业 */}
-          <div className="app-seg">
+          {/* 视图切换：桌面/平板保留在头部（移动端交给底部标签栏） */}
+          <div className="app-seg hidden md:flex">
             <button onClick={() => setView('today')} aria-pressed={view === 'today'}>
               {t('viewToday')}
             </button>
@@ -313,7 +682,7 @@ function AppInner({
             </button>
           </div>
           {view === 'week' && (
-            <div className="hidden sm:flex items-center gap-1.5">
+            <div className="hidden md:flex items-center gap-1.5">
               <button
                 onClick={onPrevWeek}
                 className="app-btn px-2.5 min-h-9"
@@ -342,13 +711,21 @@ function AppInner({
             </div>
           )}
           <button
+            onClick={() => setPaletteOpen(true)}
+            className="app-btn inline-flex items-center gap-1.5 px-2 sm:px-2.5 min-h-9"
+            title={t('paletteShortcuts')}
+          >
+            <Icon name="search" size={14} />
+            <span className="hidden sm:inline text-[10px] text-[var(--text-3)]">Ctrl K</span>
+          </button>
+          <button
             onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-            className="app-btn px-2.5 min-h-9 font-medium"
+            className="app-btn max-md:hidden px-2.5 min-h-9 font-medium"
             title="切换语言 / Switch language"
           >
             {lang === 'zh' ? 'EN' : '中文'}
           </button>
-          <div className="relative">
+          <div className="relative max-md:hidden">
             <button
               onClick={() => setShowMoreActions((open) => !open)}
               className="app-btn px-2 sm:px-2.5 min-h-9"
@@ -360,10 +737,16 @@ function AppInner({
             {showMoreActions && (
               <div className="animate-pop-in absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-1.5 shadow-2xl shadow-black/50">
                 <button
-                  onClick={() => { setShowSettings(true); setShowMoreActions(false) }}
+                  onClick={() => { openSettings(); setShowMoreActions(false) }}
                   className="app-menu-item"
                 >
                   <span className="inline-flex items-center gap-2"><Icon name="settings" /> {t('settingsTitle')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
+                </button>
+                <button
+                  onClick={() => { setShowOnboarding(true); setShowMoreActions(false) }}
+                  className="app-menu-item"
+                >
+                  <span className="inline-flex items-center gap-2"><Icon name="compass" /> {t('obReplay')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
                 </button>
                 <button
                   onClick={() => { setShowBatchFilter(true); setShowMoreActions(false) }}
@@ -405,78 +788,34 @@ function AppInner({
             )}
           </div>
         </div>
-        {/* Baris navigasi minggu khusus ponsel: teks rentang utuh, tidak terpotong */}
-        {view === 'week' && (
-          <div className="sm:hidden flex w-full items-center gap-1 pb-0.5">
-            <button
-              onClick={onPrevWeek}
-              className="app-btn shrink-0 px-2 min-h-9"
-              title={t('prevWeek')}
-            >
-              <Icon name="chevron-left" size={15} />
-            </button>
-            <span
-              className="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 text-center text-[11px] leading-snug tabular-nums text-[var(--text-2)]"
-            >
-              {t('weekRange', { w: weekNum, range: weekRangeText })}
-            </span>
-            <button
-              onClick={onNextWeek}
-              className="app-btn shrink-0 px-2 min-h-9"
-              title={t('nextWeek')}
-            >
-              <Icon name="chevron-right" size={15} />
-            </button>
-            {!isCurrentWeek && (
-              <button
-                onClick={onThisWeek}
-                className="app-btn-primary shrink-0 px-2 min-h-9"
-              >
-                {t('thisWeek')}
-              </button>
-            )}
-          </div>
-        )}
       </header>
-      <div className="flex flex-1 min-h-0">
-        {/* 移动端：侧栏变成抽屉（<md）。进入滑入、退出滑出（useDelayedUnmount
-            在退出帧期间保持挂载，动画结束后才真正卸载）。 */}
-        {drawerMounted && (
-          <div
-            className={
-              (menuOpen ? 'animate-fade-in ' : 'animate-fade-out ') +
-              'fixed inset-0 z-40 flex bg-black/60 md:hidden'
-            }
-            onClick={(e) => e.target === e.currentTarget && setMenuOpen(false)}
-          >
-            <div
-              className={
-                (menuOpen ? 'animate-drawer-in ' : 'animate-exit-left ') + 'h-full'
-              }
-            >
-              <Sidebar
-                sources={tt.sources}
-                syncing={tt.syncing}
-                syncMessage={tt.syncMessage}
-                onSync={tt.sync}
-                onAddManual={tt.addManualLesson}
-                onOpenSettings={() => setShowSettings(true)}
-                onCloseDrawer={() => setMenuOpen(false)}
-              />
-            </div>
-          </div>
-        )}
-        {/* 桌面端：固定侧栏 */}
-        <div className="hidden md:flex h-full">
+      {/* 底部标签栏占位：移动端内容不被导航盖住（桌面无此栏） */}
+      <div className="flex flex-1 min-h-0 pb-[calc(3.4rem+env(safe-area-inset-bottom,0px))] md:pb-0">
+        {/* 桌面端：固定侧栏（宽度可拖拽，偏好持久化） */}
+        <div
+          className="hidden md:flex h-full shrink-0"
+          style={{ width: uiPrefs.sidebarWidth }}
+        >
           <Sidebar
             sources={tt.sources}
             syncing={tt.syncing}
             syncMessage={tt.syncMessage}
             onSync={tt.sync}
             onAddManual={tt.addManualLesson}
-            onOpenSettings={() => setShowSettings(true)}
+            onOpenSettings={openSettings}
           />
         </div>
+        {/* 拖拽手柄：双击恢复默认宽度 */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          title={t('sidebarResizeHint')}
+          onPointerDown={startSidebarResize}
+          onDoubleClick={() =>
+            setUiPrefs((prev) => ({ ...prev, sidebarWidth: SIDEBAR_DEFAULT_PX }))
+          }
+          className="hidden md:block w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--hover-1)]"
+        />
         <main className="flex-1 flex flex-col min-w-0">
           <div key={view} className="animate-view-in flex flex-1 min-h-0 flex-col">
           {view === 'today' && (
@@ -492,6 +831,10 @@ function AppInner({
                 setAssignQuery(undefined)
                 setView('assign')
               }}
+              onOpenSettings={openSettings}
+              hasSources={tt.sources.length > 0}
+              subscriptions={subscriptions}
+              onWatchRoom={watchRoom}
             />
           )}
           {view === 'week' && (
@@ -500,6 +843,10 @@ function AppInner({
               weekStart={weekStart}
               onSelect={setSelectedId}
               notes={notes}
+              onShiftWeek={(delta) => setWeekStart((w) => addDays(w, delta * 7))}
+              onThisWeek={onThisWeek}
+              density={uiPrefs.density}
+              onDensity={(d: WeekDensity) => setUiPrefs((prev) => ({ ...prev, density: d }))}
             />
           )}
           {view === 'moodle' && (
@@ -512,14 +859,14 @@ function AppInner({
                 setAssignQuery(query)
                 setView('assign')
               }}
-              onOpenSettings={() => setShowSettings(true)}
+              onOpenSettings={openSettings}
             />
           )}
           {view === 'assign' && (
             <AssignmentsView
               tasks={tasks}
               lessons={tt.lessons}
-              onChange={(next) => setTasks(saveTasks(next))}
+              onChange={applyTasks}
               key={`${assignFilter ?? 'all'}|${assignQuery ?? ''}`}
               initialFilter={assignFilter}
               initialQuery={assignQuery}
@@ -529,12 +876,94 @@ function AppInner({
           </div>
         </main>
       </div>
+      {/* 移动端主导航：底部标签栏（拇指可达、始终可见；桌面端由侧栏 + 头部承担） */}
+      <nav
+        className="md:hidden fixed inset-x-0 bottom-0 z-40 flex border-t border-[var(--line)] bg-[var(--surface-1)]"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        {(
+          [
+            { key: 'today', icon: 'live', label: t('viewToday'), badge: 0 },
+            { key: 'week', icon: 'clock', label: t('viewWeek'), badge: 0 },
+            { key: 'assign', icon: 'graduation', label: t('assignNav'), badge: pendingTaskCount },
+            { key: 'moodle', icon: 'book', label: t('moodleNav'), badge: md.unread },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.key}
+            onClick={() => {
+              if (item.key === 'assign') {
+                setAssignFilter(null) // 底部导航 = 无预置筛选（同侧栏）
+                setAssignQuery(undefined)
+              }
+              setView(item.key)
+            }}
+            aria-pressed={view === item.key}
+            className={
+              'relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] transition-colors ' +
+              (view === item.key ? 'text-[var(--text-1)]' : 'text-[var(--text-3)]')
+            }
+          >
+            <Icon name={item.icon} size={17} />
+            <span className="max-w-full truncate">{item.label}</span>
+            {item.badge > 0 && (
+              <span className="app-badge absolute right-[16%] top-2.5 px-1 text-[9px] font-semibold tabular-nums">
+                {item.badge > 9 ? '9+' : item.badge}
+              </span>
+            )}
+          </button>
+        ))}
+        <button
+          onClick={() => setSheetOpen(true)}
+          className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] text-[var(--text-3)]"
+          title={t('moreActions')}
+        >
+          <Icon name="menu" size={17} />
+          <span className="max-w-full truncate">{t('moreActions')}</span>
+        </button>
+      </nav>
+      {sheetMounted && (
+        <MoreSheet
+          open={sheetOpen}
+          actions={sheetActions}
+          sources={tt.sources}
+          syncing={tt.syncing}
+          syncMessage={tt.syncMessage}
+          onSync={tt.sync}
+          onAddManual={tt.addManualLesson}
+          onOpenSettings={openSettings}
+          onClose={() => setSheetOpen(false)}
+        />
+      )}
       {selectedLesson && (
         <LessonDetail
           lesson={selectedLesson}
           onSave={tt.updateLesson}
-          onDelete={tt.removeLesson}
-          onHide={(id) => tt.hideLessons([id])}
+          onDelete={(id) => removeLessonsUndoable([id], 'delete')}
+          nav={
+            lessonQueue
+              ? {
+                  index: lessonQueue.index,
+                  total: lessonQueue.total,
+                  onPrev: lessonQueue.prevId
+                    ? () => setSelectedId(lessonQueue.prevId as string)
+                    : undefined,
+                  onNext: lessonQueue.nextId
+                    ? () => setSelectedId(lessonQueue.nextId as string)
+                    : undefined,
+                }
+              : undefined
+          }
+          onHide={(id) => removeLessonsUndoable([id], 'hide')}
+          watched={
+            !!selectedLesson.code &&
+            isSubscribed(subscriptions, 'course-change', selectedLesson.code)
+          }
+          onWatch={
+            selectedLesson.code
+              ? (on) => watchCourse(selectedLesson, on)
+              : undefined
+          }
           timeEditUrl={
             tt.sources.find(
               (s) =>
@@ -548,7 +977,7 @@ function AppInner({
             selectedLesson ? noteForLesson(notes, selectedLesson) : undefined
           }
           onSaveNote={(text) => saveNoteForLesson(selectedLesson, text)}
-          onRemoveNote={() => removeNoteByKey(noteKeyOf(selectedLesson))}
+          onRemoveNote={() => removeNoteUndoable(noteKeyOf(selectedLesson))}
           assignments={tasks}
           onOpenAssignments={() => {
             setSelectedId(null)
@@ -558,18 +987,35 @@ function AppInner({
           }}
         />
       )}
+      {share.shareQr && (
+        <ShareQrDialog
+          link={share.shareQr.link}
+          qr={share.shareQr.qr}
+          count={share.shareQr.count}
+          onClose={share.closeShareQr}
+        />
+      )}
+      {share.shareImport && (
+        <ShareImportDialog
+          decoded={share.shareImport.kind === 'confirm' ? share.shareImport.decoded : null}
+          failed={share.shareImport.kind === 'failed'}
+          imported={share.shareImport.kind === 'done' ? share.shareImport : null}
+          onConfirm={share.confirmShareImport}
+          onClose={share.closeShareImport}
+        />
+      )}
       {showDupResolver && (
         <DuplicateResolver
           groups={dupGroups}
-          onRemoveMany={tt.removeMany}
+          onRemoveMany={(ids) => removeLessonsUndoable(ids, 'delete')}
           onClose={() => setShowDupResolver(false)}
         />
       )}
       {showBatchFilter && (
         <BatchFilter
           lessons={tt.lessons}
-          onRemoveMany={tt.removeMany}
-          onHideMany={tt.hideLessons}
+          onRemoveMany={(ids) => removeLessonsUndoable(ids, 'delete')}
+          onHideMany={(ids) => removeLessonsUndoable(ids, 'hide')}
           onClose={() => setShowBatchFilter(false)}
         />
       )}
@@ -582,7 +1028,9 @@ function AppInner({
           onToggleAutoSync={tt.setAutoSync}
           notifEnabled={tt.notifEnabled}
           onToggleNotif={tt.setNotifEnabled}
-          onAddSource={(s: SyncSource) => tt.addSource([...tt.sources, s])}
+          digestEnabled={tt.digestEnabled}
+          onToggleDigest={tt.setDigestEnabled}
+          onAddSource={addSourceNow}
           onRemoveSource={tt.removeSource}
           onSync={tt.sync}
           translatorUrl={translatorUrl}
@@ -593,8 +1041,42 @@ function AppInner({
           onLinkTranslator={linkTranslatorNow}
           translatorMsg={translatorMsg}
           notes={notes}
-          onRemoveNote={removeNoteByKey}
+          onRemoveNote={removeNoteUndoable}
+          onExportIcs={() => void exportTimetableIcs(tt.visibleLessons)}
+          onShareWeek={share.shareWeek}
+          subscriptions={subscriptions}
+          onToggleSubscription={toggle}
+          onRemoveSubscription={remove}
+          textScale={uiPrefs.textScale}
+          contrast={uiPrefs.contrast}
+          onTextScale={(v: TextScale) => setUiPrefs((prev) => ({ ...prev, textScale: v }))}
+          onContrast={(v: Contrast) => setUiPrefs((prev) => ({ ...prev, contrast: v }))}
+          errorCount={errorCount}
+          onExportDiagnostics={exportDiagnostics}
+          onClearErrors={clearErrorLog}
+          audits={tt.audits}
+          onClearAudits={tt.clearAudits}
+          desktop={desktop}
+          onDesktopPrefs={applyDesktopPrefs}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          items={paletteItems}
+          onRun={runPaletteAction}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {showOnboarding && (
+        <Onboarding
+          onAddSource={addSourceFromUrl}
+          onLoginMoodle={() => md.loginWithSso((url) => openExternal(url))}
+          onFinish={() => {
+            writeStored(STORE_KEYS.onboardingDone, '1')
+            setShowOnboarding(false)
+          }}
+          onOpenSettings={openSettings}
         />
       )}
       {showConflicts && (
@@ -612,9 +1094,38 @@ function AppInner({
         />
       )}
 
-      <NotificationManager enabled={tt.notifEnabled} lessons={tt.lessons} tasks={tasks} />
-      {updateState && (
+      <NotificationManager
+        enabled={tt.notifEnabled}
+        digestEnabled={tt.digestEnabled}
+        lessons={tt.lessons}
+        tasks={tasks}
+        subscriptions={subscriptions}
+        onSubscriptionsFired={markFiredAt}
+      />
+      {undoNotice && (
         <div className="fixed bottom-4 inset-x-0 z-50 flex justify-center px-4 animate-modal-in">
+          <div className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--text-1)] shadow-lg">
+            <span>{undoNotice.message}</span>
+            <button onClick={runUndo} className="app-btn-primary px-3 min-h-9 font-medium">
+              {t('undoBtn')}
+            </button>
+            <button
+              onClick={dismissUndo}
+              className="opacity-80 transition hover:opacity-100"
+              title={t('closeHint')}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          </div>
+        </div>
+      )}
+      {updateState && (
+        <div
+          className={
+            'fixed inset-x-0 z-50 flex justify-center px-4 animate-modal-in ' +
+            (undoNotice ? 'bottom-20' : 'bottom-4')
+          }
+        >
           <div
             className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg text-sm px-4 py-3 shadow-lg max-w-full ${
               updateState.kind === 'error'

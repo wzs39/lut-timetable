@@ -12,6 +12,8 @@ struct WidgetLesson: Decodable {
     let room: String
     let sms: Double    // epoch ms 开始
     let ems: Double    // epoch ms 结束
+    /// 最近一次同步里这节课被改过（时间/教室/新增）→ 行首一个圆点
+    let chg: Bool?
 }
 
 struct WidgetPayload: Decodable {
@@ -21,6 +23,8 @@ struct WidgetPayload: Decodable {
     let items: [WidgetLesson]
     let weekCount: Int
     let next: Next?
+    /// 最近一次同步里值得标记的变动条数（可选，旧 payload 没有）
+    let chgN: Int?
 }
 
 struct TodayEntry: TimelineEntry {
@@ -137,10 +141,16 @@ private struct LessonRow: View {
                 .foregroundColor(isNow ? .accentColor : .secondary)
                 .frame(width: 38, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.name)
-                    .font(.caption.weight(isNow ? .semibold : .regular))
-                    .foregroundColor(isNow ? .accentColor : .primary)
-                    .lineLimit(1)
+                HStack(spacing: 3) {
+                    // 变动标记：不做替换（结束时刻还要用），只在课程码前加一个点
+                    if item.chg == true && !isNow {
+                        Circle().fill(Color.orange).frame(width: 4, height: 4)
+                    }
+                    Text(item.name)
+                        .font(.caption.weight(isNow ? .semibold : .regular))
+                        .foregroundColor(isNow ? .accentColor : .primary)
+                        .lineLimit(1)
+                }
                 Text(item.room)
                     .font(.caption2)
                     .foregroundColor(.secondary)

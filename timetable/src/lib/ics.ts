@@ -195,14 +195,42 @@ function icsEscape(s: string): string {
     .replace(/;/g, '\\;')
 }
 
-/** Lipat baris > 75 oktet (aturan RFC 5545: lanjutan diawali spasi, CRLF). */
-function foldIcs(line: string): string {
-  if (line.length <= 75) return line
-  const chunks: string[] = []
-  for (let rest = line; rest.length > 0; ) {
-    chunks.push(rest.slice(0, 75))
-    rest = rest.slice(75)
+/** 一行内容的 UTF-8 字节数（RFC 5545 的上限按 octet 算，不按字符） */
+function utf8Octets(s: string): number {
+  let n = 0
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) ?? 0
+    n += cp <= 0x7f ? 1 : cp <= 0x7ff ? 2 : cp <= 0xffff ? 3 : 4
   }
+  return n
+}
+
+/**
+ * Lipat baris > 75 oktet (aturan RFC 5545: lanjutan diawali spasi, CRLF).
+ *
+ * 【坑】原来按 `String.length` 切（= UTF-16 code unit）：中文/芬兰语标题只要
+ * 25 个汉字就已经超 75 oktet，导出的 .ics 会被严格解析器判为不合规。这里按
+ * code point 累计字节数，且用 for...of 迭代，不会把代理对（emoji）切成两半。
+ * 续行前导空格也算一个字节，所以后续行只有 74 可用。
+ */
+function foldIcs(line: string): string {
+  if (utf8Octets(line) <= 75) return line
+  const chunks: string[] = []
+  let cur = ''
+  let curOctets = 0
+  let limit = 75
+  for (const ch of line) {
+    const octets = utf8Octets(ch)
+    if (curOctets + octets > limit) {
+      chunks.push(cur)
+      cur = ''
+      curOctets = 0
+      limit = 74 // 续行的前导空格占 1 字节
+    }
+    cur += ch
+    curOctets += octets
+  }
+  if (cur) chunks.push(cur)
   return chunks.join('\r\n ')
 }
 
@@ -210,13 +238,15 @@ function foldIcs(line: string): string {
  * Bangun file .ics (iCalendar) dari daftar pelajaran, siap diimpor ke
  * Outlook / Google Calendar / Apple Calendar. Urut ascending oleh waktu mulai.
  */
-export function buildIcs(lessons: Lesson[]): string {
-  const now = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+export function buildIcs(lessons: Lesson[], opts: { now?: Date; calName?: string } = {}): string {
+  const now = (opts.now ?? new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//LUT Timetable//EN',
     'CALSCALE:GREGORIAN',
+    // 日历名：导入后日历列表里显示的是它，缺了就显示 "(无标题)"
+    foldIcs(`X-WR-CALNAME:${icsEscape(opts.calName ?? 'LUT Timetable')}`),
   ]
   const sorted = [...lessons].sort(
     (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
@@ -231,7 +261,9 @@ export function buildIcs(lessons: Lesson[]): string {
     lines.push(`DTSTAMP:${now}`)
     lines.push(`DTSTART:${start}`)
     lines.push(`DTEND:${end}`)
-    if (l.title) lines.push(foldIcs(`SUMMARY:${icsEscape(l.title)}`))
+    // SUMMARY 带课程代码：日历里一模一样的课程名靠代码区分，也方便一眼找到课
+    const summary = [l.code, l.title].filter(Boolean).join(' · ')
+    if (summary) lines.push(foldIcs(`SUMMARY:${icsEscape(summary)}`))
     if (l.location) lines.push(foldIcs(`LOCATION:${icsEscape(l.location)}`))
     const cats = [l.type, l.source, ...(l.mergedSources ?? [])].filter(Boolean).join(',')
     if (cats) lines.push(foldIcs(`CATEGORIES:${icsEscape(cats)}`))

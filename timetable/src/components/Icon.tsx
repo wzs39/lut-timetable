@@ -35,6 +35,7 @@ export type IconName =
   | 'book'
   | 'building'
   | 'compass'
+  | 'globe'
   | 'chair'
   | 'pin'
   | 'note'
@@ -77,6 +78,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   book: <path d="M2 3h5a2 2 0 012 2v9a2 2 0 00-2-2H2zM14 3H9a2 2 0 00-2 2v9a2 2 0 012-2h5z" />,
   building: <path d="M3 14V2h7v12M13 14V6h-3M2 14h12M5 5h1m2 0h1M5 8h1m2 0h1M5 11h1m2 0h1" />,
   compass: <path d="M8 14A6 6 0 108 2a6 6 0 000 12zM10.5 5.5L9 9l-3.5 1.5L7 7z" />,
+  globe: <path d="M8 14A6 6 0 108 2a6 6 0 000 12zM8 2c1.7 1.7 2.5 3.9 2.5 6S9.7 12.3 8 14c-1.7-1.7-2.5-3.9-2.5-6S6.3 3.7 8 2zM2 8h12" />,
   chair: <path d="M5 1v7h6V1M4 8h8v3H4zM5 11v4m6-4v4" />,
   pin: <path d="M8 14s5-4.5 5-8a5 5 0 10-10 0c0 3.5 5 8 5 8zM8 8a2 2 0 100-4 2 2 0 000 4z" />,
   note: <path d="M3 1h10v9l-4 4H3zM9 14v-4h4" />,

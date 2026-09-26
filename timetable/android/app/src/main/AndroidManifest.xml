@@ -22,6 +22,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- 长按图标快捷方式（res/xml/shortcuts.xml）：今日 / 本周 / 作业。
+                 action → view 的映射在 MainActivity.viewFromAction()。 -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+            <intent-filter>
+                <action android:name="dev.lut.timetable.OPEN_TODAY" />
+                <action android:name="dev.lut.timetable.OPEN_WEEK" />
+                <action android:name="dev.lut.timetable.OPEN_ASSIGN" />
+            </intent-filter>
+
             <!-- Moodle SSO login kembali: launch.php mengarahkan ke
                  lut-timetable://token=... setelah SSO+Duo selesai di browser.
                  moodlemobile:// (skema bawaan resmi) juga diterima karena
@@ -67,6 +78,13 @@
             android:exported="false"
             android:permission="android.permission.BIND_REMOTEVIEWS" />
 
+        <!-- 后台刷新：JobScheduler 周期性跑一次隐藏 WebView（?bg=1），让小组件与
+             提醒的数据在不开 App 时也保持新鲜。载荷契约不变（widget_payload_v1）。 -->
+        <service
+            android:name=".BackgroundSyncJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <!-- Checkbox centang di widget tugas: antre toggle untuk web + gambar
              ulang widget. exported=false cukup, PendingIntent aplikasi sendiri. -->
         <receiver
@@ -104,8 +122,13 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 后台刷新任务带了「需要网络」约束（JobInfo.setRequiredNetworkType）；
+         JobScheduler.schedule 会直接抛 SecurityException 而不只是拒绝。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Exact alarms keep the 10-min lesson & 24h/1h deadline reminders
          firing on time under Doze (Android 12+). -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 后台刷新任务重启后仍然有效（JobInfo.setPersisted(true) 要求） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

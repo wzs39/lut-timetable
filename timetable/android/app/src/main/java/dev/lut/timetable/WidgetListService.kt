@@ -81,6 +81,8 @@ internal object WidgetRows {
         val ems: Long,
         /** courseid Moodle dari tabel identitas (0 = tak dipetakan). */
         val mid: Long,
+        /** Sesi tersentuh perubahan sinkron terakhir (web menandai `chg`). */
+        val chg: Boolean,
     )
 
     data class TaskRow(
@@ -109,6 +111,7 @@ internal object WidgetRows {
                     sms = o.optLong("sms", 0),
                     ems = o.optLong("ems", 0),
                     mid = o.optLong("mid", 0),
+                    chg = o.optBoolean("chg", false),
                 )
             }
         } catch (_: Exception) {
@@ -195,6 +198,12 @@ internal class LessonsFactory(private val appCtx: Context) : RemoteViewsService.
         if (live) {
             views.setTextViewText(R.id.row_tag, "► NOW")
             views.setTextColor(R.id.row_tag, WidgetPalette.now(c))
+            views.setViewVisibility(R.id.row_tag, VISIBLE)
+        } else if (r.chg) {
+            // 变更标记：这节课在最近一次同步里被改过（时间/教室/新增）。
+            // 与 NOW 共用右侧 tag 槽位，直播优先——正在上的课比「改过」更急。
+            views.setTextViewText(R.id.row_tag, c.getString(R.string.widget_changed))
+            views.setTextColor(R.id.row_tag, WidgetPalette.soon(c))
             views.setViewVisibility(R.id.row_tag, VISIBLE)
         } else {
             views.setViewVisibility(R.id.row_tag, GONE)

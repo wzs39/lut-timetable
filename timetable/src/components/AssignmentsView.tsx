@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import {
@@ -16,6 +16,14 @@ import { normalizeCourseCode } from '../lib/ics'
 import { QUICK_LINKS } from '../lib/quickLinks'
 import ExternalLink from './ExternalLink'
 import Icon from './Icon'
+import { useMoodleData } from '../hooks/useMoodleData'
+import { KEYS, readString, writeString } from '../lib/storage'
+import {
+  buildWeightIndex,
+  priorityHintIds,
+  sortByImpact,
+  taskImpacts,
+} from '../lib/taskPriority'
 
 interface Props {
   tasks: Task[]
@@ -53,6 +61,9 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
   // 折叠抽屉（默认收起，避免堆满一屏）
   const [showAddForm, setShowAddForm] = useState(false)
   const [showLinks, setShowLinks] = useState(false)
+  // 按影响排序（课程剩余权重 × 紧迫度）：一次性偏好，存 storage
+  const [byImpact, setByImpact] = useState(() => readString(KEYS.assignImpact) === 'true')
+  useEffect(() => writeString(KEYS.assignImpact, String(byImpact)), [byImpact])
 
   const courses = useMemo(() => courseOptions(lessons), [lessons])
   const pending = tasks.filter((task) => !task.completed).length
@@ -110,6 +121,22 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks, lessons])
+
+  // 影响分：课程剩余权重（Moodle 成绩）× 紧迫度——分组顺序不变，组内怎么排换了依据
+  const md = useMoodleData()
+  const impacts = useMemo(() => {
+    const weights = buildWeightIndex(md.grades ?? [], (name) => matchCourseCode(name, lessons) ?? null)
+    return taskImpacts(tasks, weights, new Date())
+  }, [tasks, md.grades, lessons])
+  const topIds = useMemo(() => priorityHintIds(impacts, 3), [impacts])
+  const hintOf = (id: string): string | undefined => {
+    const imp = impacts.get(id)
+    if (!imp) return undefined
+    return t('taskImpactHint', {
+      w: imp.remainingWeight > 0 ? Math.round(imp.remainingWeight) : '—',
+      d: imp.daysLeft == null ? '—' : imp.daysLeft,
+    })
+  }
 
   const groups = useMemo(() => {
     const now = Date.now()
@@ -179,10 +206,16 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
             onChange={(e) => setQ(e.target.value)}
             placeholder={t('assignSearchPh')}
             className="app-input min-w-0 flex-1"
-          />
-          <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-2)]">
+          />            <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-2)]">
             <input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} className="accent-sky-500" />
             {t('tasksShowCompleted')}
+          </label>
+          <label
+            className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-2)]"
+            title={t('assignImpactTitle')}
+          >
+            <input type="checkbox" checked={byImpact} onChange={(event) => setByImpact(event.target.checked)} className="accent-sky-500" />
+            {t('assignImpactSort')}
           </label>
         </div>
 
@@ -294,7 +327,9 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
         ) : (
           <div className="space-y-4">
             {GROUP_ORDER.map((g) => {
-              const items = groups.get(g) ?? []
+              const raw = groups.get(g) ?? []
+              // 组内排序：默认保持分组时的截止顺序，开了影响排序则按分数降序
+              const items = byImpact ? sortByImpact(raw, impacts) : raw
               // 渲染层过滤：groupFilter 非 all 时只显示选中组；done 组跟随 showCompleted
               if (groupFilter !== 'all' && groupFilter !== g) return null
               if (g === 'done' && !showCompleted) return null
@@ -316,6 +351,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                         onEdit={edit}
                         onDelete={(t0) => onChange(removeTask(tasks, t0.id))}
                         onJumpToCourse={onJumpToCourse}
+                        priorityHint={byImpact && topIds.has(task.id) ? hintOf(task.id) : undefined}
                       />
                     ))}
                   </ul>

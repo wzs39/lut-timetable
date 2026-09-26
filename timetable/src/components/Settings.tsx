@@ -2,15 +2,18 @@ import { useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
 import { formatTime } from '../lib/date'
-import { loadLessons, normalizeSisuUrl, normalizeTimeEditUrl } from '../lib/store'
+import { sourceFromUrl } from '../lib/store'
 import { clearEnrolledCoursesCache } from '../lib/courses'
-import { buildIcs } from '../lib/ics'
-import { downloadBlob } from '../lib/download'
 import { exportBackup, importBackupDetail } from '../lib/backup'
+import SyncAuditPanel from './SyncAuditPanel'
+import type { SyncAudit } from '../lib/syncAudit'
 import { TYPE_META } from '../lib/lessonTypes'
 import { parseNoteKey, scopeText, type NotesMap } from '../lib/notes'
 import { useTheme } from '../theme'
 import { THEME_PRESETS, type Preset } from '../lib/theme'
+import type { Contrast, TextScale } from '../lib/uiPrefs'
+import { acceleratorLabel, type DesktopPrefs, type DesktopState } from '../lib/desktop'
+import type { Subscription } from '../lib/subscriptions'
 import { useExitAnimation } from '../lib/useExitAnimation'
 import { useMoodleData } from '../hooks/useMoodleData'
 import { openExternal } from '../lib/openExternal'
@@ -26,6 +29,8 @@ interface Props {
   onToggleAutoSync: (v: boolean) => void
   notifEnabled: boolean
   onToggleNotif: (v: boolean) => void
+  digestEnabled: boolean
+  onToggleDigest: (v: boolean) => void
   onAddSource: (s: SyncSource) => void
   onRemoveSource: (id: string) => void
   onSync: (s: SyncSource) => void
@@ -35,6 +40,30 @@ interface Props {
   translatorMsg: string | null
   notes: NotesMap
   onRemoveNote: (key: string) => void
+  /** 导出 .ics（App 提供：用可见课表而不是原始存储，单一入口在 lib/exportIcs） */
+  onExportIcs: () => void
+  /** 分享本周课表链接（返回给用户的提示语：已复制 / 已分享 / 太大） */
+  onShareWeek: () => Promise<string>
+  /** 订阅式提醒（课程变动 / 教室空出）：在这里可以静音或删除 */
+  subscriptions: Subscription[]
+  onToggleSubscription: (id: string) => void
+  onRemoveSubscription: (id: string) => void
+  /** 无障碍：字号档 / 对比度档 */
+  textScale: TextScale
+  contrast: Contrast
+  onTextScale: (v: TextScale) => void
+  onContrast: (v: Contrast) => void
+  /** 本地错误条数（打开设置时刷新） */
+  errorCount: number
+  /** 导出诊断文本（返回给用户看的提示语） */
+  onExportDiagnostics: () => Promise<string>
+  onClearErrors: () => void
+  /** 同步变更审计（lib/syncAudit） */
+  audits: SyncAudit[]
+  onClearAudits: () => void
+  /** 桌面端（Electron）托盘 / 全局快捷键：浏览器与移动端为 null，整个分区隐藏 */
+  desktop: DesktopState | null
+  onDesktopPrefs: (patch: Partial<DesktopPrefs>) => void
   onClose: () => void
 }
 
@@ -46,6 +75,8 @@ export default function Settings({
   onToggleAutoSync,
   notifEnabled,
   onToggleNotif,
+  digestEnabled,
+  onToggleDigest,
   onAddSource,
   onRemoveSource,
   onSync,
@@ -55,6 +86,22 @@ export default function Settings({
   translatorMsg,
   notes,
   onRemoveNote,
+  onExportIcs,
+  onShareWeek,
+  subscriptions,
+  onToggleSubscription,
+  onRemoveSubscription,
+  textScale,
+  contrast,
+  onTextScale,
+  onContrast,
+  errorCount,
+  onExportDiagnostics,
+  onClearErrors,
+  audits,
+  onClearAudits,
+  desktop,
+  onDesktopPrefs,
   onClose,
 }: Props) {
   const { t, lang, setLang } = useI18n()
@@ -63,6 +110,8 @@ export default function Settings({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [icsDone, setIcsDone] = useState<string | null>(null)
+  const [shareMsg, setShareMsg] = useState<string | null>(null)
+  const [diagMsg, setDiagMsg] = useState<string | null>(null)
 
   // Semua jalur tutup (✕ / ESC / klik luar) lewat satu frame keluar.
   const [closing, requestClose] = useExitAnimation(onClose)
@@ -72,34 +121,21 @@ export default function Settings({
   const [tokenInput, setTokenInput] = useState('')
   const [moodleIcsInput, setMoodleIcsInput] = useState('')
 
-  const exportIcs = async () => {
-    const blob = new Blob([buildIcs(loadLessons())], {
-      type: 'text/calendar;charset=utf-8',
-    })
-    await downloadBlob('lut-timetable.ics', blob)
+  const exportIcs = () => {
+    onExportIcs()
     setIcsDone(t('exportIcsDone'))
   }
 
+  // URL → 来源的唯一解析器在 lib/store（首次引导共用同一份）；
+  // 添加成功后由 App 立即同步一次，这里只收集输入 + 报错。
   const addSource = () => {
-    const raw = sourceUrl.trim()
-    if (!raw) return
-    const sisu = normalizeSisuUrl(raw)
-    const timeedit = sisu ? null : normalizeTimeEditUrl(raw)
-    const icsUrl = sisu || timeedit
-    if (!icsUrl) {
+    const src = sourceFromUrl(sourceUrl)
+    if (!src) {
       setSourceError(t('badUrl'))
       return
     }
     setSourceError(null)
-    const type = sisu ? 'sisu' : 'timeedit'
-    onAddSource({
-      id: crypto.randomUUID(),
-      type,
-      url: raw,
-      icsUrl,
-      label: type === 'sisu' ? 'SISU calendar-share' : 'TimeEdit',
-      count: 0,
-    })
+    onAddSource(src)
     setSourceUrl('')
   }
 
@@ -190,6 +226,65 @@ export default function Settings({
             </div>
           </section>
 
+          {/* 无障碍：字号与对比度（存 uiPrefs，写在 <html> 上由 CSS 消费） */}
+          <section>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+              {t('a11yTitle')}
+            </h4>
+            <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+              <input
+                type="checkbox"
+                checked={textScale === 'large'}
+                onChange={(e) => onTextScale(e.target.checked ? 'large' : 'normal')}
+                className="accent-sky-500"
+              />
+              {t('a11yLargeText')}
+            </label>
+            <label className="mt-1 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+              <input
+                type="checkbox"
+                checked={contrast === 'high'}
+                onChange={(e) => onContrast(e.target.checked ? 'high' : 'normal')}
+                className="accent-sky-500"
+              />
+              {t('a11yHighContrast')}
+            </label>
+          </section>
+
+          {/* 桌面端：托盘与全局快捷键（只有 Electron 里有 lutDesktop 桥） */}
+          {desktop && (
+            <section>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                {t('desktopTitle')}
+              </h4>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input
+                  type="checkbox"
+                  checked={desktop.closeToTray}
+                  onChange={(e) => onDesktopPrefs({ closeToTray: e.target.checked })}
+                  className="accent-sky-500"
+                />
+                {t('desktopCloseToTray')}
+              </label>
+              <label className="mt-1 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input
+                  type="checkbox"
+                  checked={desktop.shortcutEnabled}
+                  onChange={(e) => onDesktopPrefs({ shortcutEnabled: e.target.checked })}
+                  className="accent-sky-500"
+                />
+                <span>
+                  {t('desktopShortcut', {
+                    acc: acceleratorLabel(desktop.accelerator, desktop.platform === 'darwin'),
+                  })}
+                  {desktop.shortcutEnabled && !desktop.shortcutActive && (
+                    <span className="ml-1 text-[var(--due)]">{t('desktopShortcutBusy')}</span>
+                  )}
+                </span>
+              </label>
+            </section>
+          )}
+
           {/* 语言 */}
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
@@ -258,6 +353,10 @@ export default function Settings({
               <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
                 <input type="checkbox" checked={notifEnabled} onChange={(e) => onToggleNotif(e.target.checked)} className="accent-sky-500" />
                 {t('notifHint')}
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input type="checkbox" checked={digestEnabled} onChange={(e) => onToggleDigest(e.target.checked)} className="accent-sky-500" />
+                {t('digestToggle')}
               </label>
             </div>
           </section>
@@ -400,7 +499,26 @@ export default function Settings({
               {t('exportIcs')}
             </button>
             {icsDone && <p className="mt-1 text-[11px] text-[var(--ok)]">{icsDone}</p>}
+            <button
+              onClick={async () => {
+                setShareMsg(null)
+                setShareMsg(await onShareWeek())
+              }}
+              className="mt-2 w-full rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs"
+              title={t('shareWeekHint')}
+            >
+              {t('shareWeek')}
+            </button>
+            {shareMsg && <p className="mt-1 text-[11px] text-[var(--text-2)]">{shareMsg}</p>}
             <p className="mt-1 text-[10px] text-[var(--text-3)]">{t('dataHint')}</p>
+          </section>
+
+          {/* 同步变更记录：每次同步到底改了什么 */}
+          <section>
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
+              {t('syncAuditTitle')}
+            </h4>
+            <SyncAuditPanel audits={audits} onClear={onClearAudits} />
           </section>
 
           {/* Lecture Translator */}
@@ -445,6 +563,79 @@ export default function Settings({
               return true
             }}
           />
+
+          {/* 订阅式提醒：本机判断、本机推送，这里只管列出与开关 */}
+          <section>
+            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+              <span className="inline-flex items-center gap-1.5"><Icon name="warn" size={12} /> {t('subsTitle')} ({subscriptions.length})</span>
+            </h4>
+            {subscriptions.length === 0 ? (
+              <p className="text-[11px] text-[var(--text-3)]">{t('subsEmpty')}</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {subscriptions.map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1.5 text-[11px]"
+                  >
+                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={s.enabled}
+                        onChange={() => onToggleSubscription(s.id)}
+                        className="accent-sky-500"
+                      />
+                      <span className="min-w-0 truncate text-[var(--text-1)]" title={s.label}>
+                        {s.label}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-[var(--text-3)]">
+                        {t(s.kind === 'course-change' ? 'subKindCourse' : 'subKindRoom')}
+                      </span>
+                    </label>
+                    <button
+                      onClick={() => onRemoveSubscription(s.id)}
+                      className="shrink-0 text-[var(--text-3)] hover:text-[var(--danger)]"
+                      title={t('subsRemove')}
+                      aria-label={t('subsRemove')}
+                    >
+                      <Icon name="trash" size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* 错误日志：本机最近几次异常 + 导出诊断（不能自动上报，用户手动发） */}
+          <section>
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
+              <span className="inline-flex items-center gap-1.5"><Icon name="warn" size={12} /> {t('errorsTitle')} ({errorCount})</span>
+            </h4>
+            <p className="text-[11px] text-[var(--text-3)]">{t('errorsHint')}</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={async () => {
+                  setDiagMsg(null)
+                  setDiagMsg(await onExportDiagnostics())
+                }}
+                className="flex-1 rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs"
+              >
+                {t('errorsExport')}
+              </button>
+              {errorCount > 0 && (
+                <button
+                  onClick={() => {
+                    onClearErrors()
+                    setDiagMsg(t('errorsCleared'))
+                  }}
+                  className="shrink-0 rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs text-[var(--text-2)]"
+                >
+                  {t('errorsClear')}
+                </button>
+              )}
+            </div>
+            {diagMsg && <p className="mt-1 text-[11px] text-[var(--text-2)]">{diagMsg}</p>}
+          </section>
 
           {/* 课程备注 */}
           <section>

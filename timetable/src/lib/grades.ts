@@ -20,8 +20,11 @@ import { htmlToText } from './html'
  *
  * Fungsi inti:
  *  - core_webservice_get_site_info → validasi token + userid
- *  - core_grades_get_grades  → rata-rata kelas + item penilaian
- *  - gradereport_user_get_grade_items → rata-rata yang terlihat user (α/β)
+ *  - gradereport_user_get_grade_items → per-kursus, SATU-SATUNYA sumber nilai
+ *    yang bisa dibaca token mahasiswa LUT (mod_assign_get_submissions/
+ *    get_grades = API dosen, "No access rights"; core_grades_get_grades
+ *    tidak terdaftar di situs ini). gradeitems TIDAK membawa rata-rata
+ *    kelas — kolom classAvg ada untuk situs yang mengirimnya.
  */
 
 const WS_URL = 'https://moodle.lut.fi/webservice/rest/server.php'
@@ -187,8 +190,8 @@ function buildItems(raw: RawGradeItem[]): GradeItem[] {
     grade: toPercent(it.graderaw, it.grademax),
     max: typeof it.grademax === 'number' && it.grademax > 0 ? it.grademax : null,
     classAvg: toPercent(it.gradeaverage ?? it.average, it.grademax),
-    // Bobot: weightraw (rasio 0–1, Moodle 4.x) > weight (persen). Baris
-    // kategori/course tanpa nama tidak ikut sebagai item penilaian.
+    // Bobot: weightraw (rasio 0–1, Moodle 4.x) > weight (persen); kategori
+    // ditangani terpisah di spreadCategoryWeights (lihat observasi di atas).
     weight:
       typeof it.weightraw === 'number' && it.weightraw > 0
         ? Math.round(it.weightraw * 1000) / 10
@@ -208,6 +211,20 @@ function buildItems(raw: RawGradeItem[]): GradeItem[] {
 
 /* ------------------------------- parsing ------------------------------- */
 
+/**
+ * 【2026-09-26 真实载荷观察（11 门 LUT 课程全量 dump，146 行 gradeitems）】
+ * 权重有三种形态：
+ *  ① 扁平课：weightraw 挂在叶子项上（0–1，如 BM20A9200 每周作业 0.07143）；
+ *  ② 分类课：weightraw 挂在 itemtype 'category' 行（如 KE00DA03 的两个
+ *     25% 分类、CT60A4050 的 exam 0.25/exercise 0.1），叶子项 weightraw
+ *     字段整个缺失——把 category 行当垃圾行丢掉而不做继承 = 这些课的
+ *     权重全部丢失，what-if 与未评提示退化成简单平均；
+ *  ③ 显式零权重：weightraw:0 的行（如 K200DJ96 两门不计分作业）与无权重
+ *     的 'course' 总分行都不是可评项，但零权重是「老师的有效决定」，保留展示。
+ * 做法：spreadCategoryWeights 按 raw 的 iteminstance ↔ 子项 categoryid
+ * 配对，把分类权重均摊给无自身权重的成员项，然后丢掉 category 行——
+ * GradeItem 形状不变，下游计算零改动。
+ */
 interface RawGradeItem {
   itemname?: string
   itemtype?: string
@@ -219,8 +236,12 @@ interface RawGradeItem {
   weightraw?: number | string
   /** Alternatif lama: bobot langsung dalam persen. */
   weight?: number | string
+  /** iteminstance baris kategori = id kategori yang dirujuk categoryid item. */
+  iteminstance?: number
   gradeformatted?: string
   feedback?: string
+  /** ID kategori induk (baris item) — untuk mewarisi bobot kategori. */
+  categoryid?: number
 }
 
 interface RawCourseGrades {
@@ -236,13 +257,16 @@ export function parseGradeItems(response: unknown): CourseGrades[] {
   const out: CourseGrades[] = []
   for (const c of byId as (RawCourseGrades & { gradeitems?: (RawGradeItem & { itemtype?: string })[] })[]) {
     const rawItems = c.gradeitems ?? []
-    // Baris total resmi Moodle: itemtype 'course' (raw 24/112 = 21.43%,
-    // item belum dinilai dihitung 0 dalam bobotnya). Baris 'category'
-    // (subtotal kategori, itemname null) bukan item penilaian — dibuang.
     const courseRow = rawItems.find((it) => it.itemtype === 'course')
-    const isMeta = (it: RawGradeItem) =>
-      it === courseRow || (it as { itemtype?: string }).itemtype === 'category'
-    const items = buildItems(rawItems.filter((it) => !isMeta(it)))
+    // 'course' 总分行与 'category' 行都不进 items；category 的权重先经
+    // spreadCategoryWeights 均摊给成员项（见上方真实载荷观察）。
+    const nonCat = rawItems.filter((it) => it.itemtype !== 'course' && it.itemtype !== 'category')
+    const items = buildItems(nonCat)
+    // 平行数组传 categoryid，GradeItem 本身不加字段（形状零改动）。
+    const catIds = nonCat.map((it) =>
+      typeof it.categoryid === 'number' && it.categoryid > 0 ? it.categoryid : null,
+    )
+    spreadCategoryWeights(rawItems, items, catIds)
     if (items.length === 0) continue
     // Total resmi (usergrade rasio 0–1 > baris 'course') — ekstraksi bidang
     // mentah; SELURUH rantai prioritas nilai ada di gradeCalc.getFinalCourseGrade.
@@ -260,6 +284,53 @@ export function parseGradeItems(response: unknown): CourseGrades[] {
     })
   }
   return out
+}
+
+/**
+ * Ratakan bobot kategori ke item anggota yang tidak berbobot sendiri.
+ *
+ * 【Aturan dari payload nyata LUT】kategori berbobot (mis. 25%) MERATA-
+ * RATAKAN item anggotanya → bobot efektif tiap anggota = w_kategori / n
+ * anggota. Karena itu: item DENGAN weightraw sendiri tidak disentuh (dosen
+ * yang menentukan); item tanpa bobot yang jadi anggota kategori berbobot
+ * mendapat share kategori; anggota kategori TANPA bobot (mis. "Assignments"
+ * di KE00DA03) tidak diberi bobot fiktif — sumber tak berbobot tetap null.
+ * Kunci penghubung: categoryid item (categoryIds, paralel dengan items)
+ * ↔ iteminstance baris kategori (raw). Murni kecuali mutasi weight di items.
+ */
+function spreadCategoryWeights(
+  raw: RawGradeItem[],
+  items: GradeItem[],
+  categoryIds: Array<number | null>,
+): void {
+  const catWeightByInstanceId = new Map<number, number>()
+  for (const r of raw) {
+    if (r.itemtype === 'category' && r.iteminstance != null) {
+      const w =
+        typeof r.weightraw === 'number' && r.weightraw > 0
+          ? Math.round(r.weightraw * 1000) / 10
+          : typeof r.weight === 'number' && r.weight > 0
+            ? Math.round(r.weight * 10) / 10
+            : null
+      if (w != null) catWeightByInstanceId.set(r.iteminstance, w)
+    }
+  }
+  if (catWeightByInstanceId.size === 0) return
+  const memberCountByCid = new Map<number, number>()
+  for (let i = 0; i < items.length; i++) {
+    const cid = categoryIds[i]
+    if (cid == null || items[i].weight != null) continue
+    if (!catWeightByInstanceId.has(cid)) continue
+    memberCountByCid.set(cid, (memberCountByCid.get(cid) ?? 0) + 1)
+  }
+  for (let i = 0; i < items.length; i++) {
+    const cid = categoryIds[i]
+    if (cid == null || items[i].weight != null) continue
+    const w = catWeightByInstanceId.get(cid)
+    const n = memberCountByCid.get(cid) ?? 0
+    if (w == null || n <= 0) continue
+    items[i].weight = Math.round((w / n) * 100) / 100
+  }
 }
 
 /* ------------------------------ fetch API ------------------------------ */
@@ -377,4 +448,36 @@ export function gradesErrorKind(e: unknown): GradesError | null {
 /** Sumber kalender → kode kursus (dipakai UI untuk cek token kalender vs webservice). */
 export function isCalendarTokenUrl(url: string): boolean {
   return !!moodleCredsFromUrl(url)
+}
+
+/* --------------------------- cold-start snapshot ---------------------------
+ * 【2026-09-26】成绩此前只活在内存里：重启/断网时成绩段只剩空提示，要等
+ * 网络刷新成功才有内容（11 门课 × 每课 1 请求，30 分钟后台节拍也救不了
+ * 刚打开的那几秒）。快照 = 每次 fetchGrades 成功后写入的 CourseGrades[]
+ * + 时间戳；启动时立即读出展示，网络回来再覆盖。断网时 refreshGrades 失败
+ * 不清快照 —— 数据与上次一致，仅静默。
+ */
+
+export interface GradesSnapshot {
+  fetchedAt: string
+  courses: CourseGrades[]
+}
+
+export function loadGradesSnapshot(): GradesSnapshot | null {
+  const raw = readJson<GradesSnapshot | null>(KEYS.gradesCache, null)
+  if (!raw || typeof raw.fetchedAt !== 'string') return null
+  if (!Array.isArray(raw.courses) || raw.courses.length === 0) return null
+  return raw
+}
+
+export function saveGradesSnapshot(courses: CourseGrades[]): void {
+  try {
+    writeJson(KEYS.gradesCache, { fetchedAt: new Date().toISOString(), courses } satisfies GradesSnapshot)
+  } catch {
+    /* kuota penuh: 快照是优化，不是必需 */
+  }
+}
+
+export function clearGradesSnapshot(): void {
+  removeKey(KEYS.gradesCache)
 }
