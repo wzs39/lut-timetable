@@ -2,7 +2,7 @@ import { useSisuStudyPlan } from '../hooks/useSisuStudyPlan'
 import { useI18n } from '../i18n'
 import type { Lesson } from '../types'
 import type { EnrolledCourse } from '../lib/courses'
-import { HDD_COURSES, HDD_COURSE_SOURCE_URL, type SisuCourseFocus } from '../lib/sisuCourseCatalog'
+import { HDD_COURSES, HDD_COURSE_SOURCE_URL } from '../lib/sisuCourseCatalog'
 import { coursePlanIdentity, isPlannerCourseSelected } from '../lib/sisuCourseSelection'
 import type { SisuPlanKind } from '../lib/sisuStudyPlan'
 import ExternalLink from './ExternalLink'
@@ -10,9 +10,11 @@ import Icon from './Icon'
 
 const KINDS: SisuPlanKind[] = ['course', 'registration', 'exam', 'milestone']
 
-export default function SisuStudyPlan({ lessons = [], enrolled = [] }: {
+export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSettings }: {
   lessons?: Lesson[]
   enrolled?: EnrolledCourse[]
+  /** 打开设置（偏好与目标的唯一编辑入口） */
+  onOpenSettings?: () => void
 } = {}) {
   const { t } = useI18n()
   const {
@@ -22,8 +24,8 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [] }: {
     creditEstimateText, earnedCredits, courseQuery,
     searchResult, publicSearchLoading, publicSearchError, onlySseRelevant,
     setOnlySseRelevant, plannerMessage, searchPublicCourses, changeCourseQuery,
-    changeFocus, toggleCourseSelection, addSelectedCourses, addPlanItem,
-    setPlanItemCompleted, deletePlanItem, updateGoal,
+    toggleCourseSelection, addSelectedCourses, addPlanItem,
+    setPlanItemCompleted, deletePlanItem,
   } = useSisuStudyPlan(lessons, enrolled)
 
   return (
@@ -42,12 +44,15 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [] }: {
           </div>
           <ExternalLink href={HDD_COURSE_SOURCE_URL} className="app-btn-ghost shrink-0 px-2 py-1 text-[10px]">{t('sisuCourseSource')} <Icon name="external" size={10} /></ExternalLink>
         </div>
-        <label className="flex items-center gap-2 text-[11px] text-[var(--text-2)]">
-          {t('sisuCourseFocus')}
-          <select value={coursePreferences.focus} onChange={(event) => changeFocus(event.target.value as SisuCourseFocus)} className="app-input min-w-0 flex-1 text-xs">
-            {(['software', 'ai', 'systems', 'international'] as const).map((focus) => <option key={focus} value={focus}>{t(`sisuCourseFocus_${focus}`)}</option>)}
-          </select>
-        </label>
+        <p className="text-[10px] text-[var(--text-3)]">
+          {t('sisuCourseFocus')}：{t(`sisuCourseFocus_${coursePreferences.focus}`)}
+          {onOpenSettings && (
+            <>
+              {' · '}
+              <button onClick={onOpenSettings} className="text-[var(--info)] hover:underline">{t('sisuPlanChangeInSettings')}</button>
+            </>
+          )}
+        </p>
         <p className="text-[11px] font-medium text-[var(--text-2)]">{creditEstimateText}</p>
         <label className="relative block">
           <Icon name="search" size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
@@ -106,10 +111,9 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [] }: {
         <div className="mb-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2">
           <div className="flex items-center justify-between gap-2 text-[11px]">
             <span>{t('sisuPlanCredits', { earned: earnedCredits, goal: plan.goalCredits })}</span>
-            <label className="flex items-center gap-1 text-[10px] text-[var(--text-3)]">
-              {t('sisuPlanGoal')}
-              <input aria-label={t('sisuPlanGoal')} type="number" min="1" value={plan.goalCredits} onChange={(event) => updateGoal(Number(event.target.value))} className="app-input w-16 px-1 py-0.5 text-right" />
-            </label>
+            {onOpenSettings && (
+              <button onClick={onOpenSettings} className="shrink-0 text-[10px] text-[var(--info)] hover:underline">{t('sisuPlanChangeInSettings')}</button>
+            )}
           </div>
           <div className="sisu-progress mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--line)]"><span className="block h-full rounded-full bg-[var(--info)]" style={{ width: `${Math.min(100, earnedCredits / plan.goalCredits * 100)}%` }} /></div>
         </div>

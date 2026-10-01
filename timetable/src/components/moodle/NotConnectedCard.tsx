@@ -6,10 +6,11 @@ import SisuStudyPlan from '../SisuStudyPlan'
 import Icon from '../Icon'
 
 /** Keadaan belum terhubung: kartu pengantar + CTA ke Settings. */
-export default function NotConnectedCard({ onOpenSettings, lessons = [], enrolled = [] }: {
+export default function NotConnectedCard({ onOpenSettings, lessons = [], enrolled = [], sisuPrefsRevision = 0 }: {
   onOpenSettings: () => void
   lessons?: Lesson[]
   enrolled?: EnrolledCourse[]
+  sisuPrefsRevision?: number
 }) {
   const { t } = useI18n()
   return (
@@ -29,7 +30,7 @@ export default function NotConnectedCard({ onOpenSettings, lessons = [], enrolle
           <p className="mt-2 text-[10px] text-[var(--text-3)]">{t('moodleViewFeatures')}</p>
         </section>
         <HebutCard className="mt-3" />
-        <SisuStudyPlan lessons={lessons} enrolled={enrolled} />
+        <SisuStudyPlan key={sisuPrefsRevision} lessons={lessons} enrolled={enrolled} onOpenSettings={onOpenSettings} />
       </div>
     </div>
   )

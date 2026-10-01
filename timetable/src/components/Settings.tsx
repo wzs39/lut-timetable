@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
 import { formatTime } from '../lib/date'
@@ -20,6 +20,8 @@ import { openExternal } from '../lib/openExternal'
 import SyncProtection from './SyncProtection'
 import IdentityDiagnostics from './IdentityDiagnostics'
 import type { SyncSource } from '../types'
+import { loadSisuCoursePreferences, saveSisuCoursePreferences, type SisuCourseFocus } from '../lib/sisuCourseCatalog'
+import { loadSisuStudyPlan, saveSisuStudyPlan } from '../lib/sisuStudyPlan'
 
 interface Props {
   sources: SyncSource[]
@@ -64,7 +66,29 @@ interface Props {
   /** 桌面端（Electron）托盘 / 全局快捷键：浏览器与移动端为 null，整个分区隐藏 */
   desktop: DesktopState | null
   onDesktopPrefs: (patch: Partial<DesktopPrefs>) => void
+  /** SISU 学习偏好/目标在设置里改了：通知 App 让计划页重新读取 */
+  onSisuPrefsChanged?: () => void
   onClose: () => void
+}
+
+const SISU_FOCUSES: SisuCourseFocus[] = ['software', 'ai', 'systems', 'international']
+const SETTINGS_GROUP_IDS = ['appearance', 'sync', 'study', 'data', 'logs'] as const
+const GROUP_LABEL_KEYS: Record<(typeof SETTINGS_GROUP_IDS)[number], string> = {
+  appearance: 'settingsGroupAppearance',
+  sync: 'settingsGroupSync',
+  study: 'settingsGroupStudy',
+  data: 'settingsGroupData',
+  logs: 'settingsGroupLogs',
+}
+
+/** 设置分区：分类标题 + 若干小节；id 供顶部分类索引滚动定位。 */
+function Group({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section id={`settings-${id}`} className="scroll-mt-14">
+      <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--accent)]">{title}</h4>
+      <div className="space-y-6">{children}</div>
+    </section>
+  )
 }
 
 export default function Settings({
@@ -102,6 +126,7 @@ export default function Settings({
   onClearAudits,
   desktop,
   onDesktopPrefs,
+  onSisuPrefsChanged,
   onClose,
 }: Props) {
   const { t, lang, setLang } = useI18n()
@@ -112,6 +137,17 @@ export default function Settings({
   const [icsDone, setIcsDone] = useState<string | null>(null)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
   const [diagMsg, setDiagMsg] = useState<string | null>(null)
+  // SISU 学习偏好与目标：跨界面生效，唯一编辑入口在这里。
+  const [sisuPrefs, setSisuPrefs] = useState(loadSisuCoursePreferences)
+  const [sisuPlan, setSisuPlan] = useState(loadSisuStudyPlan)
+  const changeSisuFocus = (focus: SisuCourseFocus) => {
+    setSisuPrefs(saveSisuCoursePreferences({ ...sisuPrefs, focus }))
+    onSisuPrefsChanged?.()
+  }
+  const changeSisuGoal = (goalCredits: number) => {
+    setSisuPlan(saveSisuStudyPlan({ ...sisuPlan, goalCredits }))
+    onSisuPrefsChanged?.()
+  }
 
   // Semua jalur tutup (✕ / ESC / klik luar) lewat satu frame keluar.
   const [closing, requestClose] = useExitAnimation(onClose)
@@ -171,7 +207,24 @@ export default function Settings({
           </button>
         </div>
 
+        <div
+          className="sticky -top-px z-10 -mx-4 mb-4 flex gap-1 overflow-x-auto border-b border-[var(--line)] bg-[var(--surface-1)] px-4 py-2"
+          role="navigation"
+          aria-label={t('settingsNav')}
+        >
+          {SETTINGS_GROUP_IDS.map((id) => (
+            <button
+              key={id}
+              onClick={() => document.getElementById(`settings-${id}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}
+              className="shrink-0 rounded-full border border-[var(--line)] px-2.5 py-1 text-[10px] text-[var(--text-2)] hover:bg-[var(--hover-1)]"
+            >
+              {t(GROUP_LABEL_KEYS[id])}
+            </button>
+          ))}
+        </div>
+
         <div className="space-y-6 text-xs">
+          <Group id="appearance" title={t('settingsGroupAppearance')}>
           {/* 外观：跟随系统 / 深色 / 浅色 */}
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
@@ -251,40 +304,6 @@ export default function Settings({
             </label>
           </section>
 
-          {/* 桌面端：托盘与全局快捷键（只有 Electron 里有 lutDesktop 桥） */}
-          {desktop && (
-            <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-                {t('desktopTitle')}
-              </h4>
-              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input
-                  type="checkbox"
-                  checked={desktop.closeToTray}
-                  onChange={(e) => onDesktopPrefs({ closeToTray: e.target.checked })}
-                  className="accent-sky-500"
-                />
-                {t('desktopCloseToTray')}
-              </label>
-              <label className="mt-1 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input
-                  type="checkbox"
-                  checked={desktop.shortcutEnabled}
-                  onChange={(e) => onDesktopPrefs({ shortcutEnabled: e.target.checked })}
-                  className="accent-sky-500"
-                />
-                <span>
-                  {t('desktopShortcut', {
-                    acc: acceleratorLabel(desktop.accelerator, desktop.platform === 'darwin'),
-                  })}
-                  {desktop.shortcutEnabled && !desktop.shortcutActive && (
-                    <span className="ml-1 text-[var(--due)]">{t('desktopShortcutBusy')}</span>
-                  )}
-                </span>
-              </label>
-            </section>
-          )}
-
           {/* 语言 */}
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
@@ -304,6 +323,9 @@ export default function Settings({
             </div>
           </section>
 
+          </Group>
+
+          <Group id="sync" title={t('settingsGroupSync')}>
           {/* 课程同步：源管理 + 开关 */}
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
@@ -445,6 +467,71 @@ export default function Settings({
             </div>
           </section>
 
+          </Group>
+
+          <Group id="study" title={t('settingsGroupStudy')}>
+            <section>
+              <p className="text-[10px] leading-relaxed text-[var(--text-3)]">{t('sisuPrefsHint')}</p>
+              <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
+                {t('sisuCourseFocus')}
+                <select
+                  value={sisuPrefs.focus}
+                  onChange={(e) => changeSisuFocus(e.target.value as SisuCourseFocus)}
+                  className="app-input min-w-0 flex-1 text-xs"
+                >
+                  {SISU_FOCUSES.map((focus) => (
+                    <option key={focus} value={focus}>{t(`sisuCourseFocus_${focus}`)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
+                {t('sisuPlanGoal')}
+                <input
+                  type="number"
+                  min="1"
+                  value={sisuPlan.goalCredits}
+                  onChange={(e) => changeSisuGoal(Number(e.target.value))}
+                  className="app-input w-20 px-1 py-0.5 text-right text-xs"
+                />
+              </label>
+            </section>
+          </Group>
+
+          <Group id="data" title={t('settingsGroupData')}>
+          {/* 桌面端：托盘与全局快捷键（只有 Electron 里有 lutDesktop 桥） */}
+          {desktop && (
+            <section>
+              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                {t('desktopTitle')}
+              </h4>
+              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input
+                  type="checkbox"
+                  checked={desktop.closeToTray}
+                  onChange={(e) => onDesktopPrefs({ closeToTray: e.target.checked })}
+                  className="accent-sky-500"
+                />
+                {t('desktopCloseToTray')}
+              </label>
+              <label className="mt-1 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input
+                  type="checkbox"
+                  checked={desktop.shortcutEnabled}
+                  onChange={(e) => onDesktopPrefs({ shortcutEnabled: e.target.checked })}
+                  className="accent-sky-500"
+                />
+                <span>
+                  {t('desktopShortcut', {
+                    acc: acceleratorLabel(desktop.accelerator, desktop.platform === 'darwin'),
+                  })}
+                  {desktop.shortcutEnabled && !desktop.shortcutActive && (
+                    <span className="ml-1 text-[var(--due)]">{t('desktopShortcutBusy')}</span>
+                  )}
+                </span>
+              </label>
+            </section>
+          )}
+
           {/* 数据备份 */}
           <section>
             <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
@@ -564,6 +651,9 @@ export default function Settings({
             }}
           />
 
+          </Group>
+
+          <Group id="logs" title={t('settingsGroupLogs')}>
           {/* 订阅式提醒：本机判断、本机推送，这里只管列出与开关 */}
           <section>
             <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
@@ -682,6 +772,7 @@ export default function Settings({
             )}
             <p className="mt-1.5 text-[10px] text-[var(--text-3)]">{t('notesHint')}</p>
           </section>
+          </Group>
         </div>
       </div>
     </div>

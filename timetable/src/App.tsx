@@ -158,6 +158,8 @@ function AppInner({
   const [showBatchFilter, setShowBatchFilter] = useState(false)
   const [showConflicts, setShowConflicts] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  // 设置里的学习偏好/目标改动后递增，让计划页重新读取存储。
+  const [sisuPrefsRevision, setSisuPrefsRevision] = useState(0)
   const [showMoreActions, setShowMoreActions] = useState(false)
   /** 移动端「更多」抽屉（<md 才渲染）：低频入口全部收进去，主界面只留信息 */
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -730,13 +732,6 @@ function AppInner({
             <Icon name="search" size={14} />
             <span className="hidden sm:inline text-[10px] text-[var(--text-3)]">Ctrl K</span>
           </button>
-          <button
-            onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')}
-            className="app-btn max-md:hidden px-2.5 min-h-9 font-medium"
-            title="切换语言 / Switch language"
-          >
-            {lang === 'zh' ? 'EN' : '中文'}
-          </button>
           <div className="relative max-md:hidden">
             <button
               onClick={() => setShowMoreActions((open) => !open)}
@@ -869,6 +864,7 @@ function AppInner({
               onOpenAssignments={openAssignments}
               onClearAssignPreset={clearAssignPreset}
               onOpenSettings={openSettings}
+              sisuPrefsRevision={sisuPrefsRevision}
             />
           )}
           </div>
@@ -1055,6 +1051,7 @@ function AppInner({
           onClearAudits={tt.clearAudits}
           desktop={desktop}
           onDesktopPrefs={applyDesktopPrefs}
+          onSisuPrefsChanged={() => setSisuPrefsRevision((r) => r + 1)}
           onClose={() => setShowSettings(false)}
         />
       )}

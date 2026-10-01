@@ -350,3 +350,10 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - `hooks/useSisuStudyPlan.ts` is the single React state/orchestration owner: current plan, selected-course preferences, current SISU search result, request cancellation, reminder refresh, and form state. It derives merged candidates and totals from those owners. `components/SisuStudyPlan.tsx` renders the hook model and dispatches user events only.
 - Flow: SISU search + timetable/enrolment/identity inputs → catalog model → selection policy + plan state → derived view model → renderer. Avoid duplicating selected result snapshots in component state: persist selected public records only, keep unselected hits scoped to the current search.
 - Safety: never join a coded course to a code-less one by title alone; title joins can collapse distinct courses. Use the canonical identity index whenever Moodle enrolment ID ↔ course code resolution is available.
+
+## 设置归类与偏好唯一入口（2026-10-01）
+
+- **设置弹层从 15 个平铺小节归入 5 个分类**（外观与无障碍 / 同步与连接 / 学习偏好 / 数据与工具 / 日志与订阅），顶部加分类索引。实现是 `Settings.tsx` 里的 `Group` 组件（分类标题 + `settings-<id>` 锚点）；索引按钮跳转必须写成 `document.getElementById(...)?.scrollIntoView?.(...)`——jsdom 没有 `Element.scrollIntoView`，直接调用会让整个设置组件测试崩掉。
+- **散落的偏好收口**：SISU 学习偏好（focus，`tt_sisu_course_preferences_v1`）与目标学分（`tt_sisu_study_plan_v1.goalCredits`）的唯一编辑入口移到设置；计划页只读展示 + 「在设置中修改」链接。表头那份重复的语言切换已删除，语言只在设置里（命令面板的语言项保留）。
+- **跨界面生效靠 remount，不靠 effect**：设置改了偏好后 App 递增 `sisuPrefsRevision`，父组件拿它当 `<SisuStudyPlan key={sisuPrefsRevision}>`——重挂载让 `useState(load…)` 重新读存储。比在 hook 里加「revision 变化就 setState」的 effect 更简单，也不触发 `set-state-in-effect` 警告（该规则在本仓已有 4 处同类）。代价是重挂载丢计划页的临时 UI 状态（搜索词/表单），但此刻用户正在设置里，可接受。
+- **同名文本查询要按 role 区分**：分类索引按钮与分类标题文案相同，`getByText` 会撞到多个元素——标题用 `getByRole('heading')`。契约测试见 `__tests__/components/settingsGroups.test.tsx`（分类数、索引跳转容错、focus/目标落盘、改目标不碰计划条目）。

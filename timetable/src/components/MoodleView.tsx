@@ -48,6 +48,7 @@ export default function MoodleView({
   onOpenAssignments,
   onClearAssignPreset,
   onOpenSettings,
+  sisuPrefsRevision,
 }: {
   tasks: Task[]
   lessons: Lesson[]
@@ -62,6 +63,8 @@ export default function MoodleView({
   /** 时间线卡片点击时清掉 App 级预置，让卡片本地筛选接管列表。 */
   onClearAssignPreset?: () => void
   onOpenSettings: () => void
+  /** 设置里的学习偏好/目标修订号：透传给计划页，触发重新读取 */
+  sisuPrefsRevision?: number
 }) {
   const { t } = useI18n()
   const md = useMoodleData()
@@ -98,7 +101,7 @@ export default function MoodleView({
   }, [section, enrolled, md.token, lessons])
 
   if (!md.connected) {
-    return <NotConnectedCard onOpenSettings={onOpenSettings} lessons={lessons} enrolled={enrolled ?? []} />
+    return <NotConnectedCard onOpenSettings={onOpenSettings} lessons={lessons} enrolled={enrolled ?? []} sisuPrefsRevision={sisuPrefsRevision} />
   }
 
   return (
@@ -161,7 +164,7 @@ export default function MoodleView({
           {section === 'resources' && (enrolledLoading && !enrolled
             ? <p className="py-8 text-center text-xs text-[var(--text-3)]">{t('coursesLoading')}</p>
             : <CourseResourcesSection enrolled={enrolled} token={md.token} />)}
-          {section === 'studyplan' && <SisuStudyPlan lessons={lessons} enrolled={enrolled ?? []} />}
+          {section === 'studyplan' && <SisuStudyPlan key={sisuPrefsRevision} lessons={lessons} enrolled={enrolled ?? []} onOpenSettings={onOpenSettings} />}
           {section === 'notif' && <NotificationsSection />}
           {(section === 'courses' || section === 'resources') && <HebutCard />}
         </div>
