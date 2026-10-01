@@ -8,7 +8,16 @@ const QUERY = (code: string) =>
   })
 
 /** POST GraphQL ke SISU (native/Electron: langsung; browser: proxy/corsproxy) */
-export async function sisuGraphql(query: string): Promise<any> {
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    const error = new Error('SISU search aborted')
+    error.name = 'AbortError'
+    throw error
+  }
+}
+
+export async function sisuGraphql(query: string, signal?: AbortSignal): Promise<any> {
+  throwIfAborted(signal)
   if (Capacitor.isNativePlatform()) {
     const res = await CapacitorHttp.post({
       url: 'https://sisu.lut.fi/api/',
@@ -19,7 +28,6 @@ export async function sisuGraphql(query: string): Promise<any> {
   }
 
   if (hasLutBridge()) {
-    // Electron: rutinitas POST khusus via lut-proxy://, lewat main process.
     const res = await fetchViaElectron('https://sisu.lut.fi/api/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -29,39 +37,33 @@ export async function sisuGraphql(query: string): Promise<any> {
   }
 
   try {
-    // SISU /api/ mengirim Access-Control-Allow-Origin: * ->
-    // browser production bisa langsung, tanpa proxy.
     const res = await fetch('https://sisu.lut.fi/api/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: query,
+      signal,
     })
     return await res.json()
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error
     const res = await fetch(
-      'https://corsproxy.io/?url=' +
-        encodeURIComponent('https://sisu.lut.fi/api/'),
+      'https://corsproxy.io/?url=' + encodeURIComponent('https://sisu.lut.fi/api/'),
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: query,
+        signal,
       },
     )
     return await res.json()
   }
 }
 
-/**
- * Resolve course code -> SISU course page URL.
- * Route (dari bundle SISU): /student/courseunit/:courseUnitId
- * ID di-resolve via GraphQL publik SISU, di-cache di localStorage.
- */
+/** Resolve course code -> SISU course page URL. */
 export async function resolveSisuCourseUrl(code: string): Promise<string> {
-  const clean = code.trim().toUpperCase()
+  const clean = code.trim().toUpperCase().replace(/-\d{4}$/, '')
   const cache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
-  if (cache[clean]) {
-    return `https://sisu.lut.fi/student/courseunit/${cache[clean]}`
-  }
+  if (cache[clean]) return `https://sisu.lut.fi/student/courseunit/${cache[clean]}`
 
   const json = await sisuGraphql(QUERY(clean))
   const id: string | undefined = json?.data?.course_unit_search?.[0]?.id
@@ -76,6 +78,94 @@ export interface SisuCourse {
   id: string
   code: string
   name: string
+}
+
+export interface SisuPublicCourse {
+  id: string
+  code?: string
+  name: string
+  credits?: number
+  creditRange?: { min: number; max: number }
+  studyYears: string[]
+  studyFields: string[]
+  searchTags: string[]
+}
+
+const PUBLIC_COURSE_PAGE_SIZE = 100
+
+/** Search all pages of LUT's public, current/future SISU course catalogue. */
+export async function searchSisuPublicCatalog(term: string, signal?: AbortSignal): Promise<{
+  courses: SisuPublicCourse[]
+  total: number
+}> {
+  const searchTerm = term.trim()
+  if (searchTerm.length < 3) throw new Error('query-too-short')
+
+  const courses: SisuPublicCourse[] = []
+  const codeTerm = searchTerm.replace(/-\d{4}$/, '')
+  const isCodeQuery = /^(?:[A-Za-z]{1,5}\d[A-Za-z\d]*|\d{3,}[A-Za-z\d]*)$/i.test(codeTerm)
+  const field = isCodeQuery ? 'codeQuery' : 'fullTextQuery'
+  for (let start = 0; ; start += PUBLIC_COURSE_PAGE_SIZE) {
+    throwIfAborted(signal)
+    const query = `{
+      course_unit_search(
+        ${field}: ${JSON.stringify(codeTerm)},
+        universityOrgIds: ["lut-university-root-id"],
+        validity: "ONGOING_AND_FUTURE",
+        resultLimit: ${PUBLIC_COURSE_PAGE_SIZE},
+        resultStart: ${start}
+      ) {
+        id code name { en fi } credits { min max } studyFields { name { en fi } } searchTags
+      }
+    }`
+    const response = await sisuGraphql(JSON.stringify({ query }), signal)
+    throwIfAborted(signal)
+    if (Array.isArray(response?.errors) && response.errors.length > 0) throw new Error('public-search-failed')
+    const rows = response?.data?.course_unit_search
+    if (!Array.isArray(rows)) throw new Error('invalid-public-search-response')
+
+    for (const row of rows as Array<Record<string, unknown>>) {
+      if (typeof row.id !== 'string' || !row.id) continue
+      const credits = row.credits && typeof row.credits === 'object'
+        ? row.credits as { min?: unknown; max?: unknown }
+        : undefined
+      const minCredit = typeof credits?.min === 'number' ? credits.min : undefined
+      const maxCredit = typeof credits?.max === 'number' ? credits.max : undefined
+      const studyFields = Array.isArray(row.studyFields)
+        ? row.studyFields.flatMap((fieldValue) => {
+          if (!fieldValue || typeof fieldValue !== 'object') return []
+          const localizedName = (fieldValue as { name?: Record<string, unknown> }).name
+          return [localizedName?.en, localizedName?.fi].filter((value): value is string => typeof value === 'string' && value.length > 0)
+        })
+        : []
+      const searchTags = Array.isArray(row.searchTags)
+        ? row.searchTags.filter((tag): tag is string => typeof tag === 'string')
+        : []
+      const name = row.name && typeof row.name === 'object'
+        ? [
+          (row.name as Record<string, unknown>).en,
+          (row.name as Record<string, unknown>).fi,
+        ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim()
+        : undefined
+      if (!name) continue
+
+      courses.push({
+        id: row.id,
+        code: typeof row.code === 'string' && row.code.trim() ? row.code.trim() : undefined,
+        name,
+        credits: minCredit !== undefined && minCredit === maxCredit ? minCredit : undefined,
+        creditRange: minCredit !== undefined && maxCredit !== undefined && minCredit !== maxCredit
+          ? { min: minCredit, max: maxCredit }
+          : undefined,
+        // SISU course-unit version curricula do not prove current teaching year.
+        studyYears: [],
+        studyFields,
+        searchTags,
+      })
+    }
+
+    if (rows.length < PUBLIC_COURSE_PAGE_SIZE) return { courses, total: courses.length }
+  }
 }
 
 /** Cari kursus di katalog SISU (kode atau nama) */

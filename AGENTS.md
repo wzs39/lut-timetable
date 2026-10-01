@@ -341,3 +341,12 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - 【教训】「API 返回空」与「API 被拒绝」在 Moodle WS 上是两种失败：`invalid_parameter` 会抛（ gradesErrMsg 兜住），权限不足可能**静默空集**——解析层必须区分「网络成功但业务无数据」（回退/提示）与「网络失败」（报错）。参数格式教训同条：多值参数永远用 indexed 键名，别赌 JSON 字符串（curl 单发验证过 ≠ 服务器全局接受）。
 - 顺手清掉 `lessonAlerts.ts` 两处既有 `no-useless-escape` warning（字符类里的 `\.`），oxlint 25→24 warning。
 - 测试：`submissions.test.ts` 新增 4 条（indexed 参数形状/空返回回退且带 dueAt 与深链/真数据优先不被回退污染/无回退源时保持空集契约），vi.mock `wsCall`+`validateGradesToken`。门禁：tsc ✓ / **644 测试 71 文件** ✓ / consistent 644:644 ✓ / oxlint 0 error **24** warning ✓ / build ✓。
+
+## SISU study planner structure (2026-10-01)
+
+- `lib/sisuCourse.ts` owns public SISU GraphQL search and response parsing; `lib/sisuCourseCatalog.ts` owns the HDD reference rows, catalog source merge, focus ranking, and local preference storage. Cross-source Moodle identity comes from `courseIdentity.ts`; only exact-title matching is retained when both records have no code.
+- `lib/sisuCourseSelection.ts` owns normalized planner/plan identities, selected candidate transitions, selected-credit totals, and visibility/relevance policy. Keep these policies pure; the component must not introduce parallel identity keys or filtering rules.
+- `lib/sisuStudyPlan.ts` owns persisted plan item shape, validation, creation, and persistence. `lib/sisuStudyPlanReminders.ts` owns native reminder scheduling and URL validation.
+- `hooks/useSisuStudyPlan.ts` is the single React state/orchestration owner: current plan, selected-course preferences, current SISU search result, request cancellation, reminder refresh, and form state. It derives merged candidates and totals from those owners. `components/SisuStudyPlan.tsx` renders the hook model and dispatches user events only.
+- Flow: SISU search + timetable/enrolment/identity inputs → catalog model → selection policy + plan state → derived view model → renderer. Avoid duplicating selected result snapshots in component state: persist selected public records only, keep unselected hits scoped to the current search.
+- Safety: never join a coded course to a code-less one by title alone; title joins can collapse distinct courses. Use the canonical identity index whenever Moodle enrolment ID ↔ course code resolution is available.
