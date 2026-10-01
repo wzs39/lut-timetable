@@ -15,7 +15,7 @@ export default function NotConnectedCard({ onOpenSettings, lessons = [], enrolle
   const { t } = useI18n()
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
-      <div className="mx-auto max-w-xl">
+      <div className="mx-auto max-w-xl space-y-3">
         <section className="app-card p-6 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[var(--surface-2)]">
             <Icon name="book" size={22} />
@@ -29,7 +29,7 @@ export default function NotConnectedCard({ onOpenSettings, lessons = [], enrolle
           </button>
           <p className="mt-2 text-[10px] text-[var(--text-3)]">{t('moodleViewFeatures')}</p>
         </section>
-        <HebutCard className="mt-3" />
+        <HebutCard />
         <SisuStudyPlan key={sisuPrefsRevision} lessons={lessons} enrolled={enrolled} onOpenSettings={onOpenSettings} />
       </div>
     </div>

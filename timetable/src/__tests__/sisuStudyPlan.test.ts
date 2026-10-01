@@ -104,4 +104,21 @@ describe('SISU local study plan', () => {
     })
     expect(localStorage.getItem(`${KEYS.sisuStudyPlan}:scheduled`)).toBe('[]')
   })
+
+  it('still schedules reminders when the tracked-ids key is corrupted', async () => {
+    // 【回归】坏数据（旧版本/备份导入写了对象或字符串）以前会让 .filter 抛异常，
+    // 被调用方的 .catch 静默吞掉——用户再也收不到任何计划提醒且毫无提示。
+    localStorage.setItem(`${KEYS.sisuStudyPlan}:scheduled`, JSON.stringify({ oops: true }))
+    // 显式声明权限前提：同文件前面的用例改过 checkPermissions，别依赖执行顺序。
+    vi.mocked(LocalNotifications.checkPermissions).mockResolvedValue({ display: 'granted' } as never)
+    await refreshSisuPlanReminders([item('fresh', '2026-09-17T12:30:00.000Z')], {
+      title: 'Reminder', body: () => 'body',
+    })
+    expect(LocalNotifications.schedule).toHaveBeenCalled()
+    const scheduled = vi.mocked(LocalNotifications.schedule).mock.calls.at(-1)![0].notifications
+    expect(scheduled.map((n) => n.id)).toEqual([
+      sisuPlanReminderId('fresh', 24),
+      sisuPlanReminderId('fresh', 1),
+    ])
+  })
 })

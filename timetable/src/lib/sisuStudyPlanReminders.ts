@@ -44,7 +44,10 @@ export async function refreshSisuPlanReminders(
     }
   }
 
-  const previous = readJson<number[]>(TRACKED_KEY, []).filter((id) => Number.isSafeInteger(id))
+  // 存储可能被旧版本/备份导入写坏：非数组直接当空处理，别让 .filter 抛异常把
+  // 整个提醒刷新静默吞掉（调用方 .catch 会吃掉错误，用户永远收不到提醒）。
+  const trackedRaw = readJson<unknown>(TRACKED_KEY, [])
+  const previous = (Array.isArray(trackedRaw) ? trackedRaw : []).filter((id): id is number => Number.isSafeInteger(id))
   if (desired.size === 0) {
     if (previous.length > 0) await LocalNotifications.cancel({ notifications: previous.map((id) => ({ id })) })
     writeJson(TRACKED_KEY, [])

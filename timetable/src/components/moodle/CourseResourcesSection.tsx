@@ -128,9 +128,9 @@ function ResourceRow({ resource, favorite, onOpen, onToggleFavorite, date, now, 
     <li className="resource-row group flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] p-2.5 transition-colors hover:border-[var(--line-info)] hover:bg-[var(--surface-1)]">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-1)] text-[var(--info)]"><Icon name={resource.modname === 'assign' ? 'pencil' : resource.modname === 'quiz' ? 'exam' : 'book'} size={14} /></span>
       <button onClick={() => safeUrl && onOpen(resource)} disabled={!safeUrl} className="min-w-0 flex-1 text-left disabled:opacity-50">
-        <span className="block truncate text-xs font-medium text-[var(--text-1)]">{resource.name}</span>
-        <span className="mt-0.5 block truncate text-[10px] text-[var(--text-3)]">{resource.courseName} · {resource.sectionName}{ago != null ? ` · ${agoLabel}` : ''}</span>
-        {resource.description && <span className="mt-0.5 block truncate text-[10px] text-[var(--text-3)]">{resource.description}</span>}
+        <span className="block truncate text-xs font-medium text-[var(--text-1)]" title={resource.name}>{resource.name}</span>
+        <span className="mt-0.5 block truncate text-[10px] text-[var(--text-3)]" title={`${resource.courseName} · ${resource.sectionName}${ago != null ? ` · ${agoLabel}` : ''}`}>{resource.courseName} · {resource.sectionName}{ago != null ? ` · ${agoLabel}` : ''}</span>
+        {resource.description && <span className="mt-0.5 block truncate text-[10px] text-[var(--text-3)]" title={resource.description}>{resource.description}</span>}
       </button>
       <button onClick={() => onToggleFavorite(resource)} aria-pressed={favorite} aria-label={favorite ? t('courseResourcesUnfavorite') : t('courseResourcesFavorite')} className={'favorite-button shrink-0 rounded-lg p-1.5 transition-colors ' + (favorite ? 'text-[var(--due)]' : 'text-[var(--text-3)] hover:text-[var(--due)]')} title={favorite ? t('courseResourcesUnfavorite') : t('courseResourcesFavorite')}>
         <span className="inline-block" aria-hidden="true">{favorite ? '★' : '☆'}</span>

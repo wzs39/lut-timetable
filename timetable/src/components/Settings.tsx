@@ -85,7 +85,7 @@ const GROUP_LABEL_KEYS: Record<(typeof SETTINGS_GROUP_IDS)[number], string> = {
 function Group({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section id={`settings-${id}`} className="scroll-mt-14">
-      <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--accent)]">{title}</h4>
+      <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--accent)]">{title}</h3>
       <div className="space-y-6">{children}</div>
     </section>
   )
@@ -144,8 +144,12 @@ export default function Settings({
     setSisuPrefs(saveSisuCoursePreferences({ ...sisuPrefs, focus }))
     onSisuPrefsChanged?.()
   }
-  const changeSisuGoal = (goalCredits: number) => {
-    setSisuPlan(saveSisuStudyPlan({ ...sisuPlan, goalCredits }))
+  /** 空串/0（用户清空输入框）不写回：saveSisuStudyPlan 会把 <=0 夹回默认值，
+   *  否则一按退格就被弹回 180，没法全选删空再输新值。blur 时再兜底夹一次。 */
+  const changeSisuGoal = (raw: string) => {
+    const next = Number(raw)
+    if (!Number.isFinite(next) || next <= 0) return
+    setSisuPlan(saveSisuStudyPlan({ ...sisuPlan, goalCredits: next }))
     onSisuPrefsChanged?.()
   }
 
@@ -346,9 +350,9 @@ export default function Settings({
               {sources.map((s) => (
                 <div key={s.id} className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate font-medium">
+                    <span className="min-w-0 truncate font-medium" title={`${s.type === 'sisu' ? 'SISU' : 'TimeEdit'} · ${s.label}`}>
                       <span className={'mr-1 inline-block h-2 w-2 rounded-full align-middle ' + (s.type === 'sisu' ? 'bg-[var(--info)]' : 'bg-[var(--violet)]')} />
-                      {s.type === 'sisu' ? 'SISU' : 'TimeEdit'} · <span className="text-[10px] font-normal text-[var(--text-3)]" title={s.url}>{s.label}</span>
+                      {s.type === 'sisu' ? 'SISU' : 'TimeEdit'} · <span className="text-[10px] font-normal text-[var(--text-3)]">{s.label}</span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1">
                       <button onClick={() => onSync(s)} disabled={syncing} className="rounded bg-[var(--surface-1)] px-2 py-0.5 text-[10px] hover:bg-[var(--hover-1)] disabled:opacity-50">
@@ -490,7 +494,8 @@ export default function Settings({
                   type="number"
                   min="1"
                   value={sisuPlan.goalCredits}
-                  onChange={(e) => changeSisuGoal(Number(e.target.value))}
+                  onChange={(e) => changeSisuGoal(e.target.value)}
+                  onBlur={(e) => changeSisuGoal(e.target.value)}
                   className="app-input w-20 px-1 py-0.5 text-right text-xs"
                 />
               </label>
@@ -748,7 +753,7 @@ export default function Settings({
                       className="flex items-start gap-2 rounded-md border border-[var(--line-due)] bg-[var(--tint-due)] px-2 py-1.5"
                     >
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[11px] font-medium text-[var(--due)]">
+                        <div className="truncate text-[11px] font-medium text-[var(--due)]" title={scopeText(parts.code, typeLabel)}>
                           {scopeText(parts.code, typeLabel)}
                         </div>
                         <div

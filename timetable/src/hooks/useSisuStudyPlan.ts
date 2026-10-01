@@ -30,7 +30,7 @@ import {
 import { refreshSisuPlanReminders } from '../lib/sisuStudyPlanReminders'
 
 export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [plan, setPlan] = useState(loadSisuStudyPlan)
   const [coursePreferences, setCoursePreferences] = useState(loadSisuCoursePreferences)
   const [title, setTitle] = useState('')
@@ -93,24 +93,35 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
           try {
             const match = await lookupSisuCourseByCode(code, controller.signal)
             if (controller.signal.aborted) return
+            // 成功/真·未找到才记账；网络失败不记，下一次渲染还会重试，
+            // 否则一次断网就把该代码永久钉死成「目录中找不到」。
             resolvedCodes.current.add(code)
             setCatalogMatches((prev) => ({ ...prev, [code]: match }))
           } catch {
             if (controller.signal.aborted) return
-            resolvedCodes.current.add(code)
-            setCatalogMatches((prev) => ({ ...prev, [code]: null }))
+            // 失败不写 resolvedCodes（留待重试），但先清掉本会话内的旧结论，
+            // 避免 UI 继续按过时结果展示。
+            setCatalogMatches((prev) => (code in prev ? { ...prev, [code]: undefined } as typeof prev : prev))
           }
         }
       })()
     }
     return () => controller.abort()
   }, [planCodes])
+  // 提醒文案随语言变化，但 t 引用不稳定（I18nProvider 每次渲染新建 t）：
+  // 用 lang 参与的 useCallback 造一个稳定翻译器，effect 依赖只留 plan.items，
+  // 否则每次父级重渲染都会取消并重排全部通知。
+  const translateReminder = useCallback(
+    (key: string, params?: Record<string, string | number>) => t(key, params),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lang],
+  )
   useEffect(() => {
     void refreshSisuPlanReminders(plan.items, {
-      title: t('sisuPlanReminderTitle'),
-      body: (item, beforeHours) => t('sisuPlanReminderBody', { title: item.title, h: beforeHours }),
+      title: translateReminder('sisuPlanReminderTitle'),
+      body: (item, beforeHours) => translateReminder('sisuPlanReminderBody', { title: item.title, h: beforeHours }),
     }).catch(() => {})
-  }, [plan.items, t])
+  }, [plan.items, translateReminder])
 
   const updatePlanItems = (items: SisuPlanItem[]) => {
     setPlan(saveSisuStudyPlan({ ...plan, items }))

@@ -138,7 +138,7 @@ export default function MoodleView({
           <button className="section-arrow app-btn-ghost hidden shrink-0 p-1.5 sm:inline-flex" onClick={() => goSection(1)} aria-label={t('nextSection')} title={t('nextSection')}><Icon name="chevron-right" size={12} /></button>
         </div>
 
-        <div id="moodle-panel" key={section} className="section-panel animate-view-in" role="tabpanel" aria-labelledby={`moodle-tab-${section}`}>
+        <div id="moodle-panel" key={section} className="section-panel animate-view-in space-y-3" role="tabpanel" aria-labelledby={`moodle-tab-${section}`}>
           {section === 'timeline' && (
             <TimelineSection
               tasks={tasks}
