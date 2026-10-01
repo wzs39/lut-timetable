@@ -1,5 +1,10 @@
 import { useEffect } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
+import type { ActionPerformed } from '@capacitor/local-notifications'
+import { openExternal } from '../lib/openExternal'
+import { normalizeMoodleLink } from '../lib/moodleUrl'
+import { normalizeSisuStudyPlanUrl } from '../lib/sisuStudyPlanReminders'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
 import {
@@ -143,13 +148,29 @@ export default function NotificationManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, digestEnabled, lessons, tasks, lang, subscriptions, onSubscriptionsFired, t])
 
+  // Notifikasi tenggat Moodle menyimpan URL aktivitas di extra; buka tautan
+  // yang aman saat pengguna mengetuknya, termasuk saat app kembali dari background.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    const listener = LocalNotifications.addListener(
+      'localNotificationActionPerformed',
+      (action: ActionPerformed) => {
+        const extra = action.notification.extra as { url?: unknown } | undefined
+        const url = typeof extra?.url === 'string'
+          ? normalizeMoodleLink(extra.url) ?? normalizeSisuStudyPlanUrl(extra.url)
+          : null
+        if (url) openExternal(url)
+      },
+    )
+    return () => {
+      listener.then((h) => h.remove()).catch(() => {})
+    }
+  }, [])
+
   // Tampilkan notifikasi yang dikirim saat aplikasi berjalan di foreground
   useEffect(() => {
     if (!enabled) return
-    const listener = LocalNotifications.addListener(
-      'localNotificationReceived',
-      () => {},
-    )
+    const listener = LocalNotifications.addListener('localNotificationReceived', () => {})
     return () => {
       listener.then((h) => h.remove()).catch(() => {})
     }

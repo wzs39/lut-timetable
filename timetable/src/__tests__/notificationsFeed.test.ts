@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { countUnread, type MoodleNotification } from '../lib/notificationsFeed'
+import { countUnread, parseNotification, type MoodleNotification } from '../lib/notificationsFeed'
+import { moodleCourseUrl, normalizeMoodleLink } from '../lib/moodleUrl'
 
 function notif(id: string, read: boolean): MoodleNotification {
   return { id, subject: id, body: '', read, kind: 'system' }
@@ -24,6 +25,38 @@ describe('countUnread', () => {
 
   it('counts only unread in a mixed list', () => {
     expect(countUnread([notif('a', true), notif('b', false), notif('c', true), notif('d', false)])).toBe(2)
+  })
+})
+
+describe('Moodle deep links', () => {
+  it('normalizes relative and protocol-relative Moodle URLs to HTTPS', () => {
+    expect(normalizeMoodleLink('/mod/assign/view.php?id=42')).toBe(
+      'https://moodle.lut.fi/mod/assign/view.php?id=42',
+    )
+    expect(normalizeMoodleLink('//moodle.lut.fi/course/view.php?id=9')).toBe(
+      'https://moodle.lut.fi/course/view.php?id=9',
+    )
+  })
+
+  it('rejects non-Moodle and unsafe destinations', () => {
+    expect(normalizeMoodleLink('https://example.com/phishing')).toBeNull()
+    expect(normalizeMoodleLink('https://moodle.lut.fi.example.com/')).toBeNull()
+    expect(normalizeMoodleLink('javascript:alert(1)')).toBeNull()
+    expect(normalizeMoodleLink('https://user@moodle.lut.fi/')).toBeNull()
+  })
+
+  it('parses notification links into canonical Moodle URLs', () => {
+    expect(parseNotification({ id: 10, subject: 'Assignment', contexturl: '/mod/assign/view.php?id=42' })?.url)
+      .toBe('https://moodle.lut.fi/mod/assign/view.php?id=42')
+    expect(parseNotification({ id: 11, subject: 'News', contexturl: 'https://outside.example/' })?.url)
+      .toBeUndefined()
+  })
+
+  it('builds a safe course fallback only for a valid positive course id', () => {
+    expect(moodleCourseUrl(123)).toBe('https://moodle.lut.fi/course/view.php?id=123')
+    expect(moodleCourseUrl(0)).toBeNull()
+    expect(moodleCourseUrl(-1)).toBeNull()
+    expect(moodleCourseUrl(Number.MAX_SAFE_INTEGER + 1)).toBeNull()
   })
 })
 

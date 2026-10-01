@@ -61,6 +61,23 @@ describe('wantedReminders', () => {
     expect(dueNotifId('a', 24)).toBe(id24)
   })
 
+  it('attaches only a safe normalized Moodle activity URL to reminder metadata', () => {
+    const due = new Date(NOW + 2 * 3600 * 1000).toISOString()
+    const reminders = wantedReminders(
+      [task({ id: 'moodle-task', dueAt: due, url: '/mod/assign/view.php?id=42' })],
+      NOW,
+    )
+    for (const reminder of reminders.values()) {
+      expect(reminder.url).toBe('https://moodle.lut.fi/mod/assign/view.php?id=42')
+    }
+
+    const unsafe = wantedReminders(
+      [task({ id: 'unsafe-task', dueAt: due, url: 'https://example.com/' })],
+      NOW,
+    )
+    expect([...unsafe.values()][0].url).toBeUndefined()
+  })
+
   it('DUE_REMIND_BEFORE_H contains the requested 24h and 1h reminders', () => {
     expect([...DUE_REMIND_BEFORE_H]).toEqual([24, 1])
   })

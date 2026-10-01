@@ -6,6 +6,7 @@ import { unreadByKind, notificationCourses } from '../../lib/notificationsFeed'
 import { extractCourseCode } from '../../lib/courses'
 import { loadIdentityIndex } from '../../lib/courseIdentity'
 import { openExternal } from '../../lib/openExternal'
+import { moodleCourseUrl, normalizeMoodleLink } from '../../lib/moodleUrl'
 import Icon from '../Icon'
 
 const KINDS: readonly (NotificationKind | 'all')[] = ['all', 'forum', 'submission', 'quiz', 'receipt', 'system']
@@ -45,6 +46,12 @@ export default function NotificationsSection() {
 
   const open = (n: MoodleNotification) => {
     if (!n.read) markNotificationRead(n.id)
+  }
+  const hrefFor = (n: MoodleNotification) =>
+    normalizeMoodleLink(n.url) ?? (n.courseid ? moodleCourseUrl(n.courseid) : null)
+  const openNotification = (n: MoodleNotification, href: string) => {
+    openExternal(href)
+    open(n)
   }
 
   const [filter, setFilter] = useState<NotificationKind | 'all'>('all')
@@ -159,62 +166,64 @@ export default function NotificationsSection() {
         </div>
       )}
       <ul className="space-y-1.5">
-        {(shown ?? []).map((n) => (
-          <li
-            key={n.id}
-            className={
-              'rounded-lg border p-2 ' +
-              (n.read ? 'border-[var(--line)] bg-[var(--surface-2)]' : 'border-[var(--line-info)] bg-[var(--tint-info)]')
-            }
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--info)]" aria-label={t('notifUnread')} />}
-                  {n.url ? (
-                    <span
-                      className="block truncate text-xs font-medium text-[var(--info)] hover:underline"
-                      title={n.subject}
-                    >
-                      <a
-                        href={n.url}
-                        className="block truncate"
-                        rel="noreferrer"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          if (n.url) openExternal(n.url)
-                          markNotificationRead(n.id)
-                        }}
+        {(shown ?? []).map((n) => {
+          const href = hrefFor(n)
+          return (
+            <li
+              key={n.id}
+              className={
+                'rounded-lg border p-2 ' +
+                (n.read ? 'border-[var(--line)] bg-[var(--surface-2)]' : 'border-[var(--line-info)] bg-[var(--tint-info)]')
+              }
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--info)]" aria-label={t('notifUnread')} />}
+                    {href ? (
+                      <span
+                        className="block truncate text-xs font-medium text-[var(--info)] hover:underline"
+                        title={n.subject}
+                      >
+                        <a
+                          href={href}
+                          className="block truncate"
+                          rel="noreferrer"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            openNotification(n, href)
+                          }}
+                        >
+                          {n.subject}
+                        </a>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => open(n)}
+                        className="block truncate text-xs font-medium"
+                        title={n.subject}
                       >
                         {n.subject}
-                      </a>
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-3)]">
+                    <span className="rounded bg-[var(--surface-1)] px-1 py-px text-[9px] font-medium text-[var(--text-2)]">
+                      {t(KIND_KEY[n.kind])}
                     </span>
-                  ) : (
-                    <button
-                      onClick={() => open(n)}
-                      className="block truncate text-xs font-medium"
-                      title={n.subject}
-                    >
-                      {n.subject}
-                    </button>
-                  )}
+                    {n.from && <span className="truncate">{n.from}</span>}
+                    {n.time && (
+                      <span className="tabular-nums">
+                        {new Date(n.time).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
+                      </span>
+                    )}
+                  </div>
+                  {n.body && <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[var(--text-2)]">{n.body}</p>}
                 </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px] text-[var(--text-3)]">
-                  <span className="rounded bg-[var(--surface-1)] px-1 py-px text-[9px] font-medium text-[var(--text-2)]">
-                    {t(KIND_KEY[n.kind])}
-                  </span>
-                  {n.from && <span className="truncate">{n.from}</span>}
-                  {n.time && (
-                    <span className="tabular-nums">
-                      {new Date(n.time).toLocaleDateString(locale, { month: 'short', day: 'numeric' })}
-                    </span>
-                  )}
-                </div>
-                {n.body && <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[var(--text-2)]">{n.body}</p>}
               </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
       {receiptsHidden && (
         <button

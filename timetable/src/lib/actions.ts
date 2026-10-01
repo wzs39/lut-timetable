@@ -4,6 +4,7 @@ import { wsCall, validateGradesSource } from './grades'
 import { KEYS, readJson, writeJson } from './storage'
 import { matchCourseCode, extractCourseCode } from './courses'
 import { loadIdentityIndex } from './courseIdentity'
+import { normalizeMoodleLink } from './moodleUrl'
 
 /**
  * Tugas dari Moodle timeline via webservice token — sumber KANONIS:
@@ -40,12 +41,13 @@ interface RawActionEvent {
   timesort?: number
   modulename?: string
   action?: { actionable?: boolean; itemtype?: string; url?: string }
+  courseid?: number
   course?: { shortname?: string; fullname?: string }
   url?: string
 }
 
-/** Modul yang dianggap "tugas" (punya deadline & bisa dikerjakan). */
-const ASSIGNMENT_MODULES = new Set(['assign', 'quiz'])
+/** Moodle modules with a clear due action students can act on. */
+const ASSIGNMENT_MODULES = new Set(['assign', 'quiz', 'workshop'])
 
 /**
  * Upgrade URL tugas ICS (`calendar/view.php?event=N`) → halaman aktivitas
@@ -138,8 +140,9 @@ export function parseActionEvents(response: unknown): ActionEvent[] {
   const out: ActionEvent[] = []
   for (const e of events) {
     if (e.id == null || !e.name) continue
-    const actionUrl = e.action?.url || e.url
-    if (!actionUrl) continue
+    const actionUrl = normalizeMoodleLink(e.action?.url || e.url)
+    if (!actionUrl || e.action?.actionable === false) continue
+    if (!e.action && e.url && !e.course && !e.courseid) continue
     const mod = e.modulename ?? ''
     if (!ASSIGNMENT_MODULES.has(mod)) continue
     out.push({

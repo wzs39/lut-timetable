@@ -2,6 +2,7 @@ import { wsCall, validateGradesSource } from './grades'
 import { KEYS, readJson, writeJson } from './storage'
 import { readCache, writeCache, syncDomain } from './moodleSync'
 import { htmlToText } from './html'
+import { normalizeMoodleLink } from './moodleUrl'
 
 /**
  * Pusat notifikasi Moodle — aliran bacaan: umpan balik dinilai, pengingat
@@ -109,7 +110,7 @@ export function parseNotification(
   // Sudah-baca = server bilang read ATAU pengguna pernah membukanya di app
   // (readSet lokal menimpa "belum dibaca" server; offline-safe).
   const read = n.read === true || n.read === 1 || (readSet?.has(id) ?? false)
-  const url = n.contexturl?.replace(/&amp;/g, '&')
+  const url = normalizeMoodleLink(n.contexturl) ?? undefined
   return {
     id,
     subject: htmlToText(n.subject) || '',
@@ -205,6 +206,17 @@ function cacheKey(): string {
   return KEYS.ntfCache
 }
 
+/** Migrate older cache records and keep all surfaced links on Moodle's HTTPS host. */
+function normalizeCachedNotification(item: MoodleNotification): MoodleNotification {
+  const url = normalizeMoodleLink(item.url) ?? undefined
+  return {
+    ...item,
+    url,
+    kind: item.kind ?? classifyNotification(url, null),
+    courseid: toNumId(item.courseid),
+  }
+}
+
 export function loadReadIds(): Set<string> {
   try {
     const raw = readJson<string[]>(READ_KEY, [])
@@ -248,13 +260,7 @@ export function loadCachedNotifications(): MoodleNotification[] | null {
   // Migration in the picker: cache lama sebelum kolom `kind` ada — isi dari
   // URL; courseid lama berbentuk string — normalkan ke angka.
   return readCache<MoodleNotification>(cacheKey(), CACHE_TTL, (raw) =>
-    Array.isArray(raw.items)
-      ? raw.items.map((it) => ({
-          ...it,
-          kind: it.kind ?? classifyNotification(it.url, null),
-          courseid: toNumId(it.courseid),
-        }))
-      : null,
+    Array.isArray(raw.items) ? raw.items.map(normalizeCachedNotification) : null,
   )
 }
 
@@ -271,13 +277,7 @@ export async function fetchNotifications(
     cacheKey: cacheKey(),
     ttlMs: CACHE_TTL,
     load: (raw) =>
-      Array.isArray(raw.items)
-        ? raw.items.map((it) => ({
-            ...it,
-            kind: it.kind ?? classifyNotification(it.url, null),
-            courseid: toNumId(it.courseid),
-          }))
-        : null,
+      Array.isArray(raw.items) ? raw.items.map(normalizeCachedNotification) : null,
     save: saveCachedNotifications,
     src,
     force: opts.force,

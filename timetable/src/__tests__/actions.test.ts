@@ -26,6 +26,10 @@ function actionEventsResponse() {
       },
       { id: 9003, name: 'Forum post', timesort: 1759200000, modulename: 'forum', action: { url: 'https://x' } }, // not an assignment module
       { id: 9004, name: 'No action event', timesort: 1759300000, modulename: 'assign' }, // no action url
+      { id: 9005, name: 'Unrelated host', modulename: 'assign', action: { actionable: true, url: 'https://example.org/task' }, course: { shortname: 'CT60A4050' } },
+      { id: 9006, name: 'Workshop submission', timesort: 1759400000, modulename: 'workshop', action: { actionable: true, url: '/mod/workshop/view.php?id=333' }, course: { shortname: 'CT60A4050' } },
+      { id: 9007, name: 'Calendar event with no course', modulename: 'assign', url: '/calendar/view.php?event=7' },
+      { id: 9008, name: 'Marked not actionable', modulename: 'assign', action: { actionable: false, url: '/mod/assign/view.php?id=444' }, course: { shortname: 'CT60A4050' } },
     ],
   }
 }
@@ -55,9 +59,9 @@ function task(p: Partial<Task> & { id: string; title: string }): Task {
 }
 
 describe('parseActionEvents', () => {
-  it('keeps only assignment/quiz events with action URLs, mapping timesort → dueAt', () => {
+  it('keeps only actionable supported modules with trusted Moodle URLs', () => {
     const out = parseActionEvents(actionEventsResponse())
-    expect(out).toHaveLength(2)
+    expect(out).toHaveLength(3)
     expect(out[0]).toMatchObject({
       id: 'moodle-act:9001',
       title: 'IHA1 submit',
@@ -66,6 +70,11 @@ describe('parseActionEvents', () => {
       modtype: 'assign',
     })
     expect(out[0].dueAt).toBe(new Date(1759000000 * 1000).toISOString())
+    expect(out[2]).toMatchObject({
+      id: 'moodle-act:9006',
+      modtype: 'workshop',
+      url: 'https://moodle.lut.fi/mod/workshop/view.php?id=333',
+    })
   })
 
   it('returns [] for malformed responses', () => {
@@ -78,7 +87,7 @@ describe('parseActionEvents', () => {
 describe('mergeActionEvents', () => {
   it('adds action tasks and matches course code from the timetable', () => {
     const r = mergeActionEvents([], parseActionEvents(actionEventsResponse()), lessons)
-    expect(r.added).toBe(2)
+    expect(r.added).toBe(3)
     expect(r.tasks[0].course).toBe('CT60A4050')
     expect(r.tasks[0].id).toBe('moodle-act:9001')
   })

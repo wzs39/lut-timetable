@@ -3,6 +3,7 @@ import type { Task } from './tasks'
 import { isOverdue } from './tasks'
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
 import { formatDateTime as formatDueTime } from './date'
+import { normalizeMoodleLink } from './moodleUrl'
 
 /** Remind this long before the deadline (two reminders per task). */
 export const DUE_REMIND_BEFORE_H = [24, 1] as const
@@ -29,6 +30,8 @@ export interface DueReminder {
   id: number
   at: Date
   task: Task
+  /** Safe HTTPS link to the Moodle activity, used by the tap handler. */
+  url?: string
   beforeH: number
 }
 
@@ -48,7 +51,13 @@ export function wantedReminders(tasks: Task[], now: number): Map<number, DueRemi
     for (const beforeH of DUE_REMIND_BEFORE_H) {
       const at = due - beforeH * 3600 * 1000
       if (at <= now) continue
-      wanted.set(dueNotifId(task.id, beforeH), { id: dueNotifId(task.id, beforeH), at: new Date(at), task, beforeH })
+      wanted.set(dueNotifId(task.id, beforeH), {
+        id: dueNotifId(task.id, beforeH),
+        at: new Date(at),
+        task,
+        url: normalizeMoodleLink(task.url) ?? undefined,
+        beforeH,
+      })
     }
   }
   return wanted
@@ -83,21 +92,25 @@ export async function refreshDueNotifications(
     })
   }
 
-  const scheduledIds = new Set(pending.notifications.map((n) => n.id))
+  const pendingById = new Map(pending.notifications.map((notification) => [notification.id, notification]))
   const exact = await exactAlarmsEnabled()
-  const toSchedule = [...wanted.values()]
-    .filter(({ id }) => !scheduledIds.has(id))
-    .map(({ id, at, task, beforeH }) => ({
-      id,
-      title: texts.title,
-      body: texts.body(task, formatDueTime(task.dueAt!, locale), beforeH),
-      schedule: { at, allowWhileIdle: true, exact },
-      smallIcon: undefined,
-    }))
+  const desired = [...wanted.values()].map(({ id, at, task, url, beforeH }) => ({
+    id,
+    title: texts.title,
+    body: texts.body(task, formatDueTime(task.dueAt!, locale), beforeH),
+    schedule: { at, allowWhileIdle: true, exact },
+    extra: { url },
+    smallIcon: 'ic_stat_lesson',
+    iconColor: '#e7e5e4',
+  }))
+  const toSchedule = desired.filter(({ id }) => !pendingById.has(id))
+  const toUpdate = desired.filter(({ id, extra }) => {
+    const previous = pendingById.get(id)
+    return previous && previous.extra?.url !== extra.url
+  })
 
-  if (toSchedule.length > 0) {
-    await LocalNotifications.schedule({ notifications: toSchedule })
-  }
+  if (toUpdate.length > 0) await LocalNotifications.update({ notifications: toUpdate })
+  if (toSchedule.length > 0) await LocalNotifications.schedule({ notifications: toSchedule })
 }
 
 /**
