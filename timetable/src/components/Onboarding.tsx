@@ -5,6 +5,8 @@ import Icon from './Icon'
 interface Props {
   /** 添加课表源；返回 null = 链接无法识别（组件显示 badUrl） */
   onAddSource: (url: string) => string | null
+  /** 当前运行环境是否支持返回 App 的 Moodle SSO 流程 */
+  ssoAvailable: boolean
   /** 用 LUT 账号登录 Moodle（SSO 流程由 App/MoodleProvider 处理） */
   onLoginMoodle: () => void
   /** 走完全部三步或「跳过引导」 */
@@ -20,7 +22,7 @@ const STEPS = 3
  * 只在「无来源且无课程」的首次启动出现；之后可从命令面板重新打开。
  * 链接解析与同步副作用都在 App（sourceFromUrl + sync），这里只收集输入。
  */
-export default function Onboarding({ onAddSource, onLoginMoodle, onFinish, onOpenSettings }: Props) {
+export default function Onboarding({ onAddSource, ssoAvailable, onLoginMoodle, onFinish, onOpenSettings }: Props) {
   const { t } = useI18n()
   const [step, setStep] = useState(0)
   const [url, setUrl] = useState('')
@@ -99,12 +101,14 @@ export default function Onboarding({ onAddSource, onLoginMoodle, onFinish, onOpe
                   <Icon name="check" size={12} /> {t('obAdded')}
                 </p>
               )}
-              <button
-                onClick={finishMoodle}
-                className="app-btn-primary w-full px-3 py-1.5 text-xs font-medium"
-              >
-                {t('obMoodleCta')}
-              </button>
+              {ssoAvailable && (
+                <button
+                  onClick={finishMoodle}
+                  className="app-btn-primary w-full px-3 py-1.5 text-xs font-medium"
+                >
+                  {t('obMoodleCta')}
+                </button>
+              )}
               <button
                 onClick={() => setStep(2)}
                 className="w-full rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-[11px] text-[var(--text-2)] hover:bg-[var(--hover-1)]"

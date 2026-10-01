@@ -85,6 +85,11 @@ describe('settings → desktop section', () => {
     expect(screen.queryByText('桌面端')).toBeNull()
   })
 
+  it('does not offer Moodle SSO without a native/Electron return bridge', () => {
+    renderSettings(null)
+    expect(screen.queryByText('通过 LUT 账号登录（SSO / Duo）')).toBeNull()
+  })
+
   it('shows the tray + shortcut switches and reports the active accelerator', () => {
     renderSettings(state())
     expect(screen.getByText('桌面端')).toBeTruthy()

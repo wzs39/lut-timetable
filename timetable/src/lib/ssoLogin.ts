@@ -29,6 +29,17 @@ export type SsoOutcome =
 
 const FLOW_TIMEOUT_MS = 10 * 60 * 1000
 
+/** Browser SSO needs a return-to-app bridge; web browsers have none. */
+export function supportsSsoLogin(nativePlatform: boolean, electronBridgeAvailable: boolean): boolean {
+  return nativePlatform || electronBridgeAvailable
+}
+
+export function hasSsoLoginSupport(): boolean {
+  const electronBridgeAvailable =
+    typeof window !== 'undefined' && Boolean((window as Window & { lutSso?: unknown }).lutSso)
+  return supportsSsoLogin(Capacitor.isNativePlatform(), electronBridgeAvailable)
+}
+
 /**
  * Jalankan alur SSO penuh. Menyelesaikan begitu token tiba (dengan
  * verifikasi passport), atau timeout/cancel. URL login dikembalikan lewat

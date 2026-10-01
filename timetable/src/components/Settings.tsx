@@ -379,8 +379,8 @@ export default function Settings({
               ) : (
                 <div className="space-y-1.5">
                   <p className="text-[11px] leading-relaxed text-[var(--text-3)]">{t('gradesHint')}</p>
-                  {/* SSO 浏览器登录：唯一支持 LUT SSO + Duo 双因素的主路径 */}
-                  <button
+                  {/* Browser SSO only works where a native/Electron return bridge is available. */}
+                  {md.ssoAvailable && <button
                     onClick={() =>
                       md.loginWithSso((url) => {
                         // Android: openExternal 导航主帧被原生层拦截 → 系统浏览器；
@@ -392,7 +392,7 @@ export default function Settings({
                     className="app-btn-primary w-full px-3 py-1.5 text-xs disabled:opacity-50"
                   >
                     {md.ssoState === 'pending' ? t('ssoWaiting') : t('ssoLoginBtn')}
-                  </button>
+                  </button>}
                   {(md.ssoMessage || md.message) && (
                     <p className="text-[10px] leading-relaxed text-[var(--text-2)]">{md.ssoMessage ?? md.message}</p>
                   )}

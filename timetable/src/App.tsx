@@ -894,11 +894,15 @@ function AppInner({
               setView(item.key)
             }}
             aria-pressed={view === item.key}
-            className={
-              'relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] transition-colors ' +
-              (view === item.key ? 'text-[var(--text-1)]' : 'text-[var(--text-3)]')
-            }
+            className="app-nav-item relative flex flex-1 flex-col items-center gap-0.5 rounded-lg py-2 text-[10px]"
           >
+            <span
+              aria-hidden="true"
+              className={
+                'absolute top-0 h-0.5 w-8 rounded-full bg-[var(--accent)] transition-all duration-150 ' +
+                (view === item.key ? 'scale-x-100 opacity-100' : 'scale-x-50 opacity-0')
+              }
+            />
             <Icon name={item.icon} size={17} />
             <span className="max-w-full truncate">{item.label}</span>
             {item.badge > 0 && (
@@ -1064,6 +1068,7 @@ function AppInner({
       {showOnboarding && (
         <Onboarding
           onAddSource={addSourceFromUrl}
+          ssoAvailable={md.ssoAvailable}
           onLoginMoodle={() => md.loginWithSso((url) => openExternal(url))}
           onFinish={() => {
             writeStored(STORE_KEYS.onboardingDone, '1')

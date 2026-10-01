@@ -40,6 +40,7 @@ import {
   runSsoFlow,
   androidSsoHooks,
   coldStartLaunchUrl,
+  hasSsoLoginSupport,
   type SsoOutcome,
 } from '../lib/ssoLogin'
 import {
@@ -85,6 +86,7 @@ export interface MoodleData {
   disconnectToken: () => void
   /** SSO 浏览器登录（LUT SSO + Duo）：返回登录 URL，令牌经 deep link 异步送达 */
   loginWithSso: (openUrl: (url: string) => void) => void
+  ssoAvailable: boolean
   ssoState: 'idle' | 'pending' | 'connecting' | 'error'
   ssoMessage: string | null
   syncNow: () => Promise<void>
@@ -362,6 +364,7 @@ export function MoodleProvider({
    * Kegagalan timeout/invalid ditampilkan; sukses langsung terhubung. */
   const [ssoState, setSsoState] = useState<MoodleData['ssoState']>('idle')
   const [ssoMessage, setSsoMessage] = useState<string | null>(null)
+  const [ssoAvailable] = useState(hasSsoLoginSupport)
 
   const loginWithSso = useCallback(
     (openUrl: (url: string) => void) => {
@@ -627,6 +630,7 @@ export function MoodleProvider({
       connectToken,
       disconnectToken,
       loginWithSso,
+      ssoAvailable,
       ssoState,
       ssoMessage,
       syncNow,
@@ -635,7 +639,7 @@ export function MoodleProvider({
       applyCompletion,
       pushTaskCompletion,
     }),
-    [ics, token, grades, subMap, subByCmid, busy, message, notifications, markNotificationRead, refreshNotifications, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions, applyCompletion, pushTaskCompletion],
+    [ics, token, grades, subMap, subByCmid, busy, message, notifications, markNotificationRead, refreshNotifications, ssoAvailable, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions, applyCompletion, pushTaskCompletion],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
