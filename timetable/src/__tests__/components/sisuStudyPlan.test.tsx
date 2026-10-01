@@ -7,7 +7,13 @@ import { searchSisuPublicCatalog, type SisuPublicCourse } from '../../lib/sisuCo
 import { refreshSisuPlanReminders } from '../../lib/sisuStudyPlanReminders'
 import { KEYS } from '../../lib/storage'
 
-vi.mock('../../lib/sisuCourse', () => ({ searchSisuPublicCatalog: vi.fn() }))
+// 计划项现在还会去 SISU 公开目录核对：mock 必须同时提供 lookup 与 normalizeSisuCode，
+// 否则 hook 里导入的函数是 undefined，catalogViewFor 会在渲染期抛错。
+vi.mock('../../lib/sisuCourse', () => ({
+  searchSisuPublicCatalog: vi.fn(),
+  lookupSisuCourseByCode: vi.fn(async () => null),
+  normalizeSisuCode: (code: string) => code.trim().toUpperCase().replace(/-\d{4}$/, ''),
+}))
 vi.mock('../../lib/sisuStudyPlanReminders', () => ({ refreshSisuPlanReminders: vi.fn(async () => {}) }))
 
 const search = vi.mocked(searchSisuPublicCatalog)

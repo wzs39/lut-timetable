@@ -21,7 +21,7 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
     plan, title, setTitle, courseCode, setCourseCode, kind, setKind,
     credits, setCredits, dueAt, setDueAt, error, coursePreferences,
     plannerCourses, visibleCandidates, alreadyPlanned, selectedNotPlannedCount,
-    creditEstimateText, earnedCredits, courseQuery,
+    creditEstimateText, earnedCredits, catalogViewFor, courseQuery,
     searchResult, publicSearchLoading, publicSearchError, onlySseRelevant,
     setOnlySseRelevant, plannerMessage, searchPublicCourses, changeCourseQuery,
     toggleCourseSelection, addSelectedCourses, addPlanItem,
@@ -131,21 +131,44 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
       </div>
       {plan.items.length === 0 ? <p className="py-4 text-center text-xs text-[var(--text-3)]">{t('sisuPlanEmpty')}</p> : (
         <ul className="space-y-1.5">
-          {plan.items.map((item) => (
-            <li key={item.id} className="resource-row flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2.5">
-              <input type="checkbox" checked={item.completed} onChange={(event) => setPlanItemCompleted(item.id, event.target.checked)} aria-label={t('sisuPlanMarkDone', { title: item.title })} className="accent-sky-500" />
-              <div className="min-w-0 flex-1">
-                <div title={item.title} className={'truncate text-xs font-medium ' + (item.completed ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-1)]')}>{item.title}</div>
-                <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-[var(--text-3)]">
-                  <span>{t(`sisuPlanKind_${item.kind}`)}</span>
-                  {item.courseCode && <span>{item.courseCode}</span>}
-                  {item.credits !== undefined && <span>{t('sisuPlanCreditsShort', { n: item.credits })}</span>}
-                  {item.dueAt && <span>{new Date(item.dueAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+          {plan.items.map((item) => {
+            const catalog = item.courseCode ? catalogViewFor(item) : null
+            const match = catalog?.check.match ?? null
+            return (
+              <li key={item.id} className="resource-row flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2.5">
+                <input type="checkbox" checked={item.completed} onChange={(event) => setPlanItemCompleted(item.id, event.target.checked)} aria-label={t('sisuPlanMarkDone', { title: item.title })} className="accent-sky-500" />
+                <div className="min-w-0 flex-1">
+                  <div title={item.title} className={'truncate text-xs font-medium ' + (item.completed ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-1)]')}>{item.title}</div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-[var(--text-3)]">
+                    <span>{t(`sisuPlanKind_${item.kind}`)}</span>
+                    {item.courseCode && <span>{item.courseCode}</span>}
+                    {item.credits !== undefined && <span>{t('sisuPlanCreditsShort', { n: item.credits })}</span>}
+                    {item.dueAt && <span>{new Date(item.dueAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+                  </div>
+                  {catalog && (catalog.checking
+                    ? <p className="mt-0.5 text-[10px] text-[var(--text-3)]">{t('sisuPlanChecking')}</p>
+                    : catalog.check.verdict === 'not-found'
+                      ? <p className="mt-0.5 text-[10px] text-[var(--due)]">{t('sisuPlanMatchMissing')}</p>
+                      : match
+                        ? (
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10px]">
+                            {catalog.check.differs.length === 0
+                              ? <span className="text-[var(--ok)]">{t('sisuPlanMatchOk')}</span>
+                              : (
+                                <>
+                                  {catalog.check.differs.includes('name') && <span className="min-w-0 truncate text-[var(--due)]" title={match.name}>{t('sisuPlanMatchName', { name: match.name })}</span>}
+                                  {catalog.check.differs.includes('credits') && <span className="text-[var(--due)]">{t('sisuPlanMatchCredits', { n: match.credits ?? '' })}</span>}
+                                </>
+                              )}
+                            <ExternalLink href={`https://sisu.lut.fi/student/courseunit/${match.id}`} className="shrink-0 text-[var(--info)] hover:underline">{t('sisuPlanOpenInSisu')} <Icon name="external" size={10} /></ExternalLink>
+                          </div>
+                        )
+                        : null)}
                 </div>
-              </div>
-              <button onClick={() => deletePlanItem(item.id)} className="app-btn-ghost p-1 text-[var(--text-3)]" title={t('delete')} aria-label={`${t('delete')}: ${item.title}`}><Icon name="trash" size={12} /></button>
-            </li>
-          ))}
+                <button onClick={() => deletePlanItem(item.id)} className="app-btn-ghost p-1 text-[var(--text-3)]" title={t('delete')} aria-label={`${t('delete')}: ${item.title}`}><Icon name="trash" size={12} /></button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

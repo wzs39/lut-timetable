@@ -351,6 +351,16 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - Flow: SISU search + timetable/enrolment/identity inputs → catalog model → selection policy + plan state → derived view model → renderer. Avoid duplicating selected result snapshots in component state: persist selected public records only, keep unselected hits scoped to the current search.
 - Safety: never join a coded course to a code-less one by title alone; title joins can collapse distinct courses. Use the canonical identity index whenever Moodle enrolment ID ↔ course code resolution is available.
 
+## 计划 ↔ SISU 公开目录结合（2026-10-01）
+
+- **不碰 SISU 认证**：个人学习计划（PSP）在强认证后面，本应用没有也暂不打算有 SISU 登录。能做的「结合」只有两件：（1）计划项按课程代码深链到 SISU 官方课程页；（2）用公开目录核对名称/学分。别把「能核对学分」当成「同步了计划」。
+- **一个代码一次请求**：`lib/sisuCourse.ts` 新增 `lookupSisuCourseByCode`（`codeQuery` + `universityOrgIds` + `validity: ONGOING_AND_FUTURE`，按规范化代码精确挑行、取不到才退回首行），顺带写 `tt_sisu_course_ids` 缓存供 `resolveSisuCourseUrl` 复用。真实响应字段实测为 `id code name{en fi} credits{min max}`；**没有**能证明当前授课学年的字段——与 `searchSisuPublicCatalog` 一致，`studyYears` 保持空，学年不参与核对（否则会误报不一致）。
+- **解析只留一份**：`searchSisuPublicCatalog` 与 `lookupSisuCourseByCode` 共用 `parseCatalogRow`，别在两处各写一遍 credits/name 解析。
+- **核对策略是纯函数**：`lib/sisuPlanMatch.ts` 的 `checkPlanItemAgainstCatalog` 只比名称（大小写/空白/尾部标点不敏感）与学分（**任一侧缺失就不下结论**，避免把「没填」当不一致），返回 `no-code | not-found | match | differs` + `differs[]` + 命中的目录记录。组件只渲染，不重算。
+- **代码规范化唯一来源**：`normalizeSisuCode`（trim + 去 `-dddd` + 大写）在 sisuCourse 里；`planCourseCodes` 与深链都复用它，别自写正则。
+- **mock 覆盖要跟上新导出**：hook 现在从 `../lib/sisuCourse` 导入 `lookupSisuCourseByCode` 与 `normalizeSisuCode`；旧测试只 mock 了 `searchSisuPublicCatalog`，整体替换模块会让这两个是 `undefined`，`catalogViewFor` 在**渲染期**抛错。mock 必须补全（见 `components/sisuStudyPlan.test.tsx`）。
+- **实证**：浏览器直连 `https://sisu.lut.fi/api/`（无认证）→ CT60A4050 命中 `otm-5adbe49e-…`，计划项显示「SISU：名称与学分一致」并给出深链；深链实测打开到真实课程页（Fundamentals of Software Engineering (6) · 2026-2027）；伪代码 ZZ901 →「未找到」；学分填 3 →「SISU 学分：6」。测试 `sisuPlanMatch.test.ts`（6 条）+ `components/sisuPlanCatalog.test.tsx`（4 条）。
+
 ## 设置归类与偏好唯一入口（2026-10-01）
 
 - **设置弹层从 15 个平铺小节归入 5 个分类**（外观与无障碍 / 同步与连接 / 学习偏好 / 数据与工具 / 日志与订阅），顶部加分类索引。实现是 `Settings.tsx` 里的 `Group` 组件（分类标题 + `settings-<id>` 锚点）；索引按钮跳转必须写成 `document.getElementById(...)?.scrollIntoView?.(...)`——jsdom 没有 `Element.scrollIntoView`，直接调用会让整个设置组件测试崩掉。

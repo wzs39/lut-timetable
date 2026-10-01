@@ -59,9 +59,14 @@ export async function sisuGraphql(query: string, signal?: AbortSignal): Promise<
   }
 }
 
+/** Kode SISU → bentuk kanonik: buang nomor grup -dddd, uppercase. */
+export function normalizeSisuCode(code: string): string {
+  return code.trim().toUpperCase().replace(/-\d{4}$/, '')
+}
+
 /** Resolve course code -> SISU course page URL. */
 export async function resolveSisuCourseUrl(code: string): Promise<string> {
-  const clean = code.trim().toUpperCase().replace(/-\d{4}$/, '')
+  const clean = normalizeSisuCode(code)
   const cache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
   if (cache[clean]) return `https://sisu.lut.fi/student/courseunit/${cache[clean]}`
 
@@ -92,6 +97,79 @@ export interface SisuPublicCourse {
 }
 
 const PUBLIC_COURSE_PAGE_SIZE = 100
+
+/** Satu baris course_unit_search → SisuPublicCourse; bentuk tak dikenal → null. */
+function parseCatalogRow(row: Record<string, unknown>): SisuPublicCourse | null {
+  if (typeof row.id !== 'string' || !row.id) return null
+  const credits = row.credits && typeof row.credits === 'object'
+    ? row.credits as { min?: unknown; max?: unknown }
+    : undefined
+  const minCredit = typeof credits?.min === 'number' ? credits.min : undefined
+  const maxCredit = typeof credits?.max === 'number' ? credits.max : undefined
+  const studyFields = Array.isArray(row.studyFields)
+    ? row.studyFields.flatMap((fieldValue) => {
+      if (!fieldValue || typeof fieldValue !== 'object') return []
+      const localizedName = (fieldValue as { name?: Record<string, unknown> }).name
+      return [localizedName?.en, localizedName?.fi].filter((value): value is string => typeof value === 'string' && value.length > 0)
+    })
+    : []
+  const searchTags = Array.isArray(row.searchTags)
+    ? row.searchTags.filter((tag): tag is string => typeof tag === 'string')
+    : []
+  const name = row.name && typeof row.name === 'object'
+    ? [
+      (row.name as Record<string, unknown>).en,
+      (row.name as Record<string, unknown>).fi,
+    ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim()
+    : undefined
+  if (!name) return null
+
+  return {
+    id: row.id,
+    code: typeof row.code === 'string' && row.code.trim() ? row.code.trim() : undefined,
+    name,
+    credits: minCredit !== undefined && minCredit === maxCredit ? minCredit : undefined,
+    creditRange: minCredit !== undefined && maxCredit !== undefined && minCredit !== maxCredit
+      ? { min: minCredit, max: maxCredit }
+      : undefined,
+    // SISU course-unit version curricula do not prove current teaching year.
+    studyYears: [],
+    studyFields,
+    searchTags,
+  }
+}
+
+/** Bidang katalog yang dipakai verifikasi rencana + deep link. */
+export type SisuCatalogMatch = Pick<SisuPublicCourse, 'id' | 'code' | 'name' | 'credits' | 'creditRange'>
+
+/** Satu kode → satu record katalog publik (verifikasi + deep link). */
+export async function lookupSisuCourseByCode(code: string, signal?: AbortSignal): Promise<SisuCatalogMatch | null> {
+  const clean = normalizeSisuCode(code)
+  if (!clean) return null
+  const query = `{
+    course_unit_search(
+      codeQuery: ${JSON.stringify(clean)},
+      universityOrgIds: ["lut-university-root-id"],
+      validity: "ONGOING_AND_FUTURE",
+      resultLimit: 10
+    ) { id code name { en fi } credits { min max } }
+  }`
+  const response = await sisuGraphql(JSON.stringify({ query }), signal)
+  const rows = response?.data?.course_unit_search
+  if (!Array.isArray(rows)) return null
+  const parsed = (rows as Array<Record<string, unknown>>)
+    .map(parseCatalogRow)
+    .filter((row): row is SisuPublicCourse => row !== null)
+  const match = parsed.find((row) => row.code && normalizeSisuCode(row.code) === clean) ?? parsed[0]
+  if (!match) return null
+
+  const cache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
+  if (cache[clean] !== match.id) {
+    cache[clean] = match.id
+    writeJson(KEYS.sisuCourseIds, cache)
+  }
+  return { id: match.id, code: match.code, name: match.name, credits: match.credits, creditRange: match.creditRange }
+}
 
 /** Search all pages of LUT's public, current/future SISU course catalogue. */
 export async function searchSisuPublicCatalog(term: string, signal?: AbortSignal): Promise<{
@@ -125,43 +203,8 @@ export async function searchSisuPublicCatalog(term: string, signal?: AbortSignal
     if (!Array.isArray(rows)) throw new Error('invalid-public-search-response')
 
     for (const row of rows as Array<Record<string, unknown>>) {
-      if (typeof row.id !== 'string' || !row.id) continue
-      const credits = row.credits && typeof row.credits === 'object'
-        ? row.credits as { min?: unknown; max?: unknown }
-        : undefined
-      const minCredit = typeof credits?.min === 'number' ? credits.min : undefined
-      const maxCredit = typeof credits?.max === 'number' ? credits.max : undefined
-      const studyFields = Array.isArray(row.studyFields)
-        ? row.studyFields.flatMap((fieldValue) => {
-          if (!fieldValue || typeof fieldValue !== 'object') return []
-          const localizedName = (fieldValue as { name?: Record<string, unknown> }).name
-          return [localizedName?.en, localizedName?.fi].filter((value): value is string => typeof value === 'string' && value.length > 0)
-        })
-        : []
-      const searchTags = Array.isArray(row.searchTags)
-        ? row.searchTags.filter((tag): tag is string => typeof tag === 'string')
-        : []
-      const name = row.name && typeof row.name === 'object'
-        ? [
-          (row.name as Record<string, unknown>).en,
-          (row.name as Record<string, unknown>).fi,
-        ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim()
-        : undefined
-      if (!name) continue
-
-      courses.push({
-        id: row.id,
-        code: typeof row.code === 'string' && row.code.trim() ? row.code.trim() : undefined,
-        name,
-        credits: minCredit !== undefined && minCredit === maxCredit ? minCredit : undefined,
-        creditRange: minCredit !== undefined && maxCredit !== undefined && minCredit !== maxCredit
-          ? { min: minCredit, max: maxCredit }
-          : undefined,
-        // SISU course-unit version curricula do not prove current teaching year.
-        studyYears: [],
-        studyFields,
-        searchTags,
-      })
+      const parsed = parseCatalogRow(row)
+      if (parsed) courses.push(parsed)
     }
 
     if (rows.length < PUBLIC_COURSE_PAGE_SIZE) return { courses, total: courses.length }

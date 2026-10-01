@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import type { Lesson } from '../types'
 import type { EnrolledCourse } from '../lib/courses'
 import { loadIdentityIndex } from '../lib/courseIdentity'
-import { searchSisuPublicCatalog } from '../lib/sisuCourse'
+import { lookupSisuCourseByCode, normalizeSisuCode, searchSisuPublicCatalog, type SisuCatalogMatch } from '../lib/sisuCourse'
+import { checkPlanItemAgainstCatalog, planCourseCodes, type SisuPlanCatalogCheck } from '../lib/sisuPlanMatch'
 import {
   buildPlannerCourses,
   loadSisuCoursePreferences,
@@ -45,6 +46,9 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
   const [publicSearchError, setPublicSearchError] = useState('')
   const [onlySseRelevant, setOnlySseRelevant] = useState(true)
   const searchController = useRef<AbortController | null>(null)
+  // SISU 公开目录对账：计划项代码 → 目录记录（null = 未找到）。
+  const [catalogMatches, setCatalogMatches] = useState<Record<string, SisuCatalogMatch | null>>({})
+  const resolvedCodes = useRef<Set<string>>(new Set())
   const identityIndex = useMemo(() => loadIdentityIndex(), [])
   const publicCourses = useMemo(
     () => [...(searchResult?.courses ?? []), ...coursePreferences.selectedCourses],
@@ -77,6 +81,30 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
   const earnedCredits = useMemo(() => plan.items.reduce((sum, item) => sum + (item.completed ? item.credits ?? 0 : 0), 0), [plan.items])
 
   useEffect(() => () => searchController.current?.abort(), [])
+
+  // 计划项的课程代码各去 SISU 公开目录核对一次；成功/未找到都记账，不重复请求。
+  const planCodes = useMemo(() => planCourseCodes(plan.items), [plan.items])
+  useEffect(() => {
+    const controller = new AbortController()
+    const pending = planCodes.filter((code) => !resolvedCodes.current.has(code))
+    if (pending.length > 0) {
+      void (async () => {
+        for (const code of pending) {
+          try {
+            const match = await lookupSisuCourseByCode(code, controller.signal)
+            if (controller.signal.aborted) return
+            resolvedCodes.current.add(code)
+            setCatalogMatches((prev) => ({ ...prev, [code]: match }))
+          } catch {
+            if (controller.signal.aborted) return
+            resolvedCodes.current.add(code)
+            setCatalogMatches((prev) => ({ ...prev, [code]: null }))
+          }
+        }
+      })()
+    }
+    return () => controller.abort()
+  }, [planCodes])
   useEffect(() => {
     void refreshSisuPlanReminders(plan.items, {
       title: t('sisuPlanReminderTitle'),
@@ -174,6 +202,16 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     setError('')
   }
   const updateGoal = (goalCredits: number) => setPlan(saveSisuStudyPlan({ ...plan, goalCredits }))
+  /** 计划项的 SISU 公开目录核对视图（策略在这里，组件只渲染）。 */
+  const catalogViewFor = useCallback((item: SisuPlanItem): { checking: boolean; check: SisuPlanCatalogCheck } => {
+    const code = item.courseCode ? normalizeSisuCode(item.courseCode) : ''
+    if (!code) return { checking: false, check: checkPlanItemAgainstCatalog(item, null) }
+    const resolved = code in catalogMatches
+    return {
+      checking: !resolved,
+      check: checkPlanItemAgainstCatalog(item, resolved ? catalogMatches[code] ?? null : null),
+    }
+  }, [catalogMatches])
 
   return {
     plan,
@@ -190,6 +228,8 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     selectedNotPlannedCount: selectedNotPlanned.length,
     creditEstimateText,
     earnedCredits,
+    catalogMatches,
+    catalogViewFor,
     courseQuery,
     searchResult,
     publicSearchLoading,
