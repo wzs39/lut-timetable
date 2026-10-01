@@ -66,6 +66,11 @@ export const KEYS = {
   sheetLinksOpen: 'tt_sheet_links_open',
   ntfRead: 'tt_ntf_read_v1',
   ntfCache: 'tt_ntf_cache_v1',
+  /** Moodle course resource bookmarks and recently opened items. */
+  courseResourceFavorites: 'tt_course_resource_favorites_v1',
+  courseResourceRecent: 'tt_course_resource_recent_v1',
+  sisuStudyPlan: 'tt_sisu_study_plan_v1',
+  sisuCoursePreferences: 'tt_sisu_course_preferences_v1',
 } as const
 
 export type StorageKey = (typeof KEYS)[keyof typeof KEYS]
