@@ -107,9 +107,11 @@ body,
   --tint-due: rgba(245, 158, 11, 0.16);
   --tint-danger: rgba(244, 63, 94, 0.16);
   --tint-info: rgba(14, 165, 233, 0.16);
+  --tint-violet: rgba(168, 85, 247, 0.15);
   --line-ok: rgba(16, 185, 129, 0.32);
   --line-due: rgba(245, 158, 11, 0.32);
   --line-info: rgba(14, 165, 233, 0.32);
+  --line-violet: rgba(168, 85, 247, 0.35);
 
   /* filled action buttons */
   --btn-ok: #047857;
@@ -172,9 +174,11 @@ body,
   --tint-due: rgba(217, 119, 6, 0.1);
   --tint-danger: rgba(225, 29, 72, 0.09);
   --tint-info: rgba(2, 132, 199, 0.09);
+  --tint-violet: rgba(109, 40, 217, 0.08);
   --line-ok: rgba(5, 150, 105, 0.35);
   --line-due: rgba(217, 119, 6, 0.35);
   --line-info: rgba(2, 132, 199, 0.35);
+  --line-violet: rgba(109, 40, 217, 0.3);
   --btn-ok: #047857;
   --btn-ok-hover: #065f46;
   --btn-danger: #be123c;
@@ -257,13 +261,17 @@ body {
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 500;
-  transition: opacity 140ms ease;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) ease;
 }
-.app-btn-primary:hover {
-  opacity: 0.9;
+.app-btn-primary:hover:not(:disabled) {
+  opacity: 0.94;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 18%, transparent);
 }
-.app-btn-primary:active {
-  opacity: 0.8;
+.app-btn-primary:active:not(:disabled) {
+  opacity: 0.86;
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
 }
 
 /* Secondary button: quiet gray */
@@ -272,11 +280,23 @@ body {
   background: var(--surface-2);
   color: var(--text-1);
   border: 1px solid var(--line);
-  transition: background-color 140ms ease, border-color 140ms ease;
+  transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) ease;
 }
-.app-btn:hover {
+.app-btn:hover:not(:disabled) {
   background: var(--hover-1);
   border-color: var(--hover-line);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.08);
+}
+.app-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
+}
+.app-btn:focus-visible,
+.app-btn-primary:focus-visible,
+.app-btn-ghost:focus-visible {
+  outline: 2px solid var(--focus-line);
+  outline-offset: 2px;
 }
 
 /* Filled action buttons.
@@ -332,11 +352,15 @@ body {
   background: var(--surface-2);
   color: var(--text-2);
   border: 1px solid var(--line);
-  transition: color 140ms ease, border-color 140ms ease;
+  transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) ease;
 }
-.app-btn-ghost:hover {
+.app-btn-ghost:hover:not(:disabled) {
   color: var(--text-1);
   border-color: var(--hover-line);
+  background: var(--hover-1);
+}
+.app-btn-ghost:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 /* Segmented control container (view tabs) */
@@ -353,7 +377,7 @@ body {
   font-size: 0.75rem;
   color: var(--text-2);
   background: transparent;
-  transition: background-color 140ms ease, color 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease, transform 140ms ease;
 }
 .app-seg > button:hover {
   color: var(--text-1);
@@ -364,6 +388,53 @@ body {
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 500;
+}
+.app-seg > button:active {
+  transform: scale(0.97);
+}
+.app-seg > button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--focus-line);
+  outline-offset: -2px;
+}
+.section-nav .app-seg {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.section-nav .app-seg::-webkit-scrollbar {
+  display: none;
+}
+.section-tab[aria-selected='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+.section-tab:hover:not([aria-selected='true']) {
+  background: var(--hover-1);
+}
+
+/* Mobile primary navigation: a quiet surface and a clear active marker. */
+.app-nav-item {
+  color: var(--text-3);
+  transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease-out);
+}
+.app-nav-item[aria-pressed='true'] {
+  background: var(--surface-2);
+  color: var(--text-1);
+}
+.app-nav-item:hover:not([aria-pressed='true']) {
+  background: var(--hover-1);
+  color: var(--text-1);
+}
+.app-nav-item:active {
+  transform: scale(0.96);
+}
+.app-nav-item:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--focus-line);
+  outline-offset: -2px;
 }
 
 /* Status badge: neutral pill; semantic variants add only text color */
@@ -462,6 +533,25 @@ body {
 .lesson-card:hover {
   filter: var(--card-hover-filter);
 }
+.resource-row {
+  transition: transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+.resource-row:hover {
+  transform: translateY(-1px);
+}
+.favorite-button {
+  transition: transform var(--dur-fast) var(--ease-out), color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+.favorite-button:hover {
+  transform: scale(1.12);
+}
+.favorite-button:active {
+  transform: scale(0.86);
+}
+.sisu-progress > span {
+  transform-origin: left center;
+  transition: width 420ms var(--ease-out);
+}
 
 /* ---- Entrances ---------------------------------------------------------- */
 
@@ -472,6 +562,17 @@ body {
 
 .animate-modal-in {
   animation: modal-in var(--dur-med) var(--ease-out) both;
+}
+.animate-list-in > * {
+  animation: list-item-in var(--dur-med) var(--ease-out) both;
+}
+.animate-list-in > *:nth-child(2) { animation-delay: 25ms; }
+.animate-list-in > *:nth-child(3) { animation-delay: 50ms; }
+.animate-list-in > *:nth-child(4) { animation-delay: 75ms; }
+.animate-list-in > *:nth-child(5) { animation-delay: 100ms; }
+@keyframes list-item-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes pop-in {
@@ -648,6 +749,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .app-header-btn,
   .app-menu-item,
+  .animate-list-in > *,
   .animate-pop-in,
   .animate-modal-in,
   .animate-fade-in,
@@ -664,7 +766,15 @@ body {
   }
   .collapse-wrap,
   .collapse-chevron,
-  .lesson-card {
+  .lesson-card,
+  .resource-row,
+  .favorite-button,
+  .app-btn,
+  .app-btn-primary,
+  .app-btn-ghost,
+  .app-seg > button,
+  .app-nav-item,
+  .sisu-progress > span {
     transition: none;
   }
 }

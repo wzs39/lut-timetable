@@ -10,6 +10,7 @@ import { courseColorByKey } from '../../lib/colors'
 import ExternalLink from '../ExternalLink'
 import Icon from '../Icon'
 import CourseContentsToggle from './CourseContentsToggle'
+import { isHddCourse } from '../../lib/courseResources'
 
 export default function CoursesSection({
   enrolled,
@@ -63,6 +64,9 @@ export default function CoursesSection({
             style={{ background: color?.bg ?? 'var(--line)' }}
             aria-hidden="true"
           />
+          {isHddCourse(c.shortname) && (
+            <span className="app-badge shrink-0 border-[var(--line-violet)] bg-[var(--tint-violet)] text-[var(--violet)]">HDD</span>
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               {code && onJumpToCourse && (
@@ -86,15 +90,18 @@ export default function CoursesSection({
                 </span>
               )}
             </div>
+            {isHddCourse(c.shortname) && <p className="mt-1 text-[10px] text-[var(--text-3)]">{t('heButSeparateNote')}</p>}
           </div>
-          <CourseContentsToggle courseId={c.courseid} token={token} />
-          <ExternalLink
-            href={`https://moodle.lut.fi/course/view.php?id=${c.courseid}`}
-            className="app-btn-ghost shrink-0 px-1.5 py-1"
-            title={t('coursesOpenInMoodle')}
-          >
-            <Icon name="external" size={12} />
-          </ExternalLink>
+          {!isHddCourse(c.shortname) && <CourseContentsToggle courseId={c.courseid} token={token} />}
+          {!isHddCourse(c.shortname) && (
+            <ExternalLink
+              href={`https://moodle.lut.fi/course/view.php?id=${c.courseid}`}
+              className="app-btn-ghost shrink-0 px-1.5 py-1"
+              title={t('coursesOpenInMoodle')}
+            >
+              <Icon name="external" size={12} />
+            </ExternalLink>
+          )}
         </li>
       ))}
     </ul>

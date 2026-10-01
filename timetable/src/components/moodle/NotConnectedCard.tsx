@@ -1,8 +1,16 @@
 import { useI18n } from '../../i18n'
+import type { Lesson } from '../../types'
+import type { EnrolledCourse } from '../../lib/courses'
+import HebutCard from './HebutCard'
+import SisuStudyPlan from '../SisuStudyPlan'
 import Icon from '../Icon'
 
 /** Keadaan belum terhubung: kartu pengantar + CTA ke Settings. */
-export default function NotConnectedCard({ onOpenSettings }: { onOpenSettings: () => void }) {
+export default function NotConnectedCard({ onOpenSettings, lessons = [], enrolled = [] }: {
+  onOpenSettings: () => void
+  lessons?: Lesson[]
+  enrolled?: EnrolledCourse[]
+}) {
   const { t } = useI18n()
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
@@ -20,6 +28,8 @@ export default function NotConnectedCard({ onOpenSettings }: { onOpenSettings: (
           </button>
           <p className="mt-2 text-[10px] text-[var(--text-3)]">{t('moodleViewFeatures')}</p>
         </section>
+        <HebutCard className="mt-3" />
+        <SisuStudyPlan lessons={lessons} enrolled={enrolled} />
       </div>
     </div>
   )
