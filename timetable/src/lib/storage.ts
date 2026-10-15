@@ -27,6 +27,8 @@ export const KEYS = {
   gradesSort: 'tt_grades_sort',
   /** 成绩冷启动快照：重启/断网时先展示上次数据，刷新成功后覆盖 */
   gradesCache: 'tt_grades_cache_v1',
+  /** Per-course weighting schemes only become active after explicit confirmation. */
+  gradeSchemes: 'tt_grade_schemes_v1',
   filterPresets: 'tt_filter_presets',
   translatorUrl: 'tt_translator_url',
   translatorSessions: 'tt_translator_sessions_v1',

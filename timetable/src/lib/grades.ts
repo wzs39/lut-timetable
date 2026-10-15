@@ -5,6 +5,7 @@ import { matchCourseCode, extractCourseCode, extractCourseTitle } from './course
 import { loadIdentityIndex } from './courseIdentity'
 import { primeEnrolAnchor } from './moodleSync'
 import { getFinalCourseGrade } from './gradeCalc'
+import { activeSchemeWeights, applySchemeWeights, loadGradeSchemes } from './gradeScheme'
 import { htmlToText } from './html'
 
 /**
@@ -251,7 +252,7 @@ interface RawCourseGrades {
 }
 
 /** gradereport_user_get_grade_items → CourseGrades[] (hanya kursus bernilai). */
-export function parseGradeItems(response: unknown): CourseGrades[] {
+export function parseGradeItems(response: unknown, confirmedSchemes: Record<number, import('./gradeScheme').SchemeWeight[]> = {}): CourseGrades[] {
   const byId = (response as { usergrades?: unknown[] })?.usergrades
   if (!Array.isArray(byId)) return []
   const out: CourseGrades[] = []
@@ -261,12 +262,14 @@ export function parseGradeItems(response: unknown): CourseGrades[] {
     // 'course' 总分行与 'category' 行都不进 items；category 的权重先经
     // spreadCategoryWeights 均摊给成员项（见上方真实载荷观察）。
     const nonCat = rawItems.filter((it) => it.itemtype !== 'course' && it.itemtype !== 'category')
-    const items = buildItems(nonCat)
+    const parsedItems = buildItems(nonCat)
     // 平行数组传 categoryid，GradeItem 本身不加字段（形状零改动）。
     const catIds = nonCat.map((it) =>
       typeof it.categoryid === 'number' && it.categoryid > 0 ? it.categoryid : null,
     )
-    spreadCategoryWeights(rawItems, items, catIds)
+    spreadCategoryWeights(rawItems, parsedItems, catIds)
+    const scheme = confirmedSchemes[c.courseid ?? -1] ?? activeSchemeWeights(c.courseid)
+    const items = applySchemeWeights(parsedItems, scheme)
     if (items.length === 0) continue
     // Total resmi (usergrade rasio 0–1 > baris 'course') — ekstraksi bidang
     // mentah; SELURUH rantai prioritas nilai ada di gradeCalc.getFinalCourseGrade.
@@ -382,7 +385,12 @@ export async function fetchGrades(
     }),
   )
   const report = { usergrades: reports.flatMap((r) => (r as { usergrades?: unknown[] })?.usergrades ?? []) }
-  const parsed = parseGradeItems(report)
+  const confirmedSchemes = Object.fromEntries(
+    Object.entries(loadGradeSchemes()).flatMap(([id, record]) =>
+      record.confirmedWeights ? [[Number(id), record.confirmedWeights]] : [],
+    ),
+  )
+  const parsed = parseGradeItems(report, confirmedSchemes)
   if (parsed.length === 0) throw { kind: 'empty' } as GradesError
 
   // Cocokkan ke jadwal lewat matcher tunggal (courses.ts): daftar enrol

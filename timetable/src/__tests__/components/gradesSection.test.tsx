@@ -41,6 +41,7 @@ function md(grades: CourseGrades[] | null): MoodleData {
     grades,
     subStatus: new Map(),
     subByCmid: new Map(),
+    activityDeadlinesByCmid: new Map(),
     busy: 'idle',
     message: null,
     notifications: null,

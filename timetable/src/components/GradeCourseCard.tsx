@@ -25,11 +25,13 @@ export default function GradeCourseCard({
   c,
   onJumpToCourse,
   onOpenUngradedTasks,
+  schemeReview,
 }: {
   c: CourseGrades
   onJumpToCourse?: (code: string) => void
   /** Ada di ≥1: chip "N belum dinilai" jadi tautan ke daftar tugas tersaring kursus ini. */
   onOpenUngradedTasks?: () => void
+  schemeReview?: React.ReactNode
 }) {
   const { t } = useI18n()
   const [overrides, setOverrides] = useState<Record<number, number>>({})
@@ -148,6 +150,8 @@ export default function GradeCourseCard({
           </span>
         </button>
       </div>
+
+      {schemeReview}
 
       {/* Isi: filter + item */}
       {expanded && (
