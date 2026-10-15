@@ -1,5 +1,5 @@
 import { useSisuStudyPlan } from '../hooks/useSisuStudyPlan'
-import { useI18n } from '../i18n'
+import { localeOf, useI18n } from '../i18n'
 import type { Lesson } from '../types'
 import type { EnrolledCourse } from '../lib/courses'
 import { HDD_COURSES, HDD_COURSE_SOURCE_URL } from '../lib/sisuCourseCatalog'
@@ -16,9 +16,12 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
   /** 打开设置（偏好与目标的唯一编辑入口） */
   onOpenSettings?: () => void
 } = {}) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const {
-    plan, title, setTitle, courseCode, setCourseCode, kind, setKind,
+    plan, studyBlocks, studyBlockRecommendations, unscheduledStudyItems,
+    generateStudyBlockRecommendations, confirmStudyBlockRecommendation,
+    skipStudyBlockRecommendation, deleteStudyBlock,
+    title, setTitle, courseCode, setCourseCode, kind, setKind,
     credits, setCredits, dueAt, setDueAt, error, coursePreferences,
     plannerCourses, visibleCandidates, alreadyPlanned, selectedNotPlannedCount,
     creditEstimateText, earnedCredits, catalogViewFor, courseQuery,
@@ -99,6 +102,58 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
         <button onClick={addSelectedCourses} disabled={selectedNotPlannedCount === 0} className="app-btn inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] disabled:opacity-50">
           <Icon name="plus" size={11} /> {t('sisuCourseAddSelected')}
         </button>
+      </div>
+      <div className="app-card space-y-3 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="app-card-label">{t('studyBlockTitle')}</h3>
+            <p className="mt-1 text-[10px] text-[var(--text-3)]">{t('studyBlockWindowHint')}</p>
+          </div>
+          <button onClick={generateStudyBlockRecommendations} className="app-btn-primary shrink-0 px-2.5 py-1.5 text-[11px]">{t('studyBlockGenerate')}</button>
+        </div>
+        {studyBlockRecommendations.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-[11px] font-semibold text-[var(--text-2)]">{t('studyBlockRecommendations')}</h4>
+            {studyBlockRecommendations.map((recommendation) => (
+              <article key={`${recommendation.sourceKind}:${recommendation.sourceId}`} className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2">
+                <div title={recommendation.title} className="truncate text-xs font-medium text-[var(--text-1)]">{recommendation.title}</div>
+                <div className="mt-1 flex flex-wrap gap-x-2 text-[10px] text-[var(--text-3)]">
+                  <span>{t(recommendation.sourceKind === 'task' ? 'studyBlockTaskSource' : 'studyBlockPlanSource')}</span>
+                  <span>{new Date(recommendation.startAt).toLocaleString(localeOf[lang], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}–{new Date(recommendation.endAt).toLocaleTimeString(localeOf[lang], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span>{t('studyBlockDeadline')}: {new Date(recommendation.dueAt).toLocaleString(localeOf[lang], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button onClick={() => confirmStudyBlockRecommendation(recommendation)} className="app-btn px-2 py-1 text-[10px]" aria-label={`${t('studyBlockConfirm')}: ${recommendation.title}`}>{t('studyBlockConfirm')}</button>
+                  <button onClick={() => skipStudyBlockRecommendation(recommendation.sourceKind, recommendation.sourceId)} className="app-btn-ghost px-2 py-1 text-[10px]" aria-label={`${t('studyBlockSkip')}: ${recommendation.title}`}>{t('studyBlockSkip')}</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+        {unscheduledStudyItems.length > 0 && (
+          <div className="rounded-lg border border-[var(--due)]/30 bg-[var(--surface-2)] p-2">
+            <h4 className="text-[11px] font-semibold text-[var(--due)]">{t('studyBlockUnscheduled')}</h4>
+            <ul className="mt-1 space-y-1 text-[10px] text-[var(--text-2)]">
+              {unscheduledStudyItems.map((item) => <li key={`${item.sourceKind}:${item.sourceId}`} title={item.title} className="min-w-0 truncate">{item.title}</li>)}
+            </ul>
+          </div>
+        )}
+        <div>
+          <h4 className="mb-1 text-[11px] font-semibold text-[var(--text-2)]">{t('studyBlockConfirmed')}</h4>
+          {studyBlocks.length === 0
+            ? <p className="text-[10px] text-[var(--text-3)]">{t('studyBlockUnscheduledEmpty')}</p>
+            : <ul className="space-y-1">
+              {studyBlocks.map((block) => (
+                <li key={block.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2">
+                  <div className="min-w-0 flex-1">
+                    <div title={block.title} className="truncate text-[11px] font-medium">{block.title}</div>
+                    <div className="text-[10px] text-[var(--text-3)]">{new Date(block.startAt).toLocaleString(localeOf[lang], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}–{new Date(block.endAt).toLocaleTimeString(localeOf[lang], { hour: '2-digit', minute: '2-digit' })}</div>
+                  </div>
+                  <button onClick={() => deleteStudyBlock(block.id)} className="app-btn-ghost shrink-0 px-2 py-1 text-[10px]" aria-label={`${t('studyBlockDelete')}: ${block.title}`}>{t('studyBlockDelete')}</button>
+                </li>
+              ))}
+            </ul>}
+        </div>
       </div>
       <div className="app-card p-3">
         <div className="mb-2 flex items-center justify-between gap-2">

@@ -73,6 +73,8 @@ export const KEYS = {
   courseResourceRecent: 'tt_course_resource_recent_v1',
   sisuStudyPlan: 'tt_sisu_study_plan_v1',
   sisuCoursePreferences: 'tt_sisu_course_preferences_v1',
+  /** 已由用户确认的独立学习时段（不并入课程或 Moodle 任务） */
+  studyBlocks: 'tt_study_blocks_v1',
 } as const
 
 export type StorageKey = (typeof KEYS)[keyof typeof KEYS]
