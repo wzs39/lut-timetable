@@ -367,3 +367,14 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **散落的偏好收口**：SISU 学习偏好（focus，`tt_sisu_course_preferences_v1`）与目标学分（`tt_sisu_study_plan_v1.goalCredits`）的唯一编辑入口移到设置；计划页只读展示 + 「在设置中修改」链接。表头那份重复的语言切换已删除，语言只在设置里（命令面板的语言项保留）。
 - **跨界面生效靠 remount，不靠 effect**：设置改了偏好后 App 递增 `sisuPrefsRevision`，父组件拿它当 `<SisuStudyPlan key={sisuPrefsRevision}>`——重挂载让 `useState(load…)` 重新读存储。比在 hook 里加「revision 变化就 setState」的 effect 更简单，也不触发 `set-state-in-effect` 警告（该规则在本仓已有 4 处同类）。代价是重挂载丢计划页的临时 UI 状态（搜索词/表单），但此刻用户正在设置里，可接受。
 - **同名文本查询要按 role 区分**：分类索引按钮与分类标题文案相同，`getByText` 会撞到多个元素——标题用 `getByRole('heading')`。契约测试见 `__tests__/components/settingsGroups.test.tsx`（分类数、索引跳转容错、focus/目标落盘、改目标不碰计划条目）。
+
+## 2026-10-15 · 每周学习时段建议（纯函数排程 + 确认制落盘 + 只读呈现）
+
+- **策略全体下沉到 `lib/studyBlocks.ts`**：窗口（本地日 08:00–22:00）、60 分钟块、块间 15 分钟缓冲、未来 7 个本地日、截止优先 + 同截止保持输入序、无空档进 `unscheduled`。`planStudyBlocks(input) => { recommendations, unscheduled }` 是唯一入口，hook 与组件不得自己算时段。**默认常量就是契约**：将来加「作息偏好」时必须让 `DEFAULT_*` 等于旧常量，既有排程测试才能继续当守卫。
+- **身份键是 `sourceKind + sourceId`**：任务与 SISU 计划项可能撞同一个原始 id（测试里两源都叫 `shared-id`），只用 id 去重会静默吞掉一条建议、只用 kind 会重复排。确认走同一把键做幂等，所以单条确认、批量确认、重复点击都不会写出第二块。
+- **本地日界线只由纯函数判**：`studyBlocksOnDay(blocks, day)` 负责按设备本地日分组 + 按开始时刻稳定排序；组件不许自己拆 ISO 串比日期（UTC+8 下 UTC 日期与本地日差一天，跨日边界会静默漏块）。非法日期返回 `[]`、坏记录被 `isStudyBlock` 过滤——脏数据不能把整块视图弄崩。
+- **只读叠加要真的「只读」**：周视图/今日页的学习块走独立 prop（`studyBlocks?: StudyBlock[]`，默认 `[]` ⇒ 不传即旧行为），**不进** `layoutDay` / `conflictGroupsOf` / 便签 / 订阅 / ICS 导出，也不借课程色板（课程色是写在内联 style 的 background 上的，学习块的内联 style 里不许出现它）；渲染顺序在课程按钮之前，课程照旧可点、可盖住它。断言写成「既有冲突徽标数不变 + `onSelect` 不被触发 + 类名是 dashed」，这类边界最容易被下次重构顺手合并掉。
+- **周视图可视窗 08:00–20:00 vs 学习窗 08:00–22:00**：起始 ≥20:00 的块不画进周视图网格（不动 `END_HOUR` 与密度缩放），但今日页照常列出当天全部块——是刻意取舍、不是丢数据。两侧各一条测试锁住，并写进设计文档，别只活在代码里。
+- **App 接线靠 `view` 重算（本批有意为之，非疏忽）**：今日/周/Moodle 三视图互斥渲染，确认只可能发生在 Moodle 视图，所以 `useMemo(() => loadStudyBlocks(), [view])` 就够。这条隐式机制由渲染真 `App` 的 `studyBlockVisibility.test.tsx` 锁住（把它改成 `studyBlocks={[]}` 立刻变红，已反向验证）。下一批做提醒时必须升级为「变更即重算」，别让它烂在那里。
+- **流程教训（本批的账）**：三个任务的实现早就落地，但计划文档 checkbox 全空、设计文档还写着「未批准前不实现」、SDD 账本只记到 Task 1——**收尾不同步等于没记录**。规则：每个任务收尾同时更新 ① 计划 checkbox + 执行结果段、② 设计文档状态行与实际口径、③ 账本、④ 本节经验。UI 验证若因工具受限走了替代路径（本批 `agent-browser` CLI 因 Windows 文件锁起不来，改用 `vite preview` 服务本地构建产物 + 隔离无痕会话 + 临时样例数据），必须把「替代路径 + 原因 + 未覆盖的部分」写进执行结果，不当作等价验证。
+- 门禁（2026-10-15 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → 96 文件 / **760 通过** / 退出码 0；`npm run test:consistent` → `collected=760 executed=760` / 0；`npx oxlint` → **0 error、25 warning**（均为既存）/ 0；`npm run build` → ✓ built in 551ms / 0。本批涉及测试：`studyBlocks.test.ts`、`sisuStudyBlockHook.test.tsx`、`components/studyBlockReview.test.tsx`、`components/weekGrid.test.tsx`、`components/todayView.test.tsx`、`components/studyBlockVisibility.test.tsx`。
