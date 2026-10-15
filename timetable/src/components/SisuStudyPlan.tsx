@@ -21,6 +21,7 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
     plan, studyBlocks, studyBlockRecommendations, unscheduledStudyItems,
     generateStudyBlockRecommendations, confirmStudyBlockRecommendation,
     confirmAllStudyBlockRecommendations, skipStudyBlockRecommendation, deleteStudyBlock,
+    setStudyBlockCompleted, studyLoad,
     title, setTitle, courseCode, setCourseCode, kind, setKind,
     credits, setCredits, dueAt, setDueAt, error, coursePreferences,
     plannerCourses, visibleCandidates, alreadyPlanned, selectedNotPlannedCount,
@@ -154,14 +155,46 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
             : <ul className="space-y-1">
               {studyBlocks.map((block) => (
                 <li key={block.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2">
+                  <input
+                    type="checkbox"
+                    checked={block.completed === true}
+                    onChange={(event) => setStudyBlockCompleted(block.id, event.target.checked)}
+                    aria-label={t('studyBlockMarkDone', { title: block.title })}
+                    className="shrink-0 accent-sky-500"
+                  />
                   <div className="min-w-0 flex-1">
-                    <div title={block.title} className="truncate text-[11px] font-medium">{block.title}</div>
+                    <div title={block.title} className={`truncate text-[11px] font-medium ${block.completed === true ? 'line-through text-[var(--text-3)]' : 'text-[var(--text-1)]'}`}>{block.title}</div>
                     <div className="text-[10px] text-[var(--text-3)]">{new Date(block.startAt).toLocaleString(localeOf[lang], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}–{new Date(block.endAt).toLocaleTimeString(localeOf[lang], { hour: '2-digit', minute: '2-digit' })}</div>
                   </div>
                   <button onClick={() => deleteStudyBlock(block.id)} className="app-btn-ghost shrink-0 px-2 py-1 text-[10px]" aria-label={`${t('studyBlockDelete')}: ${block.title}`}>{t('studyBlockDelete')}</button>
                 </li>
               ))}
             </ul>}
+        </div>
+        {/* 本周负荷：只读汇总（已确认块）。未确认建议不参与，也不写入任何日程 */}
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2">
+          <h4 className="text-[11px] font-semibold text-[var(--text-2)]">{t('studyLoadTitle')}</h4>
+          {studyLoad.blocks === 0
+            ? <p className="mt-1 text-[10px] text-[var(--text-3)]">{t('studyLoadEmpty')}</p>
+            : (
+              <>
+                <p className="mt-1 text-[11px] text-[var(--text-1)]">{t('studyLoadBlocks', { total: studyLoad.blocks, done: studyLoad.completedBlocks })}</p>
+                <p className="text-[10px] text-[var(--text-3)]">{t('studyLoadMinutes', { minutes: studyLoad.minutes, done: studyLoad.completedMinutes })}</p>
+                {studyLoad.overdueBlocks > 0 && <p className="text-[10px] text-[var(--due)]">{t('studyLoadOverdue', { n: studyLoad.overdueBlocks })}</p>}
+                <div className="mt-1.5 grid grid-cols-7 gap-1">
+                  {studyLoad.days.map((day) => (
+                    <div
+                      key={day.date}
+                      className="rounded border border-[var(--line)] px-1 py-0.5 text-center"
+                      title={t('studyLoadDayTitle', { day: day.date, total: day.blocks, minutes: day.minutes })}
+                    >
+                      <div className="text-[9px] text-[var(--text-3)]">{day.date.slice(8)}</div>
+                      <div className="text-[10px] font-medium text-[var(--text-2)]">{day.minutes}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
         </div>
       </div>
       <div className="app-card p-3">

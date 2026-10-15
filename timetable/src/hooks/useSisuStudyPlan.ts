@@ -34,10 +34,14 @@ import {
   loadStudyBlocks,
   planStudyBlocks,
   removeStudyBlock as persistStudyBlockRemoval,
+  setStudyBlockCompleted as persistStudyBlockCompletion,
   type StudyBlock,
   type StudyBlockCandidate,
   type StudyBlockRecommendation,
 } from '../lib/studyBlocks'
+import { loadStudyBlockPrefs } from '../lib/studyBlockPrefs'
+import { studyLoadSummary } from '../lib/studyLoad'
+import { startOfWeek } from '../lib/date'
 
 export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) {
   const { t, lang } = useI18n()
@@ -155,7 +159,9 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
       dueAt: item.dueAt as string,
       courseCode: item.courseCode,
     }))
-    const result = planStudyBlocks({ items: [...taskItems, ...planItems], lessons, confirmed: loadStudyBlocks(), now })
+    // 偏好每次生成时现读：设置页改完即可生效，不必等重挂载。
+    const prefs = loadStudyBlockPrefs()
+    const result = planStudyBlocks({ items: [...taskItems, ...planItems], lessons, confirmed: loadStudyBlocks(), now, prefs })
     setStudyBlocks(loadStudyBlocks())
     setStudyBlockRecommendations(result.recommendations)
     setUnscheduledStudyItems(result.unscheduled)
@@ -187,6 +193,13 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     ))
   }
   const deleteStudyBlock = (id: string) => setStudyBlocks(persistStudyBlockRemoval(id))
+  const setStudyBlockCompleted = (id: string, completed: boolean) =>
+    setStudyBlocks(persistStudyBlockCompletion(id, completed))
+  /**
+   * 本周负荷：只读汇总，只吃已确认块（未确认建议不参与）。
+   * 不用 memo：纯函数 + 个位数条目的循环，每次渲染重算既便宜又不会随时间停旧。
+   */
+  const studyLoad = studyLoadSummary(studyBlocks, startOfWeek(new Date()), new Date())
   const setPlanItemCompleted = (itemId: string, completed: boolean) => {
     updatePlanItems(plan.items.map((item) => item.id === itemId ? { ...item, completed } : item))
   }
@@ -295,6 +308,8 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     confirmAllStudyBlockRecommendations,
     skipStudyBlockRecommendation,
     deleteStudyBlock,
+    setStudyBlockCompleted,
+    studyLoad,
     title, setTitle,
     courseCode, setCourseCode,
     kind, setKind,

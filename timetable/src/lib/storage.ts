@@ -75,6 +75,8 @@ export const KEYS = {
   sisuCoursePreferences: 'tt_sisu_course_preferences_v1',
   /** 已由用户确认的独立学习时段（不并入课程或 Moodle 任务） */
   studyBlocks: 'tt_study_blocks_v1',
+  /** 学习时段偏好（窗口/时长/缓冲/范围）；唯一所有者是 lib/studyBlockPrefs.ts */
+  studyBlockPrefs: 'tt_study_block_prefs_v1',
 } as const
 
 export type StorageKey = (typeof KEYS)[keyof typeof KEYS]

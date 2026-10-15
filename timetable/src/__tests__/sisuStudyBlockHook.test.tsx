@@ -7,6 +7,7 @@ import { KEYS } from '../lib/storage'
 import { createSisuPlanItem, saveSisuStudyPlan } from '../lib/sisuStudyPlan'
 import { createTask, saveTasks } from '../lib/tasks'
 import { loadStudyBlocks } from '../lib/studyBlocks'
+import { saveStudyBlockPrefs } from '../lib/studyBlockPrefs'
 import type { Lesson } from '../types'
 
 vi.mock('../lib/sisuCourse', () => ({
@@ -67,6 +68,47 @@ describe('useSisuStudyPlan study block orchestration', () => {
     const blockId = remounted.result.current.studyBlocks[0].id
     act(() => remounted.result.current.deleteStudyBlock(blockId))
     expect(loadStudyBlocks()).toEqual([])
+    remounted.unmount()
+  })
+
+  it('schedules with the stored preferences instead of the built-in window', () => {
+    saveStudyBlockPrefs({ dayStartHour: 12, dayEndHour: 16, blockMinutes: 30, bufferMinutes: 0 })
+    saveTasks([{ ...createTask({ title: 'Finish worksheet', dueAt: due, course: 'CT60A' }), id: 'task-sheet' }])
+    const { result } = renderHook(() => useSisuStudyPlan([], []), { wrapper })
+
+    act(() => result.current.generateStudyBlockRecommendations())
+
+    expect(result.current.studyBlockRecommendations).toHaveLength(1)
+    const [recommendation] = result.current.studyBlockRecommendations
+    const start = new Date(recommendation.startAt)
+    expect(start.getHours()).toBe(12)
+    expect(start.getMinutes()).toBe(0)
+    expect(new Date(recommendation.endAt).getTime() - start.getTime()).toBe(30 * 60_000)
+  })
+
+  it('completes a confirmed block on the block itself and reports it in the weekly load', () => {
+    saveTasks([{ ...createTask({ title: 'Finish worksheet', dueAt: due, course: 'CT60A' }), id: 'task-sheet' }])
+    const tasksBefore = localStorage.getItem(KEYS.tasks)
+    const { result, unmount } = renderHook(() => useSisuStudyPlan([], []), { wrapper })
+
+    act(() => result.current.generateStudyBlockRecommendations())
+    act(() => result.current.confirmStudyBlockRecommendation(result.current.studyBlockRecommendations[0]))
+    const block = result.current.studyBlocks[0]
+    expect(result.current.studyLoad.blocks).toBe(1)
+    expect(result.current.studyLoad.completedBlocks).toBe(0)
+
+    act(() => result.current.setStudyBlockCompleted(block.id, true))
+
+    expect(result.current.studyBlocks[0].completed).toBe(true)
+    expect(result.current.studyLoad.completedBlocks).toBe(1)
+    expect(result.current.studyLoad.remainingBlocks).toBe(0)
+    // 完成状态只写学习块：来源任务逐字节未动
+    expect(localStorage.getItem(KEYS.tasks)).toBe(tasksBefore)
+
+    unmount()
+    const remounted = renderHook(() => useSisuStudyPlan([], []), { wrapper })
+    expect(remounted.result.current.studyBlocks[0].completed).toBe(true)
+    expect(remounted.result.current.studyLoad.completedBlocks).toBe(1)
     remounted.unmount()
   })
 

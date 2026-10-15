@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BACKUP_KEYS, KEYS } from '../lib/storage'
+import { DEFAULT_STUDY_BLOCK_PREFS, type StudyBlockPrefs } from '../lib/studyBlockPrefs'
 import {
   confirmStudyBlock,
   loadStudyBlocks,
   planStudyBlocks,
   removeStudyBlock,
+  setStudyBlockCompleted,
   studyBlocksOnDay,
+  subscribeStudyBlocks,
   type StudyBlock,
   type StudyBlockCandidate,
 } from '../lib/studyBlocks'
@@ -150,6 +153,52 @@ describe('studyBlocksOnDay', () => {
   })
 })
 
+// 偏好只影响排程参数：不传 prefs 时必须与 Phase 1 的行为逐字节一致。
+describe('planStudyBlocks with user preferences', () => {
+  const withPrefs = (over: Partial<StudyBlockPrefs>): StudyBlockPrefs => ({ ...DEFAULT_STUDY_BLOCK_PREFS, ...over })
+
+  it('honours a narrower window, a longer block and no buffer', () => {
+    const result = planStudyBlocks({
+      items: [candidate('one', 1)], lessons: [], confirmed: [], now: day(0, 7),
+      prefs: withPrefs({ dayStartHour: 12, dayEndHour: 16, blockMinutes: 120, bufferMinutes: 0 }),
+    })
+    expect(result.recommendations[0]).toMatchObject({ startAt: iso(0, 12), endAt: iso(0, 14) })
+  })
+
+  it('places shorter blocks on the 15-minute grid', () => {
+    const result = planStudyBlocks({
+      items: [candidate('one', 1)], lessons: [], confirmed: [], now: day(0, 7),
+      prefs: withPrefs({ blockMinutes: 30 }),
+    })
+    expect(result.recommendations[0]).toMatchObject({ startAt: iso(0, 8), endAt: iso(0, 8, 30) })
+  })
+
+  it('skips weekends only when the student asks for it', () => {
+    const now = new Date(2026, 8, 18, 21, 30) // 周五 21:30：当天已经放不下 60 分钟块
+    const dueAt = new Date(2026, 8, 21, 20).toISOString()
+    const item = { ...candidate('weekend', 3), dueAt }
+
+    const defaultPrefs = planStudyBlocks({ items: [item], lessons: [], confirmed: [], now })
+    expect(new Date(defaultPrefs.recommendations[0].startAt).getDay()).toBe(6) // 周六
+
+    const skipped = planStudyBlocks({
+      items: [item], lessons: [], confirmed: [], now, prefs: withPrefs({ skipWeekends: true }),
+    })
+    expect(skipped.recommendations[0].startAt).toBe(iso(7, 8)) // 2026-09-21 周一 08:00
+  })
+
+  it('uses a longer horizon when the deadline is further out', () => {
+    const now = new Date(2026, 8, 14, 7)
+    const item = { ...candidate('far', 9), dueAt: new Date(2026, 8, 23, 20).toISOString() }
+
+    expect(planStudyBlocks({ items: [item], lessons: [], confirmed: [], now }).recommendations).toEqual([])
+    const longer = planStudyBlocks({
+      items: [item], lessons: [], confirmed: [], now, prefs: withPrefs({ horizonDays: 14 }),
+    })
+    expect(longer.recommendations).toHaveLength(1)
+  })
+})
+
 describe('StudyBlock persistence', () => {
   it('registers the independent local key in backup storage and defaults to an empty list', () => {
     expect(KEYS.studyBlocks).toBe('tt_study_blocks_v1')
@@ -168,5 +217,57 @@ describe('StudyBlock persistence', () => {
     expect(loadStudyBlocks()).toEqual([first])
     expect(removeStudyBlock(first.id)).toEqual([])
     expect(loadStudyBlocks()).toEqual([])
+  })
+
+  it('accepts legacy records that predate the completion field', () => {
+    const legacy = { ...plan().recommendations[0], id: 'legacy', createdAt: iso(0, 7) }
+    localStorage.setItem(KEYS.studyBlocks, JSON.stringify([legacy]))
+    expect(loadStudyBlocks()).toHaveLength(1)
+    expect(loadStudyBlocks()[0].completed).toBeUndefined()
+  })
+})
+
+// 完成状态属于学习块自己：只写学习块键，不碰来源任务/SISU 计划项，也不碰 Moodle。
+describe('StudyBlock completion', () => {
+  it('persists completion on the block itself and survives a reload without touching other blocks', () => {
+    localStorage.setItem(KEYS.tasks, JSON.stringify([{ id: 'task-a', completed: false }]))
+    localStorage.setItem(KEYS.sisuStudyPlan, JSON.stringify({ goalCredits: 180, items: [{ id: 'plan-a', completed: false }] }))
+    const tasksBefore = localStorage.getItem(KEYS.tasks)
+    const planBefore = localStorage.getItem(KEYS.sisuStudyPlan)
+    const first = confirmStudyBlock(plan().recommendations[0], iso(0, 7))
+    const second = confirmStudyBlock(plan({ items: [candidate('two', 2)] }).recommendations[0], iso(0, 7))
+
+    const next = setStudyBlockCompleted(first.id, true)
+
+    expect(next.map((item) => [item.id, item.completed === true])).toEqual([[first.id, true], [second.id, false]])
+    expect(loadStudyBlocks().map((item) => [item.id, item.completed === true])).toEqual([[first.id, true], [second.id, false]])
+    // 落盘的 JSON 里真的带上了这个字段，而不是只在内存里改了一下
+    const stored = JSON.parse(localStorage.getItem(KEYS.studyBlocks) ?? '[]')
+    expect(stored.find((item: StudyBlock) => item.id === first.id).completed).toBe(true)
+    expect(stored.find((item: StudyBlock) => item.id === second.id).completed).toBeUndefined()
+    // 来源数据（任务 / SISU 计划）逐字节未动
+    expect(localStorage.getItem(KEYS.tasks)).toBe(tasksBefore)
+    expect(localStorage.getItem(KEYS.sisuStudyPlan)).toBe(planBefore)
+
+    // 取消完成后重载仍保留「未完成」
+    setStudyBlockCompleted(first.id, false)
+    expect(loadStudyBlocks().find((item) => item.id === first.id)?.completed).toBe(false)
+  })
+
+  it('ignores an unknown block id and announces the change to subscribers', () => {
+    const block = confirmStudyBlock(plan().recommendations[0], iso(0, 7))
+    const listener = vi.fn()
+    const unsubscribe = subscribeStudyBlocks(listener)
+
+    const unchanged = setStudyBlockCompleted('missing-id', true)
+    expect(unchanged).toEqual([block])
+    expect(listener).not.toHaveBeenCalled()
+
+    setStudyBlockCompleted(block.id, true)
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    unsubscribe()
+    setStudyBlockCompleted(block.id, false)
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })

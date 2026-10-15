@@ -1,7 +1,8 @@
-import { LocalNotifications } from '@capacitor/local-notifications'
+import { LocalNotifications } from './localNotifications'
 import type { Lesson } from '../types'
 import { formatTime } from './date'
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
+import { NOTIF_LEDGER_KEYS, loadNotifLedger, ownedStaleIds, saveNotifLedger } from './notifLedger'
 
 /**
  * 考试提醒：考试前 7 天和 1 天各推一条。
@@ -78,14 +79,15 @@ export async function refreshExamReminders(
   const wanted = wantedExamReminders(lessons, now)
 
   const pending = await LocalNotifications.getPending()
-  const stale = pending.notifications.filter(
-    (n) => !wanted.has(n.id) && isExamNotifId(n.id, lessons),
-  )
+  const queuedIds = pending.notifications.map((n) => n.id)
+  const wantedIds = [...wanted.keys()]
+  // 同 due 家族：清扫只动记账里自己排过的（考试课被取消后 id 反推不出来，记账才能清）
+  const stale = ownedStaleIds(loadNotifLedger(NOTIF_LEDGER_KEYS.exam), queuedIds, wantedIds)
   if (stale.length > 0) {
-    await LocalNotifications.cancel({ notifications: stale.map((n) => ({ id: n.id })) })
+    await LocalNotifications.cancel({ notifications: stale.map((id) => ({ id })) })
   }
 
-  const scheduledIds = new Set(pending.notifications.map((n) => n.id))
+  const scheduledIds = new Set(queuedIds)
   const exact = await exactAlarmsEnabled()
   const toSchedule = [...wanted.values()]
     .filter(({ id }) => !scheduledIds.has(id))
@@ -105,28 +107,27 @@ export async function refreshExamReminders(
   if (toSchedule.length > 0) {
     await LocalNotifications.schedule({ notifications: toSchedule })
   }
+  // 记账 = 这一轮想要的集合（排期失败也会记，下一轮缺哪个补哪个）
+  saveNotifLedger(NOTIF_LEDGER_KEYS.exam, wantedIds)
 }
 
 /** 关掉提醒开关时清掉考试提醒（不动课程/任务/摘要）。 */
 export async function cancelExamReminders(lessons: Lesson[]): Promise<void> {
   try {
+    // 「当前考试」+「记账里剩的」：已取消的考试课也要把残留通知清掉
+    const ids = new Set([
+      ...lessons
+        .filter((l) => l.type === 'exam')
+        .flatMap((l) => EXAM_REMIND_BEFORE_D.map((d) => examNotifId(l.id, d))),
+      ...loadNotifLedger(NOTIF_LEDGER_KEYS.exam),
+    ])
     const pending = await LocalNotifications.getPending()
-    const mine = pending.notifications.filter((n) => isExamNotifId(n.id, lessons))
+    const mine = pending.notifications.filter((n) => ids.has(n.id))
     if (mine.length > 0) {
       await LocalNotifications.cancel({ notifications: mine.map((n) => ({ id: n.id })) })
     }
+    saveNotifLedger(NOTIF_LEDGER_KEYS.exam, [])
   } catch {
     /* 静默 */
   }
-}
-
-/** Apakah id notifikasi ini milik pengingat ujian? */
-function isExamNotifId(id: number, lessons: Lesson[]): boolean {
-  for (const l of lessons) {
-    if (l.type !== 'exam') continue
-    for (const beforeD of EXAM_REMIND_BEFORE_D) {
-      if (examNotifId(l.id, beforeD) === id) return true
-    }
-  }
-  return false
 }

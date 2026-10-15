@@ -26,3 +26,5 @@ signing.properties
 *.log
 .DS_Store
 Thumbs.db
+# Private SDD/planning ledger (session-local, never published)
+.superpowers/

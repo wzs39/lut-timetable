@@ -1,7 +1,8 @@
-import { LocalNotifications } from '@capacitor/local-notifications'
+import { LocalNotifications } from './localNotifications'
 import type { Lesson } from '../types'
 import { formatTime } from './date'
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
+import { NOTIF_LEDGER_KEYS, loadNotifLedger, ownedStaleIds, saveNotifLedger } from './notifLedger'
 
 /**
  * 每日摘要：早上把当天的课一次性推给用户（"3 节 · 第一节 08:15 @R112"），
@@ -60,6 +61,22 @@ export function digestIdFor(day: Date): number {
  * 未来 DIGEST_DAYS 天的摘要安排（纯函数，可注入时钟）。
  * 今天 07:30 已过就不再排今天——排了也只会立刻弹出，反而像 bug。
  */
+/**
+ * 窗口内需要排期的本地日（本地 07:30 已过则跳过今天——排了只会立刻弹出，反而像 bug）。
+ * `planDigests` 与诊断审计共用它，避免两处各写一遍 07:30/窗口长度。
+ */
+export function plannedDigestDays(now: Date): Date[] {
+  const days: Date[] = []
+  for (let i = 0; i < DIGEST_DAYS; i++) {
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i)
+    const at = new Date(day)
+    at.setHours(DIGEST_HOUR, DIGEST_MINUTE, 0, 0)
+    if (at.getTime() <= now.getTime()) continue
+    days.push(day)
+  }
+  return days
+}
+
 export function planDigests(
   lessons: Lesson[],
   now: Date,
@@ -75,11 +92,9 @@ export function planDigests(
   }
 
   const out: DigestPlanItem[] = []
-  for (let i = 0; i < DIGEST_DAYS; i++) {
-    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i)
+  for (const day of plannedDigestDays(now)) {
     const at = new Date(day)
     at.setHours(DIGEST_HOUR, DIGEST_MINUTE, 0, 0)
-    if (at.getTime() <= now.getTime()) continue
     const ofDay = (byDay.get(ymd(day)) ?? []).sort((a, b) => a.start.localeCompare(b.start))
     const first = ofDay[0]
     out.push({
@@ -121,14 +136,17 @@ export async function refreshDigestNotifications(
     const signature = JSON.stringify(plan.map((p) => [p.day, p.body]))
     if (signature === lastSignature) return
 
-    const windowIds = new Set<number>()
-    for (let i = 0; i < DIGEST_DAYS; i++) {
-      windowIds.add(digestIdFor(new Date(now.getFullYear(), now.getMonth(), now.getDate() + i)))
-    }
     const pending = await LocalNotifications.getPending()
-    const stale = pending.notifications.filter((n) => windowIds.has(n.id))
+    // 清扫自己的陈旧条目：以前按「当前窗口的日期 id」扫，于是滑出窗口的那些（昨天的摘要）
+    // 永远清不掉；记账把「我排过谁」变成一等数据，窗口怎么移动都只动自己的 id。
+    const wantedIds = plan.map((p) => p.id)
+    const stale = ownedStaleIds(
+      loadNotifLedger(NOTIF_LEDGER_KEYS.digest),
+      pending.notifications.map((n) => n.id),
+      wantedIds,
+    )
     if (stale.length > 0) {
-      await LocalNotifications.cancel({ notifications: stale.map((n) => ({ id: n.id })) })
+      await LocalNotifications.cancel({ notifications: stale.map((id) => ({ id })) })
     }
     if (plan.length > 0) {
       // 专用状态栏图标，理由同 refreshNotifications（厂商 ROM 对彩色图标
@@ -145,6 +163,7 @@ export async function refreshDigestNotifications(
         })),
       })
     }
+    saveNotifLedger(NOTIF_LEDGER_KEYS.digest, wantedIds)
     lastSignature = signature
   } catch {
     // 摘要只是锦上添花——失败不影响课表本身
@@ -161,12 +180,14 @@ export function digestWindowIds(now: Date): number[] {
 /** 关掉摘要时清掉窗口内的条目（未排过时是廉价的空操作） */
 export async function cancelDigestNotifications(now: Date = new Date()): Promise<void> {
   try {
-    const ids = new Set(digestWindowIds(now))
+    // 窗口 id（当前版本排的）+ 记账（可能是旧版本/滑出窗口的）都要清
+    const ids = new Set([...digestWindowIds(now), ...loadNotifLedger(NOTIF_LEDGER_KEYS.digest)])
     const pending = await LocalNotifications.getPending()
     const mine = pending.notifications.filter((n) => ids.has(n.id))
     if (mine.length > 0) {
       await LocalNotifications.cancel({ notifications: mine.map((n) => ({ id: n.id })) })
     }
+    saveNotifLedger(NOTIF_LEDGER_KEYS.digest, [])
     lastSignature = ''
   } catch {
     /* 静默 */
