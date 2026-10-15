@@ -19,9 +19,16 @@ import { useMoodleData } from '../hooks/useMoodleData'
 import { openExternal } from '../lib/openExternal'
 import SyncProtection from './SyncProtection'
 import IdentityDiagnostics from './IdentityDiagnostics'
+import PendingNotificationsPanel from './PendingNotificationsPanel'
 import type { SyncSource } from '../types'
 import { loadSisuCoursePreferences, saveSisuCoursePreferences, type SisuCourseFocus } from '../lib/sisuCourseCatalog'
 import { loadSisuStudyPlan, saveSisuStudyPlan } from '../lib/sisuStudyPlan'
+import {
+  STUDY_BLOCK_LIMITS,
+  loadStudyBlockPrefs,
+  saveStudyBlockPrefs,
+  type StudyBlockPrefs,
+} from '../lib/studyBlockPrefs'
 
 interface Props {
   sources: SyncSource[]
@@ -68,6 +75,8 @@ interface Props {
   onDesktopPrefs: (patch: Partial<DesktopPrefs>) => void
   /** SISU 学习偏好/目标在设置里改了：通知 App 让计划页重新读取 */
   onSisuPrefsChanged?: () => void
+  /** 学习块偏好在设置里改了：把落盘后的整份偏好推给 App（提醒开关在 App 侧） */
+  onStudyBlockPrefsChanged?: (prefs: StudyBlockPrefs) => void
   onClose: () => void
 }
 
@@ -79,6 +88,42 @@ const GROUP_LABEL_KEYS: Record<(typeof SETTINGS_GROUP_IDS)[number], string> = {
   study: 'settingsGroupStudy',
   data: 'settingsGroupData',
   logs: 'settingsGroupLogs',
+}
+
+/**
+ * 滑杆行：可见标签 + `aria-label`（与标签同文，供 role=slider 定位）+ 右侧现值。
+ * 学习时段偏好统一用它，免得五个旋钮各写一遍排版。
+ */
+function PrefSlider({ label, value, min, max, step, display, onChange }: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  display: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
+      <span className="w-16 shrink-0">{label}</span>
+      <input
+        type="range"
+        aria-label={label}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="min-w-0 flex-1 accent-[var(--accent)]"
+      />
+      <span className="w-16 shrink-0 text-right text-[10px] text-[var(--text-3)]" title={display}>{display}</span>
+    </label>
+  )
+}
+
+/** 整点显示：8 → 08:00（与今日页 / 周视图的时钟口径一致）。 */
+function hourLabel(hour: number): string {
+  return `${String(hour).padStart(2, '0')}:00`
 }
 
 /** 设置分区：分类标题 + 若干小节；id 供顶部分类索引滚动定位。 */
@@ -127,6 +172,7 @@ export default function Settings({
   desktop,
   onDesktopPrefs,
   onSisuPrefsChanged,
+  onStudyBlockPrefsChanged,
   onClose,
 }: Props) {
   const { t, lang, setLang } = useI18n()
@@ -146,6 +192,15 @@ export default function Settings({
   }
   /** 空串/0（用户清空输入框）不写回：saveSisuStudyPlan 会把 <=0 夹回默认值，
    *  否则一按退格就被弹回 180，没法全选删空再输新值。blur 时再兜底夹一次。 */
+  // 学习时段偏好：与 SISU 偏好一样，唯一编辑入口在这里；保存即通知 App 重挂载计划页。
+  const [studyPrefs, setStudyPrefs] = useState(loadStudyBlockPrefs)
+  const changeStudyPrefs = (patch: Partial<StudyBlockPrefs>) => {
+    const next = saveStudyBlockPrefs(patch)
+    setStudyPrefs(next)
+    onSisuPrefsChanged?.()
+    onStudyBlockPrefsChanged?.(next)
+  }
+  const minutesLabel = (n: number) => `${n} ${t('studyBlockPrefUnitMinutes')}`
   const changeSisuGoal = (raw: string) => {
     const next = Number(raw)
     if (!Number.isFinite(next) || next <= 0) return
@@ -500,6 +555,79 @@ export default function Settings({
                 />
               </label>
             </section>
+
+            {/* 学习时段偏好：只影响「生成学习时段建议」，不动已确认的时段 */}
+            <section>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                {t('studyBlockPrefsTitle')}
+              </h4>
+              <p className="mt-1 text-[10px] leading-relaxed text-[var(--text-3)]">{t('studyBlockPrefsHint')}</p>
+              <PrefSlider
+                label={t('studyBlockPrefStart')}
+                value={studyPrefs.dayStartHour}
+                min={STUDY_BLOCK_LIMITS.dayStartHour.min}
+                max={STUDY_BLOCK_LIMITS.dayStartHour.max}
+                step={1}
+                display={hourLabel(studyPrefs.dayStartHour)}
+                onChange={(dayStartHour) => changeStudyPrefs({ dayStartHour })}
+              />
+              <PrefSlider
+                label={t('studyBlockPrefEnd')}
+                value={studyPrefs.dayEndHour}
+                min={STUDY_BLOCK_LIMITS.dayEndHour.min}
+                max={STUDY_BLOCK_LIMITS.dayEndHour.max}
+                step={1}
+                display={hourLabel(studyPrefs.dayEndHour)}
+                onChange={(dayEndHour) => changeStudyPrefs({ dayEndHour })}
+              />
+              <PrefSlider
+                label={t('studyBlockPrefLength')}
+                value={studyPrefs.blockMinutes}
+                min={STUDY_BLOCK_LIMITS.blockMinutes.min}
+                max={STUDY_BLOCK_LIMITS.blockMinutes.max}
+                step={STUDY_BLOCK_LIMITS.blockMinutes.step}
+                display={minutesLabel(studyPrefs.blockMinutes)}
+                onChange={(blockMinutes) => changeStudyPrefs({ blockMinutes })}
+              />
+              <PrefSlider
+                label={t('studyBlockPrefBuffer')}
+                value={studyPrefs.bufferMinutes}
+                min={STUDY_BLOCK_LIMITS.bufferMinutes.min}
+                max={STUDY_BLOCK_LIMITS.bufferMinutes.max}
+                step={STUDY_BLOCK_LIMITS.bufferMinutes.step}
+                display={minutesLabel(studyPrefs.bufferMinutes)}
+                onChange={(bufferMinutes) => changeStudyPrefs({ bufferMinutes })}
+              />
+              <PrefSlider
+                label={t('studyBlockPrefHorizon')}
+                value={studyPrefs.horizonDays}
+                min={STUDY_BLOCK_LIMITS.horizonDays.min}
+                max={STUDY_BLOCK_LIMITS.horizonDays.max}
+                step={1}
+                display={`${studyPrefs.horizonDays} ${t('studyBlockPrefUnitDays')}`}
+                onChange={(horizonDays) => changeStudyPrefs({ horizonDays })}
+              />
+              <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input
+                  type="checkbox"
+                  aria-label={t('studyBlockPrefSkipWeekends')}
+                  checked={studyPrefs.skipWeekends}
+                  onChange={(e) => changeStudyPrefs({ skipWeekends: e.target.checked })}
+                  className="accent-[var(--accent)]"
+                />
+                {t('studyBlockPrefSkipWeekends')}
+              </label>
+              <label className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
+                <input
+                  type="checkbox"
+                  aria-label={t('studyBlockPrefRemind')}
+                  checked={studyPrefs.remindEnabled}
+                  onChange={(e) => changeStudyPrefs({ remindEnabled: e.target.checked })}
+                  className="accent-[var(--accent)]"
+                />
+                {t('studyBlockPrefRemind')}
+              </label>
+            </section>
           </Group>
 
           <Group id="data" title={t('settingsGroupData')}>
@@ -731,6 +859,9 @@ export default function Settings({
             </div>
             {diagMsg && <p className="mt-1 text-[11px] text-[var(--text-2)]">{diagMsg}</p>}
           </section>
+
+          {/* 已排期通知：从系统队列读回来的“真正排上的提醒”（只读诊断） */}
+          <PendingNotificationsPanel />
 
           {/* 课程备注 */}
           <section>

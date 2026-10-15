@@ -67,6 +67,15 @@ describe('parseGradeItems', () => {
     expect(c.items[1].feedback).toBeUndefined()
   })
 
+  it('applies explicitly supplied confirmed scheme weights to matching grade items only', () => {
+    const response = { usergrades: [{ courseid: 101, gradeitems: [
+      { itemname: 'Home Assignment 1', itemtype: 'mod', graderaw: 8, grademax: 10, weightraw: 0.1 },
+      { itemname: 'Exam', itemtype: 'mod', graderaw: 40, grademax: 50, weightraw: 0.8 },
+    ] }] }
+    const [course] = parseGradeItems(response, { 101: [{ label: 'Home Assignments', weight: 40 }] })
+    expect(course.items.map((item) => item.weight)).toEqual([40, 80])
+  })
+
   it('keeps courseId and reads the overall ratio as a percent', () => {
     const [c1, c2] = parseGradeItems(wsResponse())
     expect(c1.courseId).toBe(101)

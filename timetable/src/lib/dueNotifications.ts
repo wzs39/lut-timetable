@@ -1,6 +1,7 @@
-import { LocalNotifications } from '@capacitor/local-notifications'
+import { LocalNotifications } from './localNotifications'
 import type { Task } from './tasks'
 import { isOverdue } from './tasks'
+import { NOTIF_LEDGER_KEYS, loadNotifLedger, ownedStaleIds, saveNotifLedger } from './notifLedger'
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
 import { formatDateTime as formatDueTime } from './date'
 import { normalizeMoodleLink } from './moodleUrl'
@@ -83,13 +84,14 @@ export async function refreshDueNotifications(
   const wanted = wantedReminders(tasks, now)
 
   const pending = await LocalNotifications.getPending()
-  const stale = pending.notifications.filter(
-    (n) => !wanted.has(n.id) && isDueNotifId(n.id, tasks),
-  )
+  const queuedIds = pending.notifications.map((n) => n.id)
+  const wantedIds = [...wanted.keys()]
+  // 清扫陈旧条目：只动**记账里自己排过的**。从当前任务反推 id 有个天花板——
+  // 任务一旦被删，它的提醒 id 就再也算不出来，残留通知会躺在队列里到点还响一声。
+  // 记账把「我排过谁」变成一等数据，于是删任务也能清，且永远不碰别家的 id。
+  const stale = ownedStaleIds(loadNotifLedger(NOTIF_LEDGER_KEYS.due), queuedIds, wantedIds)
   if (stale.length > 0) {
-    await LocalNotifications.cancel({
-      notifications: stale.map((n) => ({ id: n.id })),
-    })
+    await LocalNotifications.cancel({ notifications: stale.map((id) => ({ id })) })
   }
 
   const pendingById = new Map(pending.notifications.map((notification) => [notification.id, notification]))
@@ -111,6 +113,8 @@ export async function refreshDueNotifications(
 
   if (toUpdate.length > 0) await LocalNotifications.update({ notifications: toUpdate })
   if (toSchedule.length > 0) await LocalNotifications.schedule({ notifications: toSchedule })
+  // 记账 = 这一轮想要的集合（排期失败也会记，下一轮缺哪个补哪个）
+  saveNotifLedger(NOTIF_LEDGER_KEYS.due, wantedIds)
 }
 
 /**
@@ -119,23 +123,19 @@ export async function refreshDueNotifications(
  */
 export async function cancelDueReminders(tasks: Task[]): Promise<void> {
   try {
+    // 「当前任务」+「记账里剩的」两条来源都要清：只按当前数据反推会漏掉已删任务的 id
+    const ids = new Set([
+      ...tasks.flatMap((t) => (t.dueAt ? DUE_REMIND_BEFORE_H.map((h) => dueNotifId(t.id, h)) : [])),
+      ...loadNotifLedger(NOTIF_LEDGER_KEYS.due),
+    ])
     const pending = await LocalNotifications.getPending()
-    const mine = pending.notifications.filter((n) => isDueNotifId(n.id, tasks))
+    const mine = pending.notifications.filter((n) => ids.has(n.id))
     if (mine.length > 0) {
       await LocalNotifications.cancel({ notifications: mine.map((n) => ({ id: n.id })) })
     }
+    // 家族关掉 = 它排过的全不算了，记账一并清空（否则下一轮开启时拿旧 id 扫黑）
+    saveNotifLedger(NOTIF_LEDGER_KEYS.due, [])
   } catch {
     /* diam: pembersihan notifikasi gagal bukan hal fatal */
   }
-}
-
-/** Apakah id notifikasi ini milik pengingat tenggat tugas? */
-function isDueNotifId(id: number, tasks: Task[]): boolean {
-  for (const task of tasks) {
-    if (!task.dueAt) continue
-    for (const beforeH of DUE_REMIND_BEFORE_H) {
-      if (dueNotifId(task.id, beforeH) === id) return true
-    }
-  }
-  return false
 }

@@ -2,10 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import TodayView from '../../components/TodayView'
-import { I18nProvider } from '../../i18n'
+import { I18nProvider, translate } from '../../i18n'
 import { MoodleProvider } from '../../hooks/useMoodleData'
 import { KEYS } from '../../lib/storage'
 import type { Task } from '../../lib/tasks'
+import type { StudyBlock } from '../../lib/studyBlocks'
 import type { Lesson } from '../../types'
 
 /** 2026-09-15 12:00 waktu lokal (hari Selasa) */
@@ -49,6 +50,30 @@ function renderToday(lessons: Lesson[], tasks: Task[]) {
   )
 }
 
+function blockFor(day: number, hour: number, over: Partial<StudyBlock> = {}): StudyBlock {
+  return {
+    id: `sb-${day}-${hour}`,
+    sourceKind: 'task',
+    sourceId: `task-${day}-${hour}`,
+    title: 'Focused reading',
+    dueAt: at(day + 3, 20),
+    startAt: at(day, hour),
+    endAt: at(day, hour + 1),
+    createdAt: NOW.toISOString(),
+    ...over,
+  }
+}
+
+function renderTodayWithBlocks(lessons: Lesson[], studyBlocks: StudyBlock[], onSelect: (id: string) => void = () => {}) {
+  return render(
+    <I18nProvider>
+      <MoodleProvider tasks={[]} lessons={lessons} onTasks={() => {}}>
+        <TodayView lessons={lessons} tasks={[]} onSelect={onSelect} studyBlocks={studyBlocks} />
+      </MoodleProvider>
+    </I18nProvider>,
+  )
+}
+
 describe('TodayView', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -75,6 +100,32 @@ describe('TodayView', () => {
     expect(buttonsMatching(/CT60A0250/)[0].textContent).toContain('13:00')
     // selama hari ini belum selesai, pratinjau hari berikutnya belum muncul
     expect(buttonsMatching(/BM20A9200/).length).toBe(0)
+  })
+
+  it('lists today’s confirmed study blocks without turning them into lessons', () => {
+    const onSelect = vi.fn()
+    renderTodayWithBlocks(
+      [lesson({ id: 'l1', code: 'CT60A0250', title: 'Programming', start: at(15, 13), end: at(15, 15) })],
+      [
+        blockFor(15, 12),
+        // 周视图可视窗只到 20:00，晚于此开始的块必须在今日页仍可见（不静默丢弃）
+        blockFor(15, 20, { id: 'late', title: 'Evening review' }),
+        blockFor(16, 12, { id: 'tomorrow', title: 'Tomorrow review' }),
+      ],
+      onSelect,
+    )
+
+    const title = screen.getByText('Focused reading')
+    const row = title.closest('li') as HTMLElement
+    expect(title.closest('button')).toBeNull()
+    expect(row.textContent).toContain('12:00')
+    expect(row.textContent).toContain(translate('zh', 'studyBlockTaskSource'))
+    expect(row.className).toContain('border-dashed')
+    expect(screen.getByText('Evening review')).toBeTruthy()
+    expect(screen.queryByText('Tomorrow review')).toBeNull()
+
+    fireEvent.click(title)
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it('switches to the next-day preview once today is over', () => {

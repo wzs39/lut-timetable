@@ -28,10 +28,27 @@ import {
   type SisuPlanKind,
 } from '../lib/sisuStudyPlan'
 import { refreshSisuPlanReminders } from '../lib/sisuStudyPlanReminders'
+import { loadTasks } from '../lib/tasks'
+import {
+  confirmStudyBlock as persistStudyBlock,
+  loadStudyBlocks,
+  planStudyBlocks,
+  removeStudyBlock as persistStudyBlockRemoval,
+  setStudyBlockCompleted as persistStudyBlockCompletion,
+  type StudyBlock,
+  type StudyBlockCandidate,
+  type StudyBlockRecommendation,
+} from '../lib/studyBlocks'
+import { loadStudyBlockPrefs } from '../lib/studyBlockPrefs'
+import { studyLoadSummary } from '../lib/studyLoad'
+import { startOfWeek } from '../lib/date'
 
 export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) {
   const { t, lang } = useI18n()
   const [plan, setPlan] = useState(loadSisuStudyPlan)
+  const [studyBlocks, setStudyBlocks] = useState<StudyBlock[]>(loadStudyBlocks)
+  const [studyBlockRecommendations, setStudyBlockRecommendations] = useState<StudyBlockRecommendation[]>([])
+  const [unscheduledStudyItems, setUnscheduledStudyItems] = useState<StudyBlockCandidate[]>([])
   const [coursePreferences, setCoursePreferences] = useState(loadSisuCoursePreferences)
   const [title, setTitle] = useState('')
   const [courseCode, setCourseCode] = useState('')
@@ -126,6 +143,63 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
   const updatePlanItems = (items: SisuPlanItem[]) => {
     setPlan(saveSisuStudyPlan({ ...plan, items }))
   }
+  const generateStudyBlockRecommendations = () => {
+    const now = new Date()
+    const taskItems = loadTasks().filter((item) => !item.completed && item.dueAt).map((item) => ({
+      sourceKind: 'task' as const,
+      sourceId: item.id,
+      title: item.title,
+      dueAt: item.dueAt as string,
+      courseCode: item.course,
+    }))
+    const planItems = plan.items.filter((item) => !item.completed && item.dueAt).map((item) => ({
+      sourceKind: 'sisu-plan' as const,
+      sourceId: item.id,
+      title: item.title,
+      dueAt: item.dueAt as string,
+      courseCode: item.courseCode,
+    }))
+    // 偏好每次生成时现读：设置页改完即可生效，不必等重挂载。
+    const prefs = loadStudyBlockPrefs()
+    const result = planStudyBlocks({ items: [...taskItems, ...planItems], lessons, confirmed: loadStudyBlocks(), now, prefs })
+    setStudyBlocks(loadStudyBlocks())
+    setStudyBlockRecommendations(result.recommendations)
+    setUnscheduledStudyItems(result.unscheduled)
+  }
+  const confirmStudyBlockRecommendation = (recommendation: StudyBlockRecommendation) => {
+    const block = persistStudyBlock(recommendation)
+    setStudyBlocks(loadStudyBlocks())
+    setStudyBlockRecommendations((current) => current.filter((item) =>
+      item.sourceKind !== recommendation.sourceKind || item.sourceId !== recommendation.sourceId,
+    ))
+    return block
+  }
+  /**
+   * 批量落盘当前待确认建议。逐条走同一个幂等 `confirmStudyBlock`（键是
+   * sourceKind + sourceId），所以重复点击或先后单条/批量混用都不会写出第二块；
+   * 无空档清单保持不动，来源任务/计划项完成状态一概不碰。
+   */
+  const confirmAllStudyBlockRecommendations = () => {
+    for (const recommendation of studyBlockRecommendations) persistStudyBlock(recommendation)
+    setStudyBlocks(loadStudyBlocks())
+    setStudyBlockRecommendations([])
+  }
+  const skipStudyBlockRecommendation = (sourceKind: StudyBlockRecommendation['sourceKind'], sourceId: string) => {
+    setStudyBlockRecommendations((current) => current.filter((item) =>
+      item.sourceKind !== sourceKind || item.sourceId !== sourceId,
+    ))
+    setUnscheduledStudyItems((current) => current.filter((item) =>
+      item.sourceKind !== sourceKind || item.sourceId !== sourceId,
+    ))
+  }
+  const deleteStudyBlock = (id: string) => setStudyBlocks(persistStudyBlockRemoval(id))
+  const setStudyBlockCompleted = (id: string, completed: boolean) =>
+    setStudyBlocks(persistStudyBlockCompletion(id, completed))
+  /**
+   * 本周负荷：只读汇总，只吃已确认块（未确认建议不参与）。
+   * 不用 memo：纯函数 + 个位数条目的循环，每次渲染重算既便宜又不会随时间停旧。
+   */
+  const studyLoad = studyLoadSummary(studyBlocks, startOfWeek(new Date()), new Date())
   const setPlanItemCompleted = (itemId: string, completed: boolean) => {
     updatePlanItems(plan.items.map((item) => item.id === itemId ? { ...item, completed } : item))
   }
@@ -226,6 +300,16 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
 
   return {
     plan,
+    studyBlocks,
+    studyBlockRecommendations,
+    unscheduledStudyItems,
+    generateStudyBlockRecommendations,
+    confirmStudyBlockRecommendation,
+    confirmAllStudyBlockRecommendations,
+    skipStudyBlockRecommendation,
+    deleteStudyBlock,
+    setStudyBlockCompleted,
+    studyLoad,
     title, setTitle,
     courseCode, setCourseCode,
     kind, setKind,

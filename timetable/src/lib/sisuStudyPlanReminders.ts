@@ -1,10 +1,10 @@
-import { LocalNotifications } from '@capacitor/local-notifications'
+import { LocalNotifications } from './localNotifications'
 import type { SisuPlanItem } from './sisuStudyPlan'
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
-import { KEYS, readJson, writeJson } from './storage'
+import { NOTIF_LEDGER_KEYS, loadNotifLedger, saveNotifLedger } from './notifLedger'
 
 const REMINDER_HOURS = [24, 1] as const
-const TRACKED_KEY = `${KEYS.sisuStudyPlan}:scheduled`
+const TRACKED_KEY = NOTIF_LEDGER_KEYS.sisuPlan
 const SISU_URL = 'https://sisu.lut.fi/'
 
 export function normalizeSisuStudyPlanUrl(raw: string | undefined): string | null {
@@ -44,19 +44,19 @@ export async function refreshSisuPlanReminders(
     }
   }
 
-  // 存储可能被旧版本/备份导入写坏：非数组直接当空处理，别让 .filter 抛异常把
-  // 整个提醒刷新静默吞掉（调用方 .catch 会吃掉错误，用户永远收不到提醒）。
-  const trackedRaw = readJson<unknown>(TRACKED_KEY, [])
-  const previous = (Array.isArray(trackedRaw) ? trackedRaw : []).filter((id): id is number => Number.isSafeInteger(id))
+  // 已排期清单走记账的唯一所有者 `notifLedger`：脏数据（旧版本/备份导入写坏的载荷）
+  // 在那里统一容错，别让一份自写的解析抛异常把整个提醒刷新静默吞掉
+  // （调用方 .catch 会吃掉错误，用户永远收不到提醒）。
+  const previous = loadNotifLedger(TRACKED_KEY)
   if (desired.size === 0) {
     if (previous.length > 0) await LocalNotifications.cancel({ notifications: previous.map((id) => ({ id })) })
-    writeJson(TRACKED_KEY, [])
+    saveNotifLedger(TRACKED_KEY, [])
     return
   }
   const granted = await ensurePermission()
   if (!granted) {
     if (previous.length > 0) await LocalNotifications.cancel({ notifications: previous.map((id) => ({ id })) })
-    writeJson(TRACKED_KEY, [])
+    saveNotifLedger(TRACKED_KEY, [])
     return
   }
 
@@ -75,6 +75,6 @@ export async function refreshSisuPlanReminders(
     iconColor: '#e7e5e4',
   }))
   if (notifications.length > 0) await LocalNotifications.schedule({ notifications })
-  writeJson(TRACKED_KEY, [...wantedIds])
+  saveNotifLedger(TRACKED_KEY, [...wantedIds])
 }
 

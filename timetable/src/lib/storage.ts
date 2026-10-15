@@ -27,6 +27,8 @@ export const KEYS = {
   gradesSort: 'tt_grades_sort',
   /** 成绩冷启动快照：重启/断网时先展示上次数据，刷新成功后覆盖 */
   gradesCache: 'tt_grades_cache_v1',
+  /** Per-course weighting schemes only become active after explicit confirmation. */
+  gradeSchemes: 'tt_grade_schemes_v1',
   filterPresets: 'tt_filter_presets',
   translatorUrl: 'tt_translator_url',
   translatorSessions: 'tt_translator_sessions_v1',
@@ -71,6 +73,10 @@ export const KEYS = {
   courseResourceRecent: 'tt_course_resource_recent_v1',
   sisuStudyPlan: 'tt_sisu_study_plan_v1',
   sisuCoursePreferences: 'tt_sisu_course_preferences_v1',
+  /** 已由用户确认的独立学习时段（不并入课程或 Moodle 任务） */
+  studyBlocks: 'tt_study_blocks_v1',
+  /** 学习时段偏好（窗口/时长/缓冲/范围）；唯一所有者是 lib/studyBlockPrefs.ts */
+  studyBlockPrefs: 'tt_study_block_prefs_v1',
 } as const
 
 export type StorageKey = (typeof KEYS)[keyof typeof KEYS]

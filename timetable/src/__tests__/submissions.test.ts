@@ -372,6 +372,35 @@ describe('fetchSubmissionStatus — student-token fallback', () => {
     expect(r.urlByKey.get(k1)).toBe('https://moodle.lut.fi/mod/assign/view.php?id=111')
   })
 
+  it('lazily loads fallback only when teacher APIs return empty, and tolerates fallback failure', async () => {
+    mockWs({
+      mod_assign_get_assignments: assignmentsResponse(),
+      mod_assign_get_submissions: { assignments: [] },
+      mod_assign_get_grades: { assignments: [] },
+    })
+    const fallback = vi.fn(async () => new Map<number, SubmissionStatus>([[111, { state: 'submitted' }]]))
+    const result = await fetchSubmissionStatus({ token: 't', userid: 7 }, fallback)
+    expect(fallback).toHaveBeenCalledTimes(1)
+    expect(result.statusByCmid.get(111)?.state).toBe('submitted')
+
+    const failedFallback = vi.fn(async () => { throw new Error('grade report unavailable') })
+    const emptyResult = await fetchSubmissionStatus({ token: 't', userid: 7 }, failedFallback)
+    expect(failedFallback).toHaveBeenCalledTimes(1)
+    expect(emptyResult.fellBackToGrades).toBe(false)
+    expect(emptyResult.statusByCmid.size).toBe(0)
+  })
+
+  it('does not invoke lazy grades fallback when teacher API already returned activity state', async () => {
+    mockWs({
+      mod_assign_get_assignments: assignmentsResponse(),
+      mod_assign_get_submissions: submissionsResponse(),
+      mod_assign_get_grades: gradesResponse(),
+    })
+    const fallback = vi.fn(async () => new Map<number, SubmissionStatus>())
+    await fetchSubmissionStatus({ token: 't', userid: 7 }, fallback)
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
   it('real teacher-API data still wins (fallback not applied when perAssignment is non-empty)', async () => {
     mockWs({
       mod_assign_get_assignments: assignmentsResponse(),

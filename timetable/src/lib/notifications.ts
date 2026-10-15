@@ -1,14 +1,26 @@
 import { Capacitor } from '@capacitor/core'
-import { LocalNotifications } from '@capacitor/local-notifications'
+import { LocalNotifications, pluginReady } from './localNotifications'
 import type { Lesson } from '../types'
 import { formatTime } from './date'
+import { NOTIF_LEDGER_KEYS, loadNotifLedger, ownedStaleIds, saveNotifLedger } from './notifLedger'
+
+/** 课程提醒家族的记账键（唯一所有者在 notifLedger；这里保留具名导出给既有调用方）。 */
+export const LESSON_LEDGER_KEY = NOTIF_LEDGER_KEYS.lesson
 
 /** Remind this many minutes before a lesson starts */
 export const REMIND_MINUTES = 10
 /** Only schedule notifications for lessons starting within this window */
 const SCHEDULE_WINDOW_H = 48
 
+/**
+ * 权限闸门：所有排期家族的第一步。
+ *
+ * 先 `await pluginReady()`（唯一所有者是 `lib/localNotifications`）——第一次碰插件必须
+ * 单点串行，否则 `@capacitor/core` 的懒加载会让并发首次调用各造一个实现实例（实测挂载
+ * 周期一次 5 个），排期写进孤儿实例就等于没排。注释的详细实证在 `localNotifications.ts`。
+ */
 export async function ensurePermission(): Promise<boolean> {
+  await pluginReady()
   const cur = await LocalNotifications.checkPermissions()
   if (cur.display === 'granted') return true
   if (cur.display === 'denied') return false
@@ -31,8 +43,8 @@ export async function exactAlarmsEnabled(): Promise<boolean> {
   }
 }
 
-/** Lesson.id (uuid) -> stable positive int32 for notification id */
-function notifId(lessonId: string): number {
+/** Lesson.id (uuid) -> stable positive int32 for notification id。导出给记账/诊断复用。 */
+export function lessonNotifId(lessonId: string): number {
   let h = 0x811c9dc5
   for (let i = 0; i < lessonId.length; i++) {
     h ^= lessonId.charCodeAt(i)
@@ -58,6 +70,25 @@ export interface NotifTexts {
  * nyata saat impor backup dengan notif=true di Android 13+ yang belum
  * memberi izin POST_NOTIFICATIONS.
  */
+/**
+ * 本应排上的课程提醒（纯函数）：只排尚未开始、且提醒时点落在 48 小时窗口内的课。
+ * 诊断/审计复用同一个口径——在别处重算窗口常量迟早与这里漂移。
+ */
+export function wantedLessonReminders(
+  lessons: Lesson[],
+  now: number,
+): Map<number, { at: Date; lesson: Lesson }> {
+  const windowMs = SCHEDULE_WINDOW_H * 3600 * 1000
+  const wanted = new Map<number, { at: Date; lesson: Lesson }>()
+  for (const l of lessons) {
+    const at = new Date(l.start).getTime() - REMIND_MINUTES * 60 * 1000
+    if (at > now && at < now + windowMs) {
+      wanted.set(lessonNotifId(l.id), { at: new Date(at), lesson: l })
+    }
+  }
+  return wanted
+}
+
 export async function refreshNotifications(
   lessons: Lesson[],
   texts: NotifTexts,
@@ -66,28 +97,19 @@ export async function refreshNotifications(
   const granted = await ensurePermission()
   if (!granted) return
   const now = Date.now()
-  const windowMs = SCHEDULE_WINDOW_H * 3600 * 1000
+  const wanted = wantedLessonReminders(lessons, now)
 
-  const upcoming = lessons.filter((l) => {
-    const at = new Date(l.start).getTime() - REMIND_MINUTES * 60 * 1000
-    return at > now && at < now + windowMs
-  })
-
-  const wanted = new Map<number, { at: Date; lesson: Lesson }>()
-  for (const l of upcoming) {
-    wanted.set(notifId(l.id), {
-      at: new Date(new Date(l.start).getTime() - REMIND_MINUTES * 60 * 1000),
-      lesson: l,
-    })
-  }
-
-  // Batalkan notifikasi lama yang tidak ada dalam daftar terkini
+  // 清扫陈旧课程提醒：**只动记账里自己排过的那些**。
+  // 曾经这里是「取消一切不在当前 wanted 里的条目」——wanted 为空（没课/周末夜里/新装）
+  // 时等于**清空整个通知队列**，把任务、考试、学习时段、摘要提醒一起删掉；而
+  // NotificationManager 的四个家族是并发调用的，所以学习时段提醒会出现「记账里还记着
+  // id、队列里已经没了」（实测：到点不会响）。
   const pending = await LocalNotifications.getPending()
-  const stale = pending.notifications.filter((n) => !wanted.has(n.id))
+  const recorded = loadNotifLedger(LESSON_LEDGER_KEY)
+  const queuedIds = pending.notifications.map((n) => n.id)
+  const stale = ownedStaleIds(recorded, queuedIds, [...wanted.keys()])
   if (stale.length > 0) {
-    await LocalNotifications.cancel({
-      notifications: stale.map((n) => ({ id: n.id })),
-    })
+    await LocalNotifications.cancel({ notifications: stale.map((id) => ({ id })) })
   }
 
   // Jadwalkan yang belum terjadwal
@@ -111,6 +133,8 @@ export async function refreshNotifications(
   if (toSchedule.length > 0) {
     await LocalNotifications.schedule({ notifications: toSchedule })
   }
+  // 记账 = 这一轮想要的集合（排期失败也会记，下一轮缺哪个补哪个）
+  saveNotifLedger(LESSON_LEDGER_KEY, [...wanted.keys()])
 }
 
 /**
@@ -131,7 +155,7 @@ export async function notifyNow(
     await LocalNotifications.schedule({
       notifications: [
         {
-          id: notifId('sync-change:' + seed),
+          id: lessonNotifId('sync-change:' + seed),
           title,
           body,
           schedule: { at: new Date(Date.now() + 500) },
@@ -152,12 +176,16 @@ export async function notifyNow(
  */
 export async function cancelLessonReminders(lessons: Lesson[]): Promise<void> {
   try {
-    const ids = new Set(lessons.map((l) => notifId(l.id)))
+    // 「当前课程」+「记账里剩的」两条来源都要清：只按当前数据反推会漏掉已删课程的 id
+    // （那些提醒会一直留在队列里、到点还会响一声）。
+    const ids = new Set([...lessons.map((l) => lessonNotifId(l.id)), ...loadNotifLedger(LESSON_LEDGER_KEY)])
     const pending = await LocalNotifications.getPending()
     const mine = pending.notifications.filter((n) => ids.has(n.id))
     if (mine.length > 0) {
       await LocalNotifications.cancel({ notifications: mine.map((n) => ({ id: n.id })) })
     }
+    // 家族关掉 = 它排过的全不算了，记账一并清空（否则下一轮开启时拿旧 id 扫黑）
+    saveNotifLedger(LESSON_LEDGER_KEY, [])
   } catch {
     /* 静默：通知清理失败不影响应用 */
   }
@@ -170,4 +198,6 @@ export async function cancelAllNotifications(): Promise<void> {
       notifications: pending.notifications.map((n) => ({ id: n.id })),
     })
   }
+  // 队列清空 = 所有家族的记账都成了旧账（本模块只管自己这份；别家的在自己入口清）
+  saveNotifLedger(LESSON_LEDGER_KEY, [])
 }

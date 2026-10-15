@@ -296,15 +296,19 @@ export function applySubmissionStatus(
  */
 export async function fetchSubmissionStatus(
   src: { token: string; userid?: number } | null,
-  fallbackStatusByCmid?: Map<number, SubmissionStatus>,
-): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string>; statusByCmid: Map<number, SubmissionStatus>; fellBackToGrades: boolean }> {
-  if (!src?.token) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), fellBackToGrades: false }
+  fallbackStatusByCmid?: Map<number, SubmissionStatus> | (() => Promise<Map<number, SubmissionStatus>>),
+): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string>; statusByCmid: Map<number, SubmissionStatus>; deadlinesByCmid: Map<number, string>; fellBackToGrades: boolean }> {
+  if (!src?.token) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), deadlinesByCmid: new Map(), fellBackToGrades: false }
   const userid = src.userid ?? (await validateGradesToken(src.token))
   // Enrol-anchor kini dijawab moodleSync.primeEnrolAnchor dari pemanggil
   // backgroundRefresh — tidak lagi di sini (dulu duplikat 6 salinan).
   const assigns = await wsCall<{ courses?: RawCourse[] }>(src.token, 'mod_assign_get_assignments')
   const meta = parseAssignments(assigns)
-  if (meta.length === 0) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), fellBackToGrades: false }
+  if (meta.length === 0) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), deadlinesByCmid: new Map(), fellBackToGrades: false }
+  const deadlinesByCmid = new Map<number, string>()
+  for (const assignment of meta) {
+    if (assignment.cmid != null && assignment.dueAt) deadlinesByCmid.set(assignment.cmid, assignment.dueAt)
+  }
 
   const ids = meta.map((a) => a.id)
   // Moodle 多值参数的 indexed 格式：assignmentids[0]=…（JSON 字符串会被
@@ -343,20 +347,32 @@ export async function fetchSubmissionStatus(
   // 教师视角 API 空返回（LUT 恒如此）：不把 subMap 清空，改用 grades 域的
   // 合成状态填充。命名/URL 映射（taskMatchKey + cmid 深链）照常适用。
   let fellBack = false
-  if (perAssignment.size === 0 && fallbackStatusByCmid && fallbackStatusByCmid.size > 0) {
-    fellBack = true
-    for (const a of meta) {
-      if (!a.cmid) continue
-      const fb = fallbackStatusByCmid.get(a.cmid)
-      if (!fb) continue
-      const key = taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt })
-      const withDue: SubmissionStatus = a.dueAt ? { ...fb, dueAt: a.dueAt } : fb
-      status.set(key, withDue)
-      urlByKey.set(key, `https://moodle.lut.fi/mod/assign/view.php?id=${a.cmid}`)
-      statusByCmid.set(a.cmid, withDue)
+  if (perAssignment.size === 0 && fallbackStatusByCmid) {
+    let fallback: Map<number, SubmissionStatus> | undefined
+    if (typeof fallbackStatusByCmid === 'function') {
+      try {
+        fallback = await fallbackStatusByCmid()
+      } catch {
+        // Grade reports are an optional student-side fallback; keep the primary result.
+      }
+    } else {
+      fallback = fallbackStatusByCmid
+    }
+    if (fallback?.size) {
+      fellBack = true
+      for (const a of meta) {
+        if (!a.cmid) continue
+        const fb = fallback.get(a.cmid)
+        if (!fb) continue
+        const key = taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt })
+        const withDue: SubmissionStatus = a.dueAt ? { ...fb, dueAt: a.dueAt } : fb
+        status.set(key, withDue)
+        urlByKey.set(key, `https://moodle.lut.fi/mod/assign/view.php?id=${a.cmid}`)
+        statusByCmid.set(a.cmid, withDue)
+      }
     }
   }
-  return { status, urlByKey, statusByCmid, fellBackToGrades: fellBack }
+  return { status, urlByKey, statusByCmid, deadlinesByCmid, fellBackToGrades: fellBack }
 }
 
 /** Sumber token saat ini (null bila belum terhubung). */

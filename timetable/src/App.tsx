@@ -34,6 +34,8 @@ import { exportBackup } from './lib/backup'
 import { exportTimetableIcs } from './lib/exportIcs'
 import { parseShareHash } from './lib/shareLink'
 import { isSubscribed } from './lib/subscriptions'
+import { useStudyBlocks } from './hooks/useStudyBlocks'
+import { loadStudyBlockPrefs } from './lib/studyBlockPrefs'
 import ShareImportDialog from './components/ShareImportDialog'
 import ShareQrDialog from './components/ShareQrDialog'
 import { buildPalette, type PaletteAction } from './lib/palette'
@@ -127,6 +129,9 @@ function AppInner({
     setAssignFilter(null)
     setAssignQuery(undefined)
   }, [])
+  /** 已确认的学习时段（周视图/今日页只读呈现）：变更即重算，见 useStudyBlocks。 */
+  const studyBlocks = useStudyBlocks()
+
   /** 传给 MoodleView 的跳转预置：只有真带筛选/搜索词才非 null。
    *  必须按值 memo——内联对象每次渲染都是新引用，MoodleView 里「预置到达
    *  就切时间线」的 effect 会在每次 App 重渲染（后台同步、未读数变化…）
@@ -160,6 +165,14 @@ function AppInner({
   const [showSettings, setShowSettings] = useState(false)
   // 设置里的学习偏好/目标改动后递增，让计划页重新读取存储。
   const [sisuPrefsRevision, setSisuPrefsRevision] = useState(0)
+  /**
+   * 学习块提醒开关（通知排期用）：初值现读，之后由设置页保存时推上来——
+   * 不在这里按修订号重读存储（那是一条永远用不到的 memo 依赖，会被 lint 判为
+   * 多余依赖，也容易在下次重构里被顺手删掉而静默失效）。
+   */
+  const [studyBlockRemindEnabled, setStudyBlockRemindEnabled] = useState(
+    () => loadStudyBlockPrefs().remindEnabled,
+  )
   const [showMoreActions, setShowMoreActions] = useState(false)
   /** 移动端「更多」抽屉（<md 才渲染）：低频入口全部收进去，主界面只留信息 */
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -840,6 +853,7 @@ function AppInner({
               hasSources={tt.sources.length > 0}
               subscriptions={subscriptions}
               onWatchRoom={watchRoom}
+              studyBlocks={studyBlocks}
             />
           )}
           {view === 'week' && (
@@ -852,6 +866,7 @@ function AppInner({
               onThisWeek={onThisWeek}
               density={uiPrefs.density}
               onDensity={(d: WeekDensity) => setUiPrefs((prev) => ({ ...prev, density: d }))}
+              studyBlocks={studyBlocks}
             />
           )}
           {view === 'moodle' && (
@@ -1052,6 +1067,7 @@ function AppInner({
           desktop={desktop}
           onDesktopPrefs={applyDesktopPrefs}
           onSisuPrefsChanged={() => setSisuPrefsRevision((r) => r + 1)}
+          onStudyBlockPrefsChanged={(prefs) => setStudyBlockRemindEnabled(prefs.remindEnabled)}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -1094,6 +1110,8 @@ function AppInner({
         digestEnabled={tt.digestEnabled}
         lessons={tt.lessons}
         tasks={tasks}
+        studyBlocks={studyBlocks}
+        studyBlockRemindEnabled={studyBlockRemindEnabled}
         subscriptions={subscriptions}
         onSubscriptionsFired={markFiredAt}
       />

@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, createContext, type ReactNode } from 'react'
 import type { Lesson } from '../types'
 import type { Task } from '../lib/tasks'
+import { activityDeadlinesFromTasks } from '../lib/activityDeadlines'
 import {
   loadMoodleSource,
   normalizeMoodleUrl,
@@ -70,6 +71,8 @@ export interface MoodleData {
   subStatus: ReadonlyMap<string, SubmissionStatus>
   /** cmid 键控的提交状态（内容树按模块 cmid 精确联接 assign 提交态） */
   subByCmid: ReadonlyMap<number, SubmissionStatus>
+  /** Known Moodle activity deadlines by course-module id, including unsubmitted quizzes. */
+  activityDeadlinesByCmid: ReadonlyMap<number, string>
   busy: 'idle' | 'sync' | 'grades' | 'subs'
   message: string | null
   /** Aliran notifikasi Moodle (satu pemilik: provider ini) */
@@ -80,6 +83,8 @@ export interface MoodleData {
   markNotificationRead: (id: string) => void
   /** Ambil ulang aliran notifikasi (force melewati cache 30 menit) */
   refreshNotifications: (force?: boolean) => Promise<void>
+  /** Receipt notifikasi lokal → refresh data Moodle tanpa mengubah status baca. */
+  refreshFromNotification: () => Promise<void>
   setIcsUrl: (url: string) => boolean
   disconnectIcs: () => void
   connectToken: (token: string) => Promise<boolean>
@@ -125,6 +130,10 @@ export function MoodleProvider({
   const [grades, setGrades] = useState<CourseGrades[] | null>(() => loadGradesSnapshot()?.courses ?? null)
   const [subMap, setSubMap] = useState<Map<string, SubmissionStatus>>(new Map())
   const [subByCmid, setSubByCmid] = useState<Map<number, SubmissionStatus>>(new Map())
+  const [assignmentDeadlinesByCmid, setAssignmentDeadlinesByCmid] = useState<Map<number, string>>(new Map())
+  const activityDeadlinesByCmid = useMemo(() => {
+    return new Map([...activityDeadlinesFromTasks(tasks), ...assignmentDeadlinesByCmid])
+  }, [tasks, assignmentDeadlinesByCmid])
   /**
    * 树徽标的合并视图：submissions 域（教师视角 API，部分站点可用）优先，
    * grades 域（学生可读的 gradeitems）填补 LUT 等拒绝学生调 mod_assign 的站点。
@@ -171,6 +180,8 @@ export function MoodleProvider({
   const lessonsRef = useRef(lessons)
   lessonsRef.current = lessons
   const inFlightRef = useRef(false)
+  const notificationRefreshRef = useRef(false)
+  const lastNotificationRefreshAtRef = useRef(Number.NEGATIVE_INFINITY)
 
   const backgroundRefresh = useCallback(async () => {
     if (inFlightRef.current) return
@@ -207,9 +218,10 @@ export function MoodleProvider({
       } catch { /* silent */ }
       try {
         if (subsR.status === 'fulfilled') {
-          const { status, urlByKey, statusByCmid } = subsR.value
+          const { status, urlByKey, statusByCmid, deadlinesByCmid } = subsR.value
           setSubMap(status)
           setSubByCmid(statusByCmid)
+          setAssignmentDeadlinesByCmid((prev) => new Map([...prev, ...deadlinesByCmid]))
           const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
           if (r.archived > 0) onTasks(r.tasks)
         }
@@ -240,6 +252,52 @@ export function MoodleProvider({
       inFlightRef.current = false
     }
   }, [onTasks])
+
+  const refreshFromNotification = useCallback(async () => {
+    const now = Date.now()
+    if (
+      notificationRefreshRef.current ||
+      inFlightRef.current ||
+      now - lastNotificationRefreshAtRef.current < 30_000
+    ) return
+    const tk = loadGradesSource()
+    if (!tk?.token) return
+    notificationRefreshRef.current = true
+    lastNotificationRefreshAtRef.current = now
+    inFlightRef.current = true
+    try {
+      // Prime identity before the grades/submission join, then omit the timeline
+      // domain: a notification needs current alerts and cmid activity state only.
+      try {
+        await primeEnrolAnchor(tk, lessonsRef.current)
+      } catch { /* data refresh remains useful without the identity cache */ }
+      const [subsR, notifR] = await Promise.allSettled([
+        fetchSubmissionStatus(tk, async () => {
+          const gradeResult = await fetchGrades(tk, lessonsRef.current)
+          setGrades(gradeResult.courses)
+          mergeGradeStatus(gradeResult.statusByCmid)
+          saveGradesSnapshot(gradeResult.courses)
+          const withTime = { ...tk, lastSync: new Date().toISOString() }
+          saveGradesSource(withTime)
+          setToken((prev) => (prev ? { ...prev, lastSync: withTime.lastSync } : prev))
+          return toSubmissionStatus(gradeResult.statusByCmid)
+        }),
+        fetchNotifications(tk, { force: true }),
+      ])
+      if (subsR.status === 'fulfilled') {
+        const { status, urlByKey, statusByCmid, deadlinesByCmid } = subsR.value
+        setSubMap(status)
+        setSubByCmid(statusByCmid)
+        setAssignmentDeadlinesByCmid((prev) => new Map([...prev, ...deadlinesByCmid]))
+        const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
+        if (r.archived > 0) onTasks(r.tasks)
+      }
+      if (notifR.status === 'fulfilled') setNotifications(notifR.value)
+    } finally {
+      inFlightRef.current = false
+      notificationRefreshRef.current = false
+    }
+  }, [mergeGradeStatus, onTasks, toSubmissionStatus])
 
   // Interval tunggal: hanya berjalan saat token ada. Tick di-skip bila tab
   // tersembunyi (hemat baterai), sedang ada operasi manual, atau refresh
@@ -340,6 +398,7 @@ export function MoodleProvider({
     clearGradesSnapshot()
     setSubMap(new Map())
     setSubByCmid(new Map())
+    setAssignmentDeadlinesByCmid(new Map())
     setMessage(null)
   }, [])
 
@@ -562,9 +621,10 @@ export function MoodleProvider({
         const res = await fetchGrades(token, lessons)
         fb = toSubmissionStatus(res.statusByCmid)
       } catch { /* 回退不可用就按原样处理主链路 */ }
-      const { status, urlByKey, statusByCmid, fellBackToGrades } = await fetchSubmissionStatus(token, fb)
+      const { status, urlByKey, statusByCmid, deadlinesByCmid, fellBackToGrades } = await fetchSubmissionStatus(token, fb)
       setSubMap(status)
       setSubByCmid(statusByCmid)
+      setAssignmentDeadlinesByCmid((prev) => new Map([...prev, ...deadlinesByCmid]))
       const r = applySubmissionStatus(tasks, status, urlByKey)
       if (r.archived > 0) onTasks(r.tasks)
       if (r.archived > 0) setMessage(t('subSyncOk', { n: r.archived }))
@@ -618,13 +678,15 @@ export function MoodleProvider({
       connected: !!(ics || token),
       grades,
       subStatus: subMap,
-    subByCmid,
+      subByCmid,
+      activityDeadlinesByCmid,
       busy,
       message,
       notifications,
       unread: countUnread(notifications),
       markNotificationRead,
       refreshNotifications,
+      refreshFromNotification,
       setIcsUrl,
       disconnectIcs,
       connectToken,
@@ -639,7 +701,7 @@ export function MoodleProvider({
       applyCompletion,
       pushTaskCompletion,
     }),
-    [ics, token, grades, subMap, subByCmid, busy, message, notifications, markNotificationRead, refreshNotifications, ssoAvailable, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions, applyCompletion, pushTaskCompletion],
+    [ics, token, grades, subMap, subByCmid, activityDeadlinesByCmid, busy, message, notifications, markNotificationRead, refreshNotifications, refreshFromNotification, ssoAvailable, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions, applyCompletion, pushTaskCompletion],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

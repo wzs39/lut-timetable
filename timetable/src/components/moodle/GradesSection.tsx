@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { useMoodleData } from '../../hooks/useMoodleData'
 import GradeCourseCard from '../GradeCourseCard'
+import GradeSchemeReview from '../GradeSchemeReview'
+import { loadGradeSchemes, parseGradeScheme, saveGradeSchemePreview } from '../../lib/gradeScheme'
+import { fetchCourseContents } from '../../lib/contents'
 import Icon from '../Icon'
 import {
   sortGrades,
@@ -31,6 +34,25 @@ export default function GradesSection({
   const [sort, setSort] = useState<GradeSort>(loadSort)
   const [q, setQ] = useState('')
   const [only, setOnly] = useState<'matched' | 'unmatched' | null>(null)
+  const [, setSchemeRevision] = useState(0)
+  const attemptedCourses = useRef(new Set<number>())
+  const schemes = loadGradeSchemes()
+
+  useEffect(() => {
+    if (!md.token || !md.grades) return
+    let active = true
+    void Promise.all(md.grades.filter((course) => course.courseId != null).map(async (course) => {
+      const courseId = course.courseId!
+      if (loadGradeSchemes()[courseId] || attemptedCourses.current.has(courseId)) return
+      attemptedCourses.current.add(courseId)
+      const sections = await fetchCourseContents(md.token, courseId)
+      if (!sections) return
+      const texts = sections.flatMap((section) => [section.name, ...section.modules.flatMap((module) => [module.name, module.description ?? ''])])
+      const parsed = parseGradeScheme(texts, course.course)
+      if (parsed.weights.length > 0) saveGradeSchemePreview(courseId, course.course, parsed)
+    })).then(() => { if (active) setSchemeRevision((revision) => revision + 1) })
+    return () => { active = false }
+  }, [md.token, md.grades])
 
   useEffect(() => {
     writeString(SORT_KEY, sort)
@@ -135,6 +157,18 @@ export default function GradesSection({
                   key={c.courseId ?? c.course}
                   c={c}
                   onJumpToCourse={onJumpToCourse}
+                  schemeReview={c.courseId != null && schemes[c.courseId] ? (
+                    <GradeSchemeReview
+                      key={`${c.courseId}`}
+                      courseId={c.courseId}
+                      courseCode={c.course}
+                      weights={schemes[c.courseId].weights}
+                      onConfirmed={() => {
+                        setSchemeRevision((revision) => revision + 1)
+                        void md.refreshGrades()
+                      }}
+                    />
+                  ) : undefined}
                   onOpenUngradedTasks={
                     ungradedTotal(c) > 0 && c.course
                       ? () => onOpenAssignments(null, c.course)
