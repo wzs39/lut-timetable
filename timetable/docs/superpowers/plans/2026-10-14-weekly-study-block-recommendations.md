@@ -128,3 +128,25 @@ Task 1–3 的实现全部落在工作树，记录与实现已对齐。本文件
 - **Step 5 UI 验证（口径修正，如实记录）**：**没有**走「本地桌面应用」的字面路径。`agent-browser` CLI 在本机因 Windows 文件锁无法启动（退出码 127），改用 `vite preview` 服务**本地构建产物**（`127.0.0.1`，非托管预览）+ 隔离的无痕会话与临时样例数据，跑完 生成 → 跳过 → 生成 → 确认 → 重载 → 删除，核对建议时段避开已种课程并留出 15 分钟缓冲，且确认/删除后任务、SISU 计划完成状态与课程数据均未改变。临时预览进程与样例数据已清理；真实登录态、真实凭据与通知正文未被读取或打印。**未覆盖**：桌面打包产物（`electron-builder --dir` 的 `win-unpacked`）与 Android 装机路径本轮没有跑。
 - **落地时补完的两项（设计文档允许但当时未做）**：① 待确认 ≥2 条时出现「全部加入计划」——逐条复用幂等的 `sourceKind + sourceId` 持久化，清空待确认但保留无空档清单，来源完成状态一概不动；② 已确认块在**周视图与今日页只读呈现**——中性虚线卡（标题、起止时间、来源标签），不参与 `layoutDay` / 冲突组 / 便签 / 订阅 / ICS 导出，不用课程色板、不可点。
 - **周视图可视窗规则（原计划未写明，此处补记并写进设计文档）**：周视图时间轴可视窗是 **08:00–20:00**，因此**起始时间 ≥20:00 的已确认块不画进周视图网格**；今日页照常列出当天全部块。这是刻意取舍（不改 `WeekGrid` 的 `END_HOUR` 与密度缩放），**不是静默丢弃**：今日页可见、计划页可删可查。两侧各有一条测试锁住——`__tests__/components/weekGrid.test.tsx`（20:30 的块在网格中不出现）与 `__tests__/components/todayView.test.tsx`（20:00 的块在今日页出现）。
+
+### Phase 2 验证轮（2026-10-15）：五门禁 + 真实交付形态
+
+本批（Phase 2 三项：窗口/时长偏好、10 分钟提醒、完成状态 + 本周负荷）在**打包桌面产物**与 **Android 装机**上各自跑了一遍，本节的数字与观察都是实跑所得。
+
+- **五门禁（当前工作树，逐条保留退出码）**：`npx tsc -b --pretty false` → 0；`npx vitest run` → 103 文件 / **811 通过** / 0；`npm run test:consistent` → `collected=811 executed=811` / 0；`npx oxlint` → **0 error、24 warning**（均既存）/ 0；`npm run build` → ✓ built in 1.11s / 0。
+- **打包产物 = `electron-builder --dir` 的 `release-electron/win-unpacked`**（本机 nsis/msi 打包链此前受 EPERM 影响，`--dir` 这条已可用）。**是否等于当前代码用内容哈希判定**：新建 `npm run build` 产出的 `dist/assets/index-BdG5g7-A.js` / `index-ipPEFJn3.css` 这两个内容哈希文件名在 `resources/app.asar` 里都能命中，`resources/icon.ico` 与 `build/icon.ico` 的 md5 同为 `3a2574c2c5ba32f0ea38d2896afe9b10` —— 名字即内容，比时间戳可靠。
+- **打包产物上走的本批 UI（CDP 驱动真窗口，非模拟）**：先点掉首次引导遮罩 → `#/view/moodle` 的 `studyplan` 段 → 生成建议排出 `10月15日周四 19:15–20:15`（截止 10/17）与 `20:30–21:30`（截止 10/18，块间 15 分钟缓冲）→ 加入计划一条、待确认留另一条 → 本周负荷 `学习块 1 个（已完成 0）· 计划 60 分钟（已完成 0 分钟）`、周四格 60 分钟 → 勾选完成后 `已完成 1 / 60 分钟` 且 `tt_tasks_v1` 逐字节未变 → 今日页出现只读虚线块 → 设置里五个滑杆（每日开始/每日结束/单块时长/间隔缓冲/推荐范围）与两个勾选框齐备，拖 `单块时长` 到 30 与勾提醒都正确落盘。
+- **提醒的投递（此前唯一未证实的环节）已在 Android 模拟器上证实**：系统通知转储里出现 `NotificationRecord(pkg=dev.lut.timetable id=1798852662 title=学习时段提醒)`，`1798852662` = FNV-1a(`study-block:probe-block:10`)，播出时刻正是块开始前 10 分钟。
+- **桌面端不是「没有本地通知」**：Electron 里 `Capacitor.Plugins.LocalNotifications` 是**可用的 web 实现**（`checkPermissions()` → `granted`，`schedule`/`getPending`/`cancel` 均实测可用）；用一条**合法**的学习块（带 `dueAt`）在打包产物上复验到 `tracked=[1980667240]`、pending 标题 `学习时段提醒`、`at` = 开始前 10 分钟。
+- **本轮的一次误判（记下来免得重犯）**：手写 `tt_study_blocks_v1` 时漏了 `dueAt`，`isStudyBlock` 静默丢弃该记录，于是「提醒排不上」的假象出现（`tracked` 恒为 `[]`、`getPending()` 里没有学习块提醒）。真因是 fixture 不合法，不是调度链。
+- **未在真交付形态上覆盖**：macOS/Linux 的桌面产物（本机只有 Windows）；release 签名产物与应用内更新链路（本轮用 `--dir` 未签名产物）；块内提醒在**真机厂商 ROM** 上的表现（只在 AOSP 模拟器上验过投递）。
+
+### Phase 2 · Task 13（2026-10-15）：提醒家族记账泛化 + 面板逐家对账
+
+- **范围**：把「已排期记账」这件模式扩到全部六个家族，并让诊断面板逐家说出「谁缺了几条」；不新增功能开关、不新增依赖。
+- **实现**：`src/lib/notifLedger.ts`（唯一所有者：键表 + `loadNotifLedger` / `saveNotifLedger` / `ownedStaleIds` / `auditFamily`）；`src/lib/reminderHealth.ts`（`auditReminderFamilies` / `storedFamilyExpectations` / `loadReminderHealth` / `healMissingReminders`）；`src/components/NotificationManager.tsx` 的家族注册表 + 挂载/周期刷新后的自愈；`src/components/PendingNotificationsPanel.tsx` 逐家渲染 + i18n（面板 `pendingNotif*` 共 23 键/语言，其中本批新增 11：10 条家族行 + `pendingNotifMissingAny`）。
+- **本轮抓出并修掉的真缺陷**：面板对**开关关着的家族**报假缺失（摘要期望恒按窗口天数算）→ 期望改为按 `tt_notif` / `tt_daily_digest` / 学习偏好 `remindEnabled` 门控。
+- **测试**：`notifLedger.test.ts`（17）、`reminderHealth.test.ts`（17，含开关门控 3 条与自愈 5 条）、`reminderFamiliesConcurrency.test.ts`（6，六家并发共享一个有状态假队列）、`components/pendingNotificationsPanel.test.tsx`（8）、`components/notificationManagerStudyBlocks.test.tsx`（6，锁「自愈排在刷新之后」与注册表形状）。
+- **反向验证**：去掉摘要那一行的开关门控 → 2 文件共 4 条红；恢复后 27 条绿。
+- **门禁**（2026-10-15 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → 109 文件 / **880 通过** / 0；`npm run test:consistent` → `collected=880 executed=880` / 0；`npx oxlint` → 0 error、24 warning（无新增）/ 0；`npm run build` → ✓ built in 401ms / 0；`electron-builder --dir --win` → 产物命中当前 bundle 哈希。
+- **真产物验证（`release-electron/win-unpacked` + CDP）**：开关全关 → 逐家「当前没有要排的」且无缺失横幅；开关全开并重新挂载 → 逐家就位（截止 2 / 摘要 7 / 学习块 1，队列正好 10 条）；外部清空队列 → 逐家报缺（2/7/1）；再过一轮刷新周期 → 队列 10 条全回来、面板回「已就位」。**未覆盖**：Android/iOS 装机路径与真机 ROM 的投递（本批只跑桌面打包产物；投递链本身已在上一批的模拟器上验过）。

@@ -68,3 +68,30 @@ SISU 学习计划目前保存课程、注册、考试与里程碑，以及截止
 - **周视图可视窗限制（新增约束，写在这里而不是只活在代码里）**：周视图时间轴可视窗为 **08:00–20:00**，因此**起始时间 ≥20:00 的已确认块不出现在周视图网格中**；今日页会列出当天全部块（含 20:00 之后）。取消该限制需要改 `WeekGrid` 的 `END_HOUR` 与密度缩放，本版不做；两侧行为各有测试锁定（`weekGrid.test.tsx` 的 20:30 用例、`todayView.test.tsx` 的 20:00 用例），所以这是**明确取舍而非静默丢弃**。
 - **数据形状实测**：`StudyBlock = { id, sourceKind, sourceId, title, courseCode?, startAt, endAt, createdAt }`，存储键 `tt_study_blocks_v1`，随 `BACKUP_KEYS` 进入备份/导入；待确认建议只在内存中，不落盘。
 - **定时列表之外的一条纪律**：跨界面刷新沿用本仓既有做法（App 以 `useMemo(() => loadStudyBlocks(), [view])` 重算，三视图互斥），由渲染真 `App` 的 `components/studyBlockVisibility.test.tsx` 锁住；提醒落地时必须升级为「变更即重算」。
+- **作息与时长偏好（2026-10-15，Phase 2 第一项）**：新增 `lib/studyBlockPrefs.ts` 作为唯一所有者（`StudyBlockPrefs` / `DEFAULT_STUDY_BLOCK_PREFS` / `STUDY_BLOCK_LIMITS` / `normalizeStudyBlockPrefs` / `loadStudyBlockPrefs` / `saveStudyBlockPrefs`），存储键 `tt_study_block_prefs_v1`（随 `BACKUP_KEYS` 进备份/导入）。字段：`dayStartHour` 0–23、`dayEndHour` 1–24、`blockMinutes` 15–240（步长 15）、`bufferMinutes` 0–60（步长 5）、`horizonDays` 1–14、`skipWeekends`、`remindEnabled`（**提醒那一批使用；本轮只负责保存，不排通知**）。
+  - **默认值即契约**：`DEFAULT_STUDY_BLOCK_PREFS` = Phase 1 硬编码常量（08:00–22:00 / 60 分钟 / 15 分钟 / 7 天 / 不跳过周末），`planStudyBlocks` 的 `prefs` 参数可省略 → 排程结果与 Phase 1 逐字节一致，既有排程测试原样通过就是这条契约的守卫。
+  - **归一化规则**：逐字段按步长取整并夹到区间；非数字/NaN 回默认；**布尔只认真布尔**（`'yes'`/`1` 回默认）。跨字段最小窗口：放不下一块 + 缓冲时抬结束时间，抬到 24:00 仍不够就把开始时间前移——不留「永远排不出建议」的窗口。
+  - **编辑入口唯一**：设置 → 学习偏好（五个滑杆 + 跳过周末开关），改动即落盘并经 `onSisuPrefsChanged` 让 `SisuStudyPlan` 重挂载；hook 在每次「生成」时现读偏好，所以改完不必等重挂载。滑杆的无障碍名必须与既有控件不重名——侧栏「手动添加课程」的时间输入已经占用「开始时间/结束时间」，故改用「每日开始/每日结束」。
+  - **未纳入本项**：按星期几的差异化作息、跨时区/多设备同步偏好。（提醒已在下一项收口。）
+- **学习块提醒 + 变更即重算（2026-10-15，Phase 2 第二项）**：
+  - **提醒**：新增 `lib/studyBlockReminders.ts`——已确认块在**开始前 10 分钟**提醒一次（`STUDY_BLOCK_REMIND_BEFORE_MINUTES`），id 由块 id 经 FNV-1a 推导，与 `sisuStudyPlanReminders` 同一套权限闸门 + 对账写法。**只读学习块**：不写服务器、不动已读记录、不碰 Moodle 同步域，也不干扰课程/任务/考试/摘要提醒。
+  - **为什么用「已排期清单」而不是反推 id**：块可被用户删除，删掉后就不在列表里、id 再也反推不出来（`examReminders` 那套会留下永久的陈旧通知）。清单键 `tt_study_blocks_v1:scheduled`（**不**进 `BACKUP_KEYS`），对账只动自己的条目；通知总开关或偏好开关关闭时先 `cancelAllNotifications`，再清自己的记账，避免清单与实际排期漂移。
+  - **`remindEnabled` 成为真开关**：设置 → 学习偏好新增「开始前 10 分钟提醒」复选框（唯一编辑入口），App 把保存后的值推给 `NotificationManager`；关掉只清自己的条目。**上一轮那个无消费方的预留字段到此收口**：有开关、有消费方、有测试锁定。
+  - **变更即重算**：新增 `hooks/useStudyBlocks.ts`（挂载时读一次 + 订阅 `lib/studyBlocks` 的变更信号），App 不再用 `useMemo(() => loadStudyBlocks(), [view])` 那种「三视图互斥、切回来才重算」的隐式机制。`confirmStudyBlock` / `removeStudyBlock` 写盘后发信号，周视图与今日页立即反映，不需要切视图或重挂载；备份导入仍然是整页 reload。
+- **完成状态 + 本周负荷（2026-10-15，Phase 2 第三项）**：
+  - **完成状态属于学习块自己**：`StudyBlock.completed?: boolean`（缺省 = 未完成，旧记录照样加载），唯一变更入口 `setStudyBlockCompleted(id, completed)`——只写 `tt_study_blocks_v1` 并发变更信号，**未知 id 是空操作**。绝不回写来源任务、SISU 计划项或 Moodle 数据；来源不可变的约束在 lib / hook / 组件三层都用逐字节比对锁住。完成不影响排程：已确认块（含已完成）照旧占位、照旧阻止同一来源再次推荐。
+  - **本周负荷是只读纯函数**：新增 `lib/studyLoad.ts` 的 `studyLoadSummary(blocks, weekStart, now)`——只吃**已确认**块，所以「生成未确认建议不改数字」天然成立；按设备**本地日**分桶（7 项，本地日期算术而不是 +7×24h，夏令时不会挪界），归属按开始时刻；周锚点非法返回空概览，其余坏记录经 `isStudyBlock` 忽略（复用存储层校验，不另写一份）。不改任何数据：不新建日程、不进冲突组/便签/ICS。
+  - **呈现**：计划页「专注学习时段」卡片里——每个已确认块带完成勾选框（文案与计划项一致，完成时标题加删除线），下面一块只读概览（块数/分钟 + 完成数、已到点未完成提示、7 天迷你柱）。周视图/今日页的只读叠加**本项未改**（那里没有改块的入口，完成操作只发生在计划页）。`studyLoad` 由 hook 暴露（与 `studyBlocks` 同一数据源），组件只渲染。
+
+### 验证记录（2026-10-15，真实交付形态）
+
+- **打包桌面产物**（`electron-builder --dir` 的 `release-electron/win-unpacked`，用内容哈希证明与当前树一致）上真跑了偏好、推荐生成、确认/跳过、删除、完成勾选、本周负荷与提醒开关；同日另在 **Android 模拟器**上实测到提醒真的投递（系统通知转储里的 id = `study-blockNotifId(块 id, 10)`，时刻为块开始前 10 分钟）。
+- **对设计的一处事实修正**：提醒并非「原生专属」——Electron 里 `@capacitor/local-notifications` 注册的是**可用的 web 实现**（Android/iOS 上则是原生实现），所以桌面端同样会按这份设计排期与投递；`ensurePermission` 的权限闸门在桌面恒为 `granted`。
+- **跨家族隔离修复（2026-10-15）**：诊断面板当场抳出一个真缺陷——课程提醒的陈旧清扫写成了「取消队列里一切不在当前 wanted 里的条目」，没课时等于清空整个队列；四个家族又并发调用，于是学习时段提醒会出现「记账里有 id、队列里没有」（到点不响）。修法是把这一模式抽象成 `lib/notifLedger.ts`（**只取消自己排过的 id**），各家族自己记账；面板则新增对账（应排 / 缺失 / 陈旧），让「排期成功但不会响」从隐形成变成可见。真产物复验：同场景队列保住提醒，外部清掉队列后刷新面板报缺失。
+- **两条实现约束由本轮验证补记**：① 系统精确闹钟闸门（Android 14+ 默认拒绝）未开时，`schedule()` 在 JS 侧只表现为「排不上」，排查提醒问题要先过 `POST_NOTIFICATIONS` 与 `SCHEDULE_EXACT_ALARM` 两道闸门；② `isStudyBlock` 要求 `dueAt` 且 `endAt ≤ dueAt`，任何手工构造的块记录都得带上，否则会被静默丢弃、看起来像提醒功能坏了。
+- **「已排期通知」诊断面板（2026-10-15 追加）**：唯一所有者 `lib/pendingNotifications.ts`（纯解析/汇总 + 容忍型加载器）+ 设置「日志与订阅」里的只读面板（挂载读一次 + 手动重读）；读失败必须显示原因且不显示空态，否则「排期失败」会被显示成「没排期」。载体事实：桌面/浏览器由 `@capacitor/local-notifications` 的 **web 实现**承接，它按 `schedule.at` 用 `setTimeout` 排期、到点才构造通知——所以桌面端同样会排期且到点触发（打包产物实测构造时刻与计划时刻差 5–6 ms）。**未覆盖**：Windows toast 未在截图里出现过（环境侧未排除专注助手/AUMID 快捷方式/renderer `file://` 归因），因此只能说“已投到 web/OS API”，不能说“屏幕上真看到了”。
+- **家族记账泛化 + 面板逐家呈现（2026-10-15，收口上一批留的两条缝）**：
+  - **记账只留一个家**：六个提醒家族（课程 / 截止 / 考试 / 摘要 / 学习块 / SISU 计划）全部登记在 `lib/notifLedger.ts` 的 `NOTIF_LEDGER_KEYS`，陈旧清扫一律走 `ownedStaleIds(recorded, queued, wanted)`。学习块与 SISU 计划两家原本各写一份 `readJson`/`writeJson` 容错，本轮并入所有者——两份容错迟早分叉。上一批留的「已删除条目反推不出 id」的缝因此闭合：条目一删，记账仍能把它清掉，且不碰别家。
+  - **面板逐家呈现**：`FamilyAudit`（expected / missing / stale）逐家一行（`已就位 {n}` / `缺 {n}` / `当前没有要排的`）+ 陈旧记账单独一行；总数只说“有事”，**哪一家**才决定去查什么。家族标签另立 `pendingNotifFamily*` 键，不复用通知正文措辞。
+  - **【修正】关掉的家族不产生期望**：上一版 `storedFamilyExpectations` 无条件按窗口天数算摘要期望（恒 6–7 条），于是任何一台**新装设备**打开设置都会看到「有 6 条提醒应该排上却没排上」——诊断 UI 最坏的失败模式不是缺诊断，而是指向一个不存在的问题。现在期望按各自的存储开关门控（`tt_notif` / `tt_daily_digest` / 学习偏好 `remindEnabled`），与 `NotificationManager` 的「开关关着只清不排」逐条对齐。
+  - **跨家族自愈**：`healMissingReminders(repairs, { enabled })` 拿 `FamilyRepair` 注册表（每家自带 `expected(at)` 纯函数与 `refresh()`），只重排缺条目那几家，排在家族刷新落定之后。
