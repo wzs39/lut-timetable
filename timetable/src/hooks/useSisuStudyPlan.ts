@@ -168,6 +168,16 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     ))
     return block
   }
+  /**
+   * 批量落盘当前待确认建议。逐条走同一个幂等 `confirmStudyBlock`（键是
+   * sourceKind + sourceId），所以重复点击或先后单条/批量混用都不会写出第二块；
+   * 无空档清单保持不动，来源任务/计划项完成状态一概不碰。
+   */
+  const confirmAllStudyBlockRecommendations = () => {
+    for (const recommendation of studyBlockRecommendations) persistStudyBlock(recommendation)
+    setStudyBlocks(loadStudyBlocks())
+    setStudyBlockRecommendations([])
+  }
   const skipStudyBlockRecommendation = (sourceKind: StudyBlockRecommendation['sourceKind'], sourceId: string) => {
     setStudyBlockRecommendations((current) => current.filter((item) =>
       item.sourceKind !== sourceKind || item.sourceId !== sourceId,
@@ -282,6 +292,7 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     unscheduledStudyItems,
     generateStudyBlockRecommendations,
     confirmStudyBlockRecommendation,
+    confirmAllStudyBlockRecommendations,
     skipStudyBlockRecommendation,
     deleteStudyBlock,
     title, setTitle,

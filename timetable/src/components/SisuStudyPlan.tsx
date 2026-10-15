@@ -20,7 +20,7 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
   const {
     plan, studyBlocks, studyBlockRecommendations, unscheduledStudyItems,
     generateStudyBlockRecommendations, confirmStudyBlockRecommendation,
-    skipStudyBlockRecommendation, deleteStudyBlock,
+    confirmAllStudyBlockRecommendations, skipStudyBlockRecommendation, deleteStudyBlock,
     title, setTitle, courseCode, setCourseCode, kind, setKind,
     credits, setCredits, dueAt, setDueAt, error, coursePreferences,
     plannerCourses, visibleCandidates, alreadyPlanned, selectedNotPlannedCount,
@@ -109,7 +109,16 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
             <h3 className="app-card-label">{t('studyBlockTitle')}</h3>
             <p className="mt-1 text-[10px] text-[var(--text-3)]">{t('studyBlockWindowHint')}</p>
           </div>
-          <button onClick={generateStudyBlockRecommendations} className="app-btn-primary shrink-0 px-2.5 py-1.5 text-[11px]">{t('studyBlockGenerate')}</button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {studyBlockRecommendations.length > 1 && (
+              <button
+                onClick={confirmAllStudyBlockRecommendations}
+                aria-label={`${t('studyBlockConfirmAll')}: ${studyBlockRecommendations.length}`}
+                className="app-btn px-2.5 py-1.5 text-[11px]"
+              >{t('studyBlockConfirmAll')}</button>
+            )}
+            <button onClick={generateStudyBlockRecommendations} className="app-btn-primary shrink-0 px-2.5 py-1.5 text-[11px]">{t('studyBlockGenerate')}</button>
+          </div>
         </div>
         {studyBlockRecommendations.length > 0 && (
           <div className="space-y-2">

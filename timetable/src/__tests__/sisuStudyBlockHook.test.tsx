@@ -69,4 +69,34 @@ describe('useSisuStudyPlan study block orchestration', () => {
     expect(loadStudyBlocks()).toEqual([])
     remounted.unmount()
   })
+
+  it('confirms every pending suggestion at once and keeps sources byte-identical', () => {
+    const sisuItem = { ...createSisuPlanItem({ kind: 'milestone', title: 'Read chapter', dueAt: due }), id: 'shared-id' }
+    saveSisuStudyPlan({ goalCredits: 180, items: [sisuItem] })
+    const task = { ...createTask({ title: 'Finish worksheet', dueAt: due, course: 'CT60A' }), id: 'shared-id' }
+    saveTasks([task])
+    const tasksBefore = localStorage.getItem(KEYS.tasks)
+    const planBefore = localStorage.getItem(KEYS.sisuStudyPlan)
+    const { result, unmount } = renderHook(() => useSisuStudyPlan([], []), { wrapper })
+
+    act(() => result.current.generateStudyBlockRecommendations())
+    expect(result.current.studyBlockRecommendations).toHaveLength(2)
+    act(() => result.current.confirmAllStudyBlockRecommendations())
+    expect(result.current.studyBlockRecommendations).toEqual([])
+    expect(result.current.unscheduledStudyItems).toEqual([])
+    // 跨源同 ID 各自成块：批量确认不做任何去重合并。
+    expect(loadStudyBlocks().map((block) => [block.sourceKind, block.sourceId])).toEqual([
+      ['task', 'shared-id'], ['sisu-plan', 'shared-id'],
+    ])
+    expect(localStorage.getItem(KEYS.tasks)).toBe(tasksBefore)
+    expect(localStorage.getItem(KEYS.sisuStudyPlan)).toBe(planBefore)
+
+    unmount()
+    const remounted = renderHook(() => useSisuStudyPlan([], []), { wrapper })
+    expect(remounted.result.current.studyBlocks).toHaveLength(2)
+    act(() => remounted.result.current.generateStudyBlockRecommendations())
+    expect(remounted.result.current.studyBlockRecommendations).toEqual([])
+    expect(remounted.result.current.studyBlocks).toHaveLength(2)
+    remounted.unmount()
+  })
 })

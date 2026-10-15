@@ -84,11 +84,42 @@ describe('study block review UI', () => {
     expect(localStorage.getItem(KEYS.sisuStudyPlan)).toBe(beforePlan)
   })
 
+  it('offers confirm-all only with several suggestions and persists every one of them', () => {
+    const { unmount } = renderPlan()
+    const anyConfirmAll = new RegExp(`^${translate('zh', 'studyBlockConfirmAll')}`)
+    expect(screen.queryByRole('button', { name: anyConfirmAll })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: translate('zh', 'studyBlockGenerate') }))
+    const beforeTasks = localStorage.getItem(KEYS.tasks)
+    const beforePlan = localStorage.getItem(KEYS.sisuStudyPlan)
+    fireEvent.click(screen.getByRole('button', { name: `${translate('zh', 'studyBlockConfirmAll')}: 2` }))
+
+    expect(loadStudyBlocks()).toHaveLength(2)
+    expect(screen.queryByText(translate('zh', 'studyBlockRecommendations'))).toBeNull()
+    expect(localStorage.getItem(KEYS.tasks)).toBe(beforeTasks)
+    expect(localStorage.getItem(KEYS.sisuStudyPlan)).toBe(beforePlan)
+
+    unmount()
+    renderPlan()
+    expect(loadStudyBlocks()).toHaveLength(2)
+    expect(screen.getAllByText('Read chapter').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Finish worksheet').length).toBeGreaterThan(0)
+  })
+
+  it('hides confirm-all when only one suggestion is pending', () => {
+    saveSisuStudyPlan({ goalCredits: 180, items: [] })
+    renderPlan()
+    fireEvent.click(screen.getByRole('button', { name: translate('zh', 'studyBlockGenerate') }))
+    expect(screen.getByText('Finish worksheet')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: `${translate('zh', 'studyBlockConfirmAll')}: 1` })).toBeNull()
+    expect(loadStudyBlocks()).toEqual([])
+  })
+
   it('defines all review labels in Chinese and English', () => {
     const keys = [
       'studyBlockGenerate', 'studyBlockRecommendations', 'studyBlockTaskSource', 'studyBlockPlanSource',
       'studyBlockDeadline', 'studyBlockUnscheduled', 'studyBlockUnscheduledEmpty', 'studyBlockConfirm',
-      'studyBlockSkip', 'studyBlockConfirmed', 'studyBlockDelete', 'studyBlockWindowHint',
+      'studyBlockSkip', 'studyBlockConfirmed', 'studyBlockDelete', 'studyBlockWindowHint', 'studyBlockConfirmAll',
     ]
     for (const key of keys) {
       expect(translate('zh', key)).not.toBe(key)
