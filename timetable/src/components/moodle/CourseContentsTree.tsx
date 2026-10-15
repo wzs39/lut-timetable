@@ -53,7 +53,7 @@ export default function CourseContentsTree({
 }) {
   const { t, locale } = useI18n()
   const now = useNowDate()
-  const { subByCmid, applyCompletion } = useMoodleData()
+  const { subByCmid, activityDeadlinesByCmid, applyCompletion } = useMoodleData()
   const [pendingCmid, setPendingCmid] = useState<number | null>(null)
 
   const toggle = async (m: CourseModule) => {
@@ -94,8 +94,9 @@ export default function CourseContentsTree({
                 // 不按 modname 过滤：map 里有的 cmid 就显示。
                 const cmid = m.url ? Number(new URL(m.url, 'https://moodle.lut.fi').searchParams.get('id')) : NaN
                 const sub = Number.isFinite(cmid) ? subByCmid.get(cmid) : undefined
+                const dueAt = sub?.dueAt ?? (Number.isFinite(cmid) ? activityDeadlinesByCmid.get(cmid) : undefined)
                 const hasSubBadge = sub?.state === 'submitted' || sub?.state === 'graded'
-                const overdue = !!sub?.dueAt && new Date(sub.dueAt).getTime() < now.getTime()
+                const overdue = !!dueAt && new Date(dueAt).getTime() < now.getTime()
                 // 有提交/评分徽标时复选框仍然显示（与任务卡信息量一致：
                 // 服务器完成态 + 提交态并存，互不替代）。
                 const canToggle = Boolean(m.url) && !failed
@@ -109,14 +110,13 @@ export default function CourseContentsTree({
                     ) : (
                       <span className="min-w-0 flex-1 truncate" title={m.description || m.name}>{m.name}</span>
                     )}
-                    {/* 截止时间：与任务卡同一数据源（SubmissionStatus.dueAt，cmid 联接）
-                        + 同一格式（formatDateTime）。逾期红字提示，同任务卡语义。 */}
-                    {sub?.dueAt && (
+                    {/* Deadline by cmid: assignment metadata or synced action task; submission state is independent. */}
+                    {dueAt && (
                       <span
                         className={'inline-flex shrink-0 items-center gap-0.5 text-[10px] tabular-nums ' + (overdue ? 'text-[var(--danger)]' : 'text-[var(--text-3)]')}
                       >
                         <Icon name="clock" size={10} />
-                        {formatDateTime(sub.dueAt, locale)}
+                        {formatDateTime(dueAt, locale)}
                         {overdue && ` · ${t('taskOverdue')}`}
                       </span>
                     )}

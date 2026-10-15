@@ -7,6 +7,7 @@ import { normalizeMoodleLink } from '../lib/moodleUrl'
 import { normalizeSisuStudyPlanUrl } from '../lib/sisuStudyPlanReminders'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
+import { useMoodleData } from '../hooks/useMoodleData'
 import {
   cancelLessonReminders,
   refreshNotifications,
@@ -47,6 +48,7 @@ export default function NotificationManager({
   onSubscriptionsFired,
 }: Props) {
   const { t, lang, locale } = useI18n()
+  const { refreshFromNotification } = useMoodleData()
 
   useEffect(() => {
     // 两个开关都关：清空所有通知（含残留）
@@ -169,12 +171,14 @@ export default function NotificationManager({
 
   // Tampilkan notifikasi yang dikirim saat aplikasi berjalan di foreground
   useEffect(() => {
-    if (!enabled) return
-    const listener = LocalNotifications.addListener('localNotificationReceived', () => {})
+    if (!Capacitor.isNativePlatform()) return
+    const listener = LocalNotifications.addListener('localNotificationReceived', () => {
+      void refreshFromNotification().catch(() => {})
+    })
     return () => {
       listener.then((h) => h.remove()).catch(() => {})
     }
-  }, [enabled])
+  }, [refreshFromNotification])
 
   return null
 }
