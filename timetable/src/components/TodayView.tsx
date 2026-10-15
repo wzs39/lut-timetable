@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Lesson } from '../types'
 import { useI18n } from '../i18n'
-import { useNow } from '../lib/useNow'
+import { useNow, useNowDate } from '../lib/useNow'
 import { courseColor, courseStyle, courseTextStyle } from '../lib/colors'
 import { formatTime, nextLessonDay, sameDay, formatDateTime, formatLongDay } from '../lib/date'
 import { TYPE_META } from '../lib/lessonTypes'
@@ -25,6 +25,7 @@ import { KEYS, readString, writeString } from '../lib/storage'
 import { useCollapse } from '../lib/useCollapse'
 import { loadCachedNotifications, notificationsAsAlertSources } from '../lib/notificationsFeed'
 import { noticesForLessons, type LessonNotice } from '../lib/lessonAlerts'
+import { studyBlocksOnDay, type StudyBlock } from '../lib/studyBlocks'
 
 interface Props {
   lessons: Lesson[]
@@ -46,6 +47,8 @@ interface Props {
   /** 订阅式提醒：空闲教室行上的「空出提醒我」开关 */
   subscriptions?: Subscription[]
   onWatchRoom?: (target: string, label: string, on: boolean) => void
+  /** 已确认的学习时段（只读列出；不是课程、不可点、不参与课表） */
+  studyBlocks?: StudyBlock[]
 }
 
 /** Dua tab 今日视图: 课程 (jadwal + navigasi) / 动态 (tugas, ujian, ruangan). */
@@ -96,9 +99,10 @@ function LessonNoticeChip({ notice }: { notice?: LessonNotice }) {
  *  - 动态: ruangan kosong, ujian, pengumuman, tugas jatuh tempo.
  * Tab terakhir dipakai kembali saat buka (persisten).
  */
-export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments, onOpenSettings, hasSources = true, subscriptions = [], onWatchRoom }: Props) {
+export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments, onOpenSettings, hasSources = true, subscriptions = [], onWatchRoom, studyBlocks = [] }: Props) {
   const { t, locale } = useI18n()
   const now = useNow()
+  const nowDate = useNowDate()
   const [tab, setTab] = useState<TodayTab>(loadTab)
   // 任务区折叠（逾期横幅 + 今日截止），持久化到 localStorage
   const [tasksOpen, toggleTasks] = useCollapse(KEYS.todayTasksOpen)
@@ -114,6 +118,12 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
       .filter((l) => sameDay(new Date(l.start), nowDate))
       .sort((a, b) => a.start.localeCompare(b.start))
   }, [lessons, now])
+
+  /** 今天已确认的学习时段（纯函数负责本地日界线比较） */
+  const todayStudyBlocks = useMemo(
+    () => studyBlocksOnDay(studyBlocks, nowDate),
+    [studyBlocks, nowDate],
+  )
 
   // 教室变更/截止延期通知 → 课卡提示（数据源 = 通知流缓存，15 分钟重读一次）
   const notices = useMemo(() => {
@@ -320,6 +330,36 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
               nextDayPreview
             ) : (
               <LessonList lessons={today} notices={notices} notes={notes} locale={locale} onSelect={onSelect} now={now} />
+            )}
+
+            {/* 已确认学习时段：今日只读行（没有点击行为，也不是课程卡） */}
+            {todayStudyBlocks.length > 0 && (
+              <section className="animate-modal-in app-card p-3">
+                <h3 className="app-card-label inline-flex items-center gap-1.5">
+                  <Icon name="clock" size={12} /> {t('studyBlockConfirmed')}
+                </h3>
+                <ul className="mt-2 space-y-1">
+                  {todayStudyBlocks.map((block) => (
+                    <li
+                      key={block.id}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface-2)] px-2 py-1"
+                    >
+                      <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-3)]">
+                        {formatTime(block.startAt, locale)}–{formatTime(block.endAt, locale)}
+                      </span>
+                      <span
+                        className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-1)]"
+                        title={block.title}
+                      >
+                        {block.title}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-[var(--text-3)]">
+                        {t(block.sourceKind === 'task' ? 'studyBlockTaskSource' : 'studyBlockPlanSource')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
         </div>
 

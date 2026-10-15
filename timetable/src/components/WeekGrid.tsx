@@ -22,6 +22,7 @@ import {
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle } from '../lib/display'
 import { swipeIntent } from '../lib/swipe'
+import { studyBlocksOnDay, type StudyBlock } from '../lib/studyBlocks'
 import { WEEK_DENSITIES, hourPxOf, type WeekDensity } from '../lib/uiPrefs'
 import { noteForLesson, type NotesMap } from '../lib/notes'
 import LessonNote from './LessonNote'
@@ -51,6 +52,11 @@ interface Props {
   /** 周视图密度（每小时行高）；不传 = 标准档 */
   density?: WeekDensity
   onDensity?: (d: WeekDensity) => void
+  /**
+   * 已确认的学习时段（只读叠加）。刻意不并入 `lessons`：它不参与 layoutDay /
+   * 冲突组 / 便签 / 订阅 / ICS 导出，也不拿课程色板，不传时行为与以前完全一样。
+   */
+  studyBlocks?: StudyBlock[]
 }
 
 const LS_DISMISS = KEYS.conflictDismissed
@@ -78,6 +84,7 @@ export default function WeekGrid({
   onThisWeek,
   density = 'standard',
   onDensity,
+  studyBlocks = [],
 }: Props) {
   const { lang, t, locale } = useI18n()
   const isWide = useIsWideScreen()
@@ -177,6 +184,12 @@ export default function WeekGrid({
   /** Single owner of "this cluster is still shown as a conflict" */
   const shownConflict = (p: PlacedLesson) =>
     p.conflict && !dismissed.has(p.clusterKey)
+
+  /** 每天的学习块（按本地日投影，纯函数负责日界线比较） */
+  const studyBlocksByDay = useMemo(
+    () => weekDays.map((d) => studyBlocksOnDay(studyBlocks, d)),
+    [studyBlocks, weekDays],
+  )
 
   /** 无课日：placed 为空 ⇔ 当天无任何课（dismissed 只影响冲突展示，不影响 placed） */
   const dayEmpty = (i: number) => (byDay.get(i)?.placed.length ?? 0) === 0
@@ -427,6 +440,25 @@ export default function WeekGrid({
               seg.g ? groupBox(seg.g) : seg.p ? lessonCard(seg.p.lesson) : null,
             )
           )}
+          {/* 学习时段（移动端按天）：只读卡片，不是课程卡，没有点击行为 */}
+          {studyBlocksByDay[mobileDay].map((block) => (
+            <div
+              key={block.id}
+              title={`${block.title} · ${formatTime(block.startAt, locale)}–${formatTime(block.endAt, locale)} · ${t(block.sourceKind === 'task' ? 'studyBlockTaskSource' : 'studyBlockPlanSource')}`}
+              className="rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface-2)] px-3 py-2"
+            >
+              <div className="flex items-center gap-1 text-[11px] text-[var(--text-1)]">
+                <span className="shrink-0 opacity-70"><Icon name="clock" size={11} /></span>
+                <span className="min-w-0 truncate">{block.title}</span>
+                <span className="ml-auto shrink-0 text-[10px] text-[var(--text-3)]">
+                  {t(block.sourceKind === 'task' ? 'studyBlockTaskSource' : 'studyBlockPlanSource')}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate text-[10px] text-[var(--text-3)]">
+                {formatTime(block.startAt, locale)}–{formatTime(block.endAt, locale)}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     )
@@ -540,6 +572,47 @@ export default function WeekGrid({
                       style={{ top: idx * hourPx }}
                     />
                   ))}
+                  {/* 已确认学习时段：只读叠加（无 onSelect、无课程色、不进冲突组）。
+                      周视图可视窗是 08:00–20:00，更晚开始的块只在今日页出现。 */}
+                  {studyBlocksByDay[i]
+                    .filter((block) => {
+                      const start = new Date(block.startAt)
+                      return start.getHours() + start.getMinutes() / 60 < END_HOUR
+                    })
+                    .map((block) => {
+                      const start = new Date(block.startAt)
+                      const startH = start.getHours() + start.getMinutes() / 60
+                      const top = Math.max(0, startH - START_HOUR) * hourPx
+                      const durH =
+                        (new Date(block.endAt).getTime() - start.getTime()) / 3600000
+                      const height =
+                        Math.max(0.25, Math.min(durH, END_HOUR - Math.max(START_HOUR, startH))) *
+                        hourPx
+                      const sourceLabel = t(
+                        block.sourceKind === 'task' ? 'studyBlockTaskSource' : 'studyBlockPlanSource',
+                      )
+                      return (
+                        <div
+                          key={block.id}
+                          title={`${block.title} · ${formatTime(block.startAt, locale)}–${formatTime(block.endAt, locale)} · ${sourceLabel}`}
+                          className="absolute left-1 right-1 overflow-hidden rounded-md border border-dashed border-[var(--line)] bg-[var(--surface-2)] px-1.5 py-1 text-[10px] leading-tight text-[var(--text-2)]"
+                          style={{ top, height }}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className="shrink-0 opacity-70">
+                              <Icon name="clock" size={10} />
+                            </span>
+                            <span className="truncate">{block.title}</span>
+                          </div>
+                          {height >= 34 * r && (
+                            <div className="truncate opacity-80">
+                              {formatTime(block.startAt, locale)}–{formatTime(block.endAt, locale)} ·{' '}
+                              {sourceLabel}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   {(byDay.get(i)?.placed || []).map((p) => {
                     const { lesson: l, col, cols } = p
                     const visibleConflict = shownConflict(p)

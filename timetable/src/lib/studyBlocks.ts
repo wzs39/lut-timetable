@@ -147,6 +147,27 @@ export function planStudyBlocks(input: {
   return { recommendations, unscheduled }
 }
 
+/**
+ * 某个本地日内的已确认块（按开始时刻升序；同一时刻保持输入顺序）。
+ *
+ * 日界线比较留在纯函数里：组件不得自己拆 ISO 串比日期（UTC 日期与本地日
+ * 在 UTC+8 下差一天，跨日边界会静默漏块）。坏数据、非法日期一律当空处理。
+ */
+export function studyBlocksOnDay(blocks: StudyBlock[], day: Date): StudyBlock[] {
+  if (!Number.isFinite(day.getTime())) return []
+  return blocks
+    .filter((block) => isStudyBlock(block) && sameLocalDay(block.startAt, day))
+    .sort((a, b) => timestamp(a.startAt) - timestamp(b.startAt))
+}
+
+function sameLocalDay(value: string, day: Date): boolean {
+  const at = new Date(value)
+  if (!Number.isFinite(at.getTime())) return false
+  return at.getFullYear() === day.getFullYear() &&
+    at.getMonth() === day.getMonth() &&
+    at.getDate() === day.getDate()
+}
+
 export function loadStudyBlocks(): StudyBlock[] {
   const raw = readJson<unknown>(KEYS.studyBlocks, [])
   if (!Array.isArray(raw)) return []

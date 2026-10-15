@@ -6,6 +6,7 @@ import { I18nProvider } from '../../i18n'
 import { KEYS } from '../../lib/storage'
 import { startOfWeek } from '../../lib/date'
 import type { Lesson } from '../../types'
+import type { StudyBlock } from '../../lib/studyBlocks'
 
 /** Selasa 2026-09-15 — di dalam minggu yang diuji (mulai Senin 2026-09-14) */
 const NOW = new Date(2026, 8, 15, 12, 0, 0)
@@ -70,6 +71,28 @@ function swipe(dx: number, dy = 0) {
   fireEvent.touchEnd(target, {
     changedTouches: [{ clientX: 200 + dx, clientY: 300 + dy }],
   })
+}
+
+function blockOn(day: number, hour: number, minute: number, over: Partial<StudyBlock> = {}): StudyBlock {
+  return {
+    id: `sb-${day}-${hour}-${minute}`,
+    sourceKind: 'task',
+    sourceId: `task-${day}-${hour}`,
+    title: 'Focused reading',
+    dueAt: at(day + 3, 20),
+    startAt: at(day, hour, minute),
+    endAt: at(day, hour + 1, minute),
+    createdAt: at(14, 7),
+    ...over,
+  }
+}
+
+function renderGridWithBlocks(studyBlocks: StudyBlock[], onSelect: (id: string) => void = () => {}) {
+  return render(
+    <I18nProvider>
+      <WeekGrid lessons={LESSONS} weekStart={WEEK_START} onSelect={onSelect} studyBlocks={studyBlocks} />
+    </I18nProvider>,
+  )
 }
 
 function conflictChips(): string[] {
@@ -190,5 +213,62 @@ describe('WeekGrid conflict display', () => {
     expect(chips[0].startsWith('1 处同时段冲突')).toBe(true)
     // dan sisanya bisa dipulihkan dari header hari
     expect(screen.getByTitle('点击恢复该日 1 处已忽略的冲突提醒')).toBeTruthy()
+  })
+})
+
+// 已确认学习时段只是只读叠加：不进 layoutDay/冲突组、不可点、不用课程色。
+describe('WeekGrid confirmed study blocks (read-only overlay)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('draws the block in its day column without joining conflict groups or swallowing lesson clicks', () => {
+    mockWide(true)
+    const onSelect = vi.fn()
+    renderGridWithBlocks([blockOn(15, 12, 0)], onSelect)
+
+    // 4 节冲突课仍是 2 组：学习块不得影响既有冲突计数
+    const chips = conflictChips()
+    expect(chips.length).toBe(1)
+    expect(chips[0].startsWith('2 处同时段冲突')).toBe(true)
+
+    const title = screen.getByText('Focused reading')
+    expect(title.closest('button')).toBeNull()
+    const card = title.closest('[title]') as HTMLElement
+    expect(card.getAttribute('title')).toContain('Focused reading')
+    // 时间列本来就有 12:00 刻度，所以时间断言必须限定在这张卡内。
+    expect(card.textContent).toContain('12:00')
+    expect(card.textContent).toContain('任务')
+    // 中性虚线卡：不是课程色块（课程把背景写在内联 style 上）。
+    expect(card.className).toContain('border-dashed')
+    expect(card.getAttribute('style') ?? '').not.toContain('background')
+
+    fireEvent.click(title)
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('skips blocks starting outside the visible 08:00–20:00 grid window', () => {
+    mockWide(true)
+    renderGridWithBlocks([blockOn(15, 12, 0), blockOn(15, 20, 30, { id: 'late', title: 'Evening review', startAt: at(15, 20, 30), endAt: at(15, 21, 30) })])
+
+    expect(screen.getByText('Focused reading')).toBeTruthy()
+    expect(screen.queryByText('Evening review')).toBeNull()
+  })
+
+  it('shows the selected day’s blocks in the mobile day branch', () => {
+    mockWide(false)
+    renderGridWithBlocks([blockOn(15, 12, 0)])
+
+    const title = screen.getByText('Focused reading')
+    expect(title).toBeTruthy()
+    expect(title.closest('[title]')?.textContent).toContain('12:00')
+    expect(title.closest('[title]')?.className).toContain('border-dashed')
   })
 })

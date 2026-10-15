@@ -6,6 +6,7 @@ import {
   loadStudyBlocks,
   planStudyBlocks,
   removeStudyBlock,
+  studyBlocksOnDay,
   type StudyBlock,
   type StudyBlockCandidate,
 } from '../lib/studyBlocks'
@@ -115,6 +116,37 @@ describe('planStudyBlocks', () => {
     const result = plan({ items: [bad] })
     expect(result.recommendations).toEqual([])
     expect(result.unscheduled).toEqual([])
+  })
+})
+
+describe('studyBlocksOnDay', () => {
+  const block = (id: string, startOffset: number, hour: number, over: Partial<StudyBlock> = {}): StudyBlock => ({
+    ...candidate(id, 3), id, createdAt: iso(0, 7),
+    startAt: iso(startOffset, hour), endAt: iso(startOffset, hour + 1), ...over,
+  })
+
+  it('keeps only blocks starting on that local day, ordered by start time', () => {
+    const blocks = [block('evening', 1, 19), block('morning', 1, 9), block('other-day', 2, 9)]
+    expect(studyBlocksOnDay(blocks, day(1, 0)).map((b) => b.id)).toEqual(['morning', 'evening'])
+    expect(studyBlocksOnDay(blocks, day(0, 0)).map((b) => b.id)).toEqual([])
+  })
+
+  it('matches local-day boundaries instead of UTC dates', () => {
+    // 本地 00:30 的块：在 UTC+8 下它的 UTC 日期是前一天，归属仍按本地日判定。
+    const midnight = block('midnight', 1, 0, { startAt: iso(1, 0, 30), endAt: iso(1, 1, 30) })
+    expect(studyBlocksOnDay([midnight], day(1, 0)).map((b) => b.id)).toEqual(['midnight'])
+    expect(studyBlocksOnDay([midnight], day(0, 0))).toEqual([])
+  })
+
+  it('keeps input order for equal start times and ignores malformed records', () => {
+    const first = block('first', 1, 9)
+    const second = block('second', 1, 9)
+    const malformed = { id: '', title: 'bad' } as unknown as StudyBlock
+    expect(studyBlocksOnDay([first, malformed, second], day(1, 0)).map((b) => b.id)).toEqual(['first', 'second'])
+  })
+
+  it('returns an empty list for an unusable day', () => {
+    expect(studyBlocksOnDay([block('one', 1, 9)], new Date('nope'))).toEqual([])
   })
 })
 

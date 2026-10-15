@@ -34,6 +34,7 @@ import { exportBackup } from './lib/backup'
 import { exportTimetableIcs } from './lib/exportIcs'
 import { parseShareHash } from './lib/shareLink'
 import { isSubscribed } from './lib/subscriptions'
+import { loadStudyBlocks } from './lib/studyBlocks'
 import ShareImportDialog from './components/ShareImportDialog'
 import ShareQrDialog from './components/ShareQrDialog'
 import { buildPalette, type PaletteAction } from './lib/palette'
@@ -127,6 +128,16 @@ function AppInner({
     setAssignFilter(null)
     setAssignQuery(undefined)
   }, [])
+  /**
+   * 已确认的学习时段（周视图/今日页只读呈现）。
+   *
+   * 依赖 `view` 而不是订阅式回调：今日/周/Moodle 三视图互斥渲染，确认只能
+   * 发生在 Moodle 视图，切回来时 `view` 变化就重算。这条隐式机制由
+   * `__tests__/components/studyBlockVisibility.test.tsx` 锁住（Phase 2 的提醒
+   * 需要「变更即重算」时，会在此处换成显式版本计数）。
+   */
+  const studyBlocks = useMemo(() => loadStudyBlocks(), [view])
+
   /** 传给 MoodleView 的跳转预置：只有真带筛选/搜索词才非 null。
    *  必须按值 memo——内联对象每次渲染都是新引用，MoodleView 里「预置到达
    *  就切时间线」的 effect 会在每次 App 重渲染（后台同步、未读数变化…）
@@ -840,6 +851,7 @@ function AppInner({
               hasSources={tt.sources.length > 0}
               subscriptions={subscriptions}
               onWatchRoom={watchRoom}
+              studyBlocks={studyBlocks}
             />
           )}
           {view === 'week' && (
@@ -852,6 +864,7 @@ function AppInner({
               onThisWeek={onThisWeek}
               density={uiPrefs.density}
               onDensity={(d: WeekDensity) => setUiPrefs((prev) => ({ ...prev, density: d }))}
+              studyBlocks={studyBlocks}
             />
           )}
           {view === 'moodle' && (
