@@ -3,6 +3,7 @@ import { LocalNotifications, pluginReady } from './localNotifications'
 import type { Lesson } from '../types'
 import { formatTime } from './date'
 import { NOTIF_LEDGER_KEYS, loadNotifLedger, ownedStaleIds, saveNotifLedger } from './notifLedger'
+import { notificationDrifted } from './pendingNotifications'
 
 /** 课程提醒家族的记账键（唯一所有者在 notifLedger；这里保留具名导出给既有调用方）。 */
 export const LESSON_LEDGER_KEY = NOTIF_LEDGER_KEYS.lesson
@@ -113,12 +114,12 @@ export async function refreshNotifications(
   }
 
   // Jadwalkan yang belum terjadwal
-  const scheduledIds = new Set(pending.notifications.map((n) => n.id))
+  const pendingById = new Map(pending.notifications.map((n) => [n.id, n]))
   const exact = await exactAlarmsEnabled()
 
-  const toSchedule = [...wanted.entries()]
-    .filter(([id]) => !scheduledIds.has(id))
-    .map(([id, { at, lesson }]) => ({
+  const desired = [...wanted.entries()].map(([id, { at, lesson }]) => ({
+    at,
+    payload: {
       id,
       title: texts.title,
       body: texts.body(lesson, formatTime(lesson.start, locale)),
@@ -128,8 +129,18 @@ export async function refreshNotifications(
       // "点通知就退出应用" 的已知根因。ic_stat_lesson 专用资源杜绝该路径。
       smallIcon: 'ic_stat_lesson',
       iconColor: '#e7e5e4',
-    }))
+    },
+  }))
+  const toSchedule = desired.filter(({ payload }) => !pendingById.has(payload.id)).map(({ payload }) => payload)
+  // 已在队列里的不一定还是**对**的：课时被挪动后（课程详情改时间走 `updateLesson`，**id 不变**）
+  // 只按 id 跳过就会让提醒停在旧时刻——比没提醒更坏，因为它看起来是好的。
+  const toUpdate = desired
+    .filter(({ at, payload }) =>
+      notificationDrifted(pendingById.get(payload.id), { id: payload.id, at, title: texts.title }),
+    )
+    .map(({ payload }) => payload)
 
+  if (toUpdate.length > 0) await LocalNotifications.update({ notifications: toUpdate })
   if (toSchedule.length > 0) {
     await LocalNotifications.schedule({ notifications: toSchedule })
   }

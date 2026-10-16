@@ -10,17 +10,21 @@ import type { StudyBlock } from '../../lib/studyBlocks'
  * 任一关闭时只清自己的条目，不误伤课程/任务/考试/摘要提醒。
  */
 
-const { mockRefreshStudyBlocks, mockCancelStudyBlocks, mockHeal, mockLogError } = vi.hoisted(() => ({
-  mockRefreshStudyBlocks: vi.fn<(blocks: unknown[], texts: unknown, options: unknown) => Promise<void>>(async () => {}),
-  mockCancelStudyBlocks: vi.fn<() => Promise<void>>(async () => {}),
-  mockHeal: vi.fn<(texts: unknown, options: unknown) => Promise<Record<string, unknown>>>(async () => ({
-    attempted: false,
-    before: 0,
-    after: 0,
-    healed: true,
-  })),
-  mockLogError: vi.fn(),
-}))
+const { mockRefreshStudyBlocks, mockCancelStudyBlocks, mockHeal, mockLogError, mockCancelAllFamilies } =
+  vi.hoisted(() => ({
+    mockRefreshStudyBlocks: vi.fn<
+      (blocks: unknown[], texts: unknown, options: unknown) => Promise<void>
+    >(async () => {}),
+    mockCancelStudyBlocks: vi.fn<() => Promise<void>>(async () => {}),
+    mockCancelAllFamilies: vi.fn<() => Promise<void>>(async () => {}),
+    mockHeal: vi.fn<(texts: unknown, options: unknown) => Promise<Record<string, unknown>>>(async () => ({
+      attempted: false,
+      before: 0,
+      after: 0,
+      healed: true,
+    })),
+    mockLogError: vi.fn(),
+  }))
 
 vi.mock('../../hooks/useMoodleData', () => ({
   useMoodleData: () => ({ refreshFromNotification: vi.fn(), markNotificationRead: vi.fn() }),
@@ -60,7 +64,10 @@ vi.mock('../../lib/studyBlockReminders', () => ({
   cancelStudyBlockReminders: mockCancelStudyBlocks,
   wantedStudyBlockReminders: vi.fn(() => new Map()),
 }))
-vi.mock('../../lib/reminderHealth', () => ({ healMissingReminders: mockHeal }))
+vi.mock('../../lib/reminderHealth', () => ({
+  healMissingReminders: mockHeal,
+  cancelAllReminderFamilies: mockCancelAllFamilies,
+}))
 vi.mock('../../lib/errorLog', () => ({ logError: mockLogError }))
 
 const blocks: StudyBlock[] = [{
@@ -95,10 +102,13 @@ describe('NotificationManager study block reminders', () => {
     expect(mockCancelStudyBlocks).toHaveBeenCalledTimes(1)
   })
 
-  it('cancels its own reminders when notifications are switched off globally', () => {
+  it('cancels every family’s reminders when notifications are switched off globally', () => {
     renderManager({ enabled: false, studyBlockRemindEnabled: true })
     expect(mockRefreshStudyBlocks).not.toHaveBeenCalled()
-    expect(mockCancelStudyBlocks).toHaveBeenCalledTimes(1)
+    // 总开关关闭走的是「清空队列 + 清空六家记账」**这一个入口**（记账不清会让设置里的对账
+    // 报出一条不存在的陈旧提醒），所以这里锁的是那个入口被调用，而不是某一家的 cancel。
+    // 六家记账是否真被清空由 reminderFamiliesConcurrency.test.ts 在真实存储上验证。
+    expect(mockCancelAllFamilies).toHaveBeenCalledTimes(1)
   })
 
   /**

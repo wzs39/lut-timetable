@@ -5,6 +5,7 @@ import { NOTIF_LEDGER_KEYS, loadNotifLedger, ownedStaleIds, saveNotifLedger } fr
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
 import { formatDateTime as formatDueTime } from './date'
 import { normalizeMoodleLink } from './moodleUrl'
+import { notificationDrifted } from './pendingNotifications'
 
 /** Remind this long before the deadline (two reminders per task). */
 export const DUE_REMIND_BEFORE_H = [24, 1] as const
@@ -106,9 +107,16 @@ export async function refreshDueNotifications(
     iconColor: '#e7e5e4',
   }))
   const toSchedule = desired.filter(({ id }) => !pendingById.has(id))
-  const toUpdate = desired.filter(({ id, extra }) => {
+  // 已排期的那些不一定还是**对**的：id 稳定但时刻/链接/正文跟着数据走。改了截止时间后
+  // 不更新，提醒就会停在旧时刻（看起来是好的，只是响在错的点上）——那比没提醒更坏。
+  const toUpdate = desired.filter(({ id }) => {
     const previous = pendingById.get(id)
-    return previous && previous.extra?.url !== extra.url
+    const target = wanted.get(id)
+    return (
+      previous !== undefined &&
+      target !== undefined &&
+      notificationDrifted(previous, { id, at: target.at, title: texts.title, url: target.url })
+    )
   })
 
   if (toUpdate.length > 0) await LocalNotifications.update({ notifications: toUpdate })

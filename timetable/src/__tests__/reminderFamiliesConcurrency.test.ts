@@ -26,7 +26,13 @@ import {
   wantedStudyBlockReminders,
 } from '../lib/studyBlockReminders'
 import { refreshSisuPlanReminders, sisuPlanReminderId } from '../lib/sisuStudyPlanReminders'
-import { healMissingReminders, type FamilyRepair } from '../lib/reminderHealth'
+import {
+  cancelAllReminderFamilies,
+  healMissingReminders,
+  loadReminderHealth,
+  type FamilyRepair,
+} from '../lib/reminderHealth'
+import { NOTIF_LEDGER_KEYS, loadNotifLedger } from '../lib/notifLedger'
 
 /**
  * 【集成契约】六个提醒家族**并发**跑一轮之后，队列里必须仍然有每一家的条目。
@@ -133,17 +139,41 @@ const planItem: SisuPlanItem = {
   createdAt: new Date(NOW).toISOString(),
 }
 
+/**
+ * 假插件的载荷表：id → 最近一次 schedule/update 的**完整通知对象**。
+ *
+ * `getPending` 用它回读，与真插件一样把排期时的 title/body/`schedule.at` 原样交回来。
+ * 之前这里回读的是占位标题 `'n'`，于是「队列里这条还是不是我想要的那条」这种判断
+ * 会把健康队列全部误判成“变了”——排期侧会每轮空转重排，断言也就失去分辨力：
+ * 一个「时刻跟着数据走」的用例在修复前也能因为“每轮都在 update”而假绿。
+ */
+let sentPayloads = new Map<number, unknown>()
+
+/** 队列里那一条的预定时刻（毫秒）；没有载荷（例如外部塞进去的陌生 id）时 undefined。 */
+function queuedAt(id: number): number | undefined {
+  const payload = sentPayloads.get(id) as { schedule?: { at?: Date } } | undefined
+  const at = payload?.schedule?.at
+  return at instanceof Date ? at.getTime() : undefined
+}
+
 /** 有状态的假队列：入队/出队/回读都是真的，`getPending` 忠实返回当前内容。 */
 function fakePlugin(initial: number[] = []): Set<number> {
   const queue = new Set(initial)
+  sentPayloads = new Map()
   mockGetPending.mockImplementation(async () => ({
-    notifications: [...queue].map((id) => ({ id, title: 'n' })),
+    notifications: [...queue].map((id) => sentPayloads.get(id) ?? { id, title: 'n' }),
   }))
   mockSchedule.mockImplementation(async ({ notifications }) => {
-    for (const n of notifications) queue.add(n.id)
+    for (const n of notifications) {
+      queue.add(n.id)
+      sentPayloads.set(n.id, n)
+    }
   })
   mockUpdate.mockImplementation(async ({ notifications }) => {
-    for (const n of notifications) queue.add(n.id)
+    for (const n of notifications) {
+      queue.add(n.id)
+      sentPayloads.set(n.id, n)
+    }
   })
   mockCancel.mockImplementation(async ({ notifications }) => {
     for (const n of notifications) queue.delete(n.id)
@@ -365,5 +395,167 @@ describe('reminder families run concurrently', () => {
 
     // 六家各自的清扫都只碰自己记账/自己数据反推出来的 id，陌生的必须原样留着
     expect(foreign.every((id) => queue.has(id))).toBe(true)
+  })
+})
+
+/**
+ * 【契约·已删条目】条目被删之后，它的提醒 id 就再也从数据里反推不出来——唯一还能认出
+ * 「这是我排的」的东西只有各家自己的记账。本组把「删掉任务/考试 → 它的提醒当场离开队列，
+ * 且其余各家一条不少」钉在集成层（各家单测都只面对自己那份队列，看不见这一步）。
+ */
+describe('deleted entries leave no reminder behind', () => {
+  it('clears a deleted task’s reminders and keeps every other family untouched', async () => {
+    const queue = fakePlugin()
+    await runReminderCycle(fullInputs)
+    const before = expectedIds(fullInputs.lessons, fullInputs.tasks)
+    expect(before.due.length).toBeGreaterThan(0)
+    expect(before.due.every((id) => queue.has(id))).toBe(true)
+
+    // 任务被删除：`wantedReminders([])` 是空集，反推不出任何 id，只有记账认得那两条
+    const next: CycleInputs = { ...fullInputs, tasks: [] }
+    await runReminderCycle(next)
+
+    expect(before.due.every((id) => queue.has(id))).toBe(false)
+    expect(queue.has(before.lesson[0])).toBe(true)
+    expect(before.exam.every((id) => queue.has(id))).toBe(true)
+    expect(before.digest.every((id) => queue.has(id))).toBe(true)
+    expect(queue.has(before.block[0])).toBe(true)
+    expect(queue.has(before.sisu[0])).toBe(true)
+  })
+
+  it('clears a deleted exam’s reminders and keeps every other family untouched', async () => {
+    const queue = fakePlugin()
+    await runReminderCycle(fullInputs)
+    const before = expectedIds(fullInputs.lessons, fullInputs.tasks)
+    expect(before.exam.length).toBeGreaterThan(0)
+    expect(before.exam.every((id) => queue.has(id))).toBe(true)
+
+    // 考试从课表消失（考完了 / 换课 / 同步掉了）：考试家 `wanted` 变空集
+    const next: CycleInputs = { ...fullInputs, lessons: [nearLesson] }
+    await runReminderCycle(next)
+
+    expect(before.exam.every((id) => queue.has(id))).toBe(false)
+    expect(queue.has(before.lesson[0])).toBe(true)
+    expect(before.due.every((id) => queue.has(id))).toBe(true)
+    expect(before.block.every((id) => queue.has(id))).toBe(true)
+    expect(queue.has(before.sisu[0])).toBe(true)
+  })
+})
+
+/**
+ * 【契约·总开关关闭】总开关关掉时，队列清空**必须**伴随六家记账一起清空。
+ *
+ * 只清课程/学习块两家会让截止/考试/摘要/计划四家带着「我排过、队列里却没有」的旧账活着：
+ * 设置里的对账随即报出一条**不存在的**陈旧提醒（诊断指向不存在的问题比没有诊断更坏），
+ * 下次开启时也是在脏记账上做清扫。
+ */
+describe('master switch off', () => {
+  it('clears every family’s bookkeeping, not just the ones with a dedicated cancel path', async () => {
+    const queue = fakePlugin()
+    await runReminderCycle(fullInputs)
+    expect(queue.size).toBeGreaterThan(0)
+
+    await cancelAllReminderFamilies()
+
+    expect([...queue]).toEqual([])
+    for (const key of Object.values(NOTIF_LEDGER_KEYS)) {
+      expect(loadNotifLedger(key), `${key} 应随总开关一起清空`).toEqual([])
+    }
+
+    // 关掉之后的对账必须是干净的：既不缺、也没有陈旧记账
+    const health = await loadReminderHealth(NOW)
+    expect(health.report.ok).toBe(true)
+    expect(health.audit?.every((entry) => entry.missing.length === 0)).toBe(true)
+    expect(health.audit?.every((entry) => entry.stale.length === 0)).toBe(true)
+  })
+})
+
+/**
+ * 【契约·自愈不被签名挡住】摘要按「内容签名」跳过重排（每 10 分钟一次调用必须便宜），
+ * 但签名只说明**内容没变**，不说明**队列里还在**。队列被应用之外的力量清掉时若仍按签名
+ * 早退，摘要就永远补不回来：自愈每轮空转、把「did not restore queue」写进错误日志，
+ * 而用户那边只是「早上什么都没收到」。
+ */
+describe('digest reminders survive a queue wipe', () => {
+  it('restores digest entries that vanished even though the plan is unchanged', async () => {
+    const queue = fakePlugin()
+    await runReminderCycle(fullInputs)
+    const expected = expectedIds(fullInputs.lessons, fullInputs.tasks)
+    expect(expected.digest.length).toBeGreaterThan(0)
+
+    for (const id of expected.digest) queue.delete(id)
+    expect(expected.digest.some((id) => queue.has(id))).toBe(false)
+
+    await runReminderCycle(fullInputs)
+
+    expect(expected.digest.every((id) => queue.has(id))).toBe(true)
+  })
+})
+
+/**
+ * 【契约·提醒跟着数据走】id 是稳定的（由 lessonId/taskId 哈希而来），但**时刻**跟着数据走。
+ * 课程详情里改时间走的是 `updateLesson`（id 不变，只换 start/end），改任务截止时间同理。
+ * 排期方过去只按「这个 id 没排过就排」跳过已在队列里的，于是这类改动会让提醒**停在旧时刻**
+ * ——比没提醒更坏：它看起来是好的，只是响在错的点上、写着过时的正文。
+ */
+describe('reminders follow the data when a time changes', () => {
+  it('does not reschedule anything when nothing changed', async () => {
+    fakePlugin()
+    await runReminderCycle(fullInputs)
+    mockUpdate.mockClear()
+    mockSchedule.mockClear()
+
+    await runReminderCycle(fullInputs)
+
+    // 没变就不该动队列：这既是性能契约，也是下面三条漂移用例的分辨力来源
+    // （若这里会重排，那三条在修复前也会因“每轮都 update”而假绿）
+    expect(mockUpdate).not.toHaveBeenCalled()
+    // 不能直接断言「schedule 一次都没调」：学习时段家刻意**整段重排**（时间/标题可能变而
+    // id 稳定），它每轮都会 cancel + schedule 自己的那几条。要断言的是**课程/截止/考试三家**
+    // 没有重排自己的条目。
+    const mine = expectedIds(fullInputs.lessons, fullInputs.tasks)
+    const ours = [...mine.lesson, ...mine.due, ...mine.exam]
+    const rescheduled = mockSchedule.mock.calls.flatMap(([args]) => args.notifications.map((n) => n.id))
+    expect(rescheduled.filter((id) => ours.includes(id))).toEqual([])
+  })
+
+  it('moves an already-queued deadline reminder when the deadline changes', async () => {
+    const queue = fakePlugin()
+    await runReminderCycle(fullInputs)
+    const id = dueNotifId('T-1', 24)
+    expect(queuedAt(id)).toBe(NOW + 30 * HOUR - 24 * HOUR)
+
+    const moved: Task = { ...task, dueAt: new Date(NOW + 40 * HOUR).toISOString() }
+    await runReminderCycle({ ...fullInputs, tasks: [moved, task2] })
+
+    expect(queue.has(id)).toBe(true)
+    expect(queuedAt(id)).toBe(NOW + 40 * HOUR - 24 * HOUR)
+  })
+
+  it('moves an already-queued lesson reminder when the lesson time changes', async () => {
+    const queue = fakePlugin()
+    await runReminderCycle(fullInputs)
+    const id = lessonNotifId('L-near')
+    expect(queuedAt(id)).toBe(NOW + 3 * HOUR - 10 * MIN)
+
+    // 课程详情里改时间：同一条课、**同一个 id**，只有 start/end 变了
+    const moved = lesson('L-near', NOW + 5 * HOUR)
+    await runReminderCycle({ ...fullInputs, lessons: [moved, farExam] })
+
+    expect(queue.has(id)).toBe(true)
+    expect(queuedAt(id)).toBe(NOW + 5 * HOUR - 10 * MIN)
+  })
+
+  it('moves an already-queued exam reminder when the exam time changes', async () => {
+    const queue = fakePlugin()
+    await runReminderCycle(fullInputs)
+    const id = examNotifId('L-exam', 1)
+    expect(queuedAt(id)).toBe(NOW + 4 * DAY - 1 * DAY)
+
+    const moved = lesson('L-exam', NOW + 6 * DAY, 'exam')
+    await runReminderCycle({ ...fullInputs, lessons: [nearLesson, moved] })
+
+    expect(queue.has(id)).toBe(true)
+    expect(queuedAt(id)).toBe(NOW + 6 * DAY - 1 * DAY)
   })
 })

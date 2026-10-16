@@ -134,9 +134,15 @@ export async function refreshDigestNotifications(
 
     const plan = planDigests(lessons, now, texts, locale)
     const signature = JSON.stringify(plan.map((p) => [p.day, p.body]))
-    if (signature === lastSignature) return
 
     const pending = await LocalNotifications.getPending()
+    const queued = new Set(pending.notifications.map((n) => n.id))
+    // 签名只说明「内容没变」，不说明「队列里还在」：队列会被应用之外的力量清掉
+    // （WebView 重载丢内存队列、系统清理、厂商 ROM 省电策略）。此时若仍按签名早退，
+    // 摘要就**永远补不回来**——自愈每轮空转、把「did not restore queue」写进错误日志，
+    // 而用户那边只是“早上什么都没收到”。所以早退的前提是「计划里每一条都真的在队列里」；
+    // 全部就位时仍然早退，那个“每 10 分钟一次”的廉价路径没有被牺牲。
+    if (signature === lastSignature && plan.every((p) => queued.has(p.id))) return
     // 清扫自己的陈旧条目：以前按「当前窗口的日期 id」扫，于是滑出窗口的那些（昨天的摘要）
     // 永远清不掉；记账把「我排过谁」变成一等数据，窗口怎么移动都只动自己的 id。
     const wantedIds = plan.map((p) => p.id)
