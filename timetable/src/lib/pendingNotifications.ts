@@ -68,6 +68,42 @@ export function pendingItemFrom(raw: unknown): PendingNotificationItem | null {
   }
 }
 
+/**
+ * 排期方关心的「这一条应该是什么」：什么时候响、点开去哪、标题是什么。
+ * id 是身份，其余三样是**内容**——内容会随数据变（改截止时间、改上课时间、切换语言）。
+ */
+export interface DesiredNotification {
+  id: number
+  at: Date
+  title: string
+  url?: string
+}
+
+/**
+ * 队列里那条还算不算「我们想要的那条」（纯函数，与解析层同一个家）。
+ *
+ * 为什么需要在排期侧比较内容：id 是稳定的（由 lessonId/taskId 哈希而来），但 **at / url /
+ * 标题都跟着数据走**——用户在课程详情里改了上课时间、改了任务截止时间、或切了语言，
+ * 排期方过去只按「这个 id 没排过就排」跳过已在队列里的，于是提醒就**停在旧时刻**。
+ * 那比「没提醒」更坏：它看起来是好的，只是响在不该响的时刻、写着过时的正文。
+ *
+ * 平台**没回读到的字段一律不算变化**（`undefined`/空串 = 不知道，不是“变了”）：拿「没报告」
+ * 当「变了」会让每一轮刷新都重排一遍队列——纯空转，还会把快到点的提醒往后推。
+ * `body` 刻意**不参与**比较：它含格式化串（时间/locale），平台回读可能与发送值等价而字面
+ * 不同；标题是我们完全控制的短文案，已足以覆盖语言切换，届时正文随同一次 update 换掉。
+ */
+export function notificationDrifted(queued: unknown, desired: DesiredNotification): boolean {
+  const entry = pendingItemFrom(queued)
+  if (!entry) return false
+  const raw = queued as { extra?: { url?: unknown } } | null | undefined
+  const extra = raw && typeof raw === 'object' ? raw.extra : undefined
+  // 链接：只有平台真的回读了 extra 才比较
+  if (extra && typeof extra === 'object' && extra.url !== desired.url) return true
+  if (entry.title !== '' && entry.title !== desired.title) return true
+  if (entry.at !== null && Date.parse(entry.at) !== desired.at.getTime()) return true
+  return false
+}
+
 /** 触发时刻的数值形态；没有时刻返回 NaN。 */
 function atMs(item: PendingNotificationItem): number {
   return item.at ? Date.parse(item.at) : NaN

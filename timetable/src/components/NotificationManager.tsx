@@ -11,7 +11,6 @@ import { useMoodleData } from '../hooks/useMoodleData'
 import {
   cancelLessonReminders,
   refreshNotifications,
-  cancelAllNotifications,
   wantedLessonReminders,
 } from '../lib/notifications'
 import { cancelDueReminders, refreshDueNotifications, wantedReminders } from '../lib/dueNotifications'
@@ -27,7 +26,11 @@ import {
   refreshStudyBlockReminders,
   wantedStudyBlockReminders,
 } from '../lib/studyBlockReminders'
-import { healMissingReminders, type FamilyRepair } from '../lib/reminderHealth'
+import {
+  cancelAllReminderFamilies,
+  healMissingReminders,
+  type FamilyRepair,
+} from '../lib/reminderHealth'
 import { logError } from '../lib/errorLog'
 import type { StudyBlock } from '../lib/studyBlocks'
 import { dueSubscriptions, type Subscription } from '../lib/subscriptions'
@@ -70,11 +73,11 @@ export default function NotificationManager({
   const { refreshFromNotification } = useMoodleData()
 
   useEffect(() => {
-    // 两个开关都关：清空所有通知（含残留）。学习块提醒另清一次自己的记账清单，
-    // 否则“已排期 id”会与实际排期漂移，下次开启时对账就是基于脏数据。
+    // 两个开关都关：清空所有通知（含残留）**并把六家记账一起清掉**。
+    // 只清队列会让记账变成「排过、但队列里没有」——设置里的对账把它读成陈旧提醒，
+    // 于是关掉提醒之后反而看到一条不存在的问题；下次开启时也是在脏记账上做清扫。
     if (!enabled && !digestEnabled) {
-      cancelAllNotifications().catch(() => {})
-      cancelStudyBlockReminders().catch(() => {})
+      cancelAllReminderFamilies().catch(() => {})
       return
     }
     const texts = {

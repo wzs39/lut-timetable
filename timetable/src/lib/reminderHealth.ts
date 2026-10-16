@@ -2,6 +2,7 @@ import {
   NOTIF_LEDGER_KEYS,
   auditFamily,
   loadNotifLedger,
+  saveNotifLedger,
   type NotifFamily,
 } from './notifLedger'
 import { loadPendingNotifications, type PendingNotificationsReport } from './pendingNotifications'
@@ -10,7 +11,7 @@ import { KEYS, readString } from './storage'
 import { loadStudyBlockPrefs } from './studyBlockPrefs'
 import { loadTasks } from './tasks'
 import { loadStudyBlocks } from './studyBlocks'
-import { wantedLessonReminders } from './notifications'
+import { cancelAllNotifications, wantedLessonReminders } from './notifications'
 import { wantedReminders } from './dueNotifications'
 import { wantedExamReminders } from './examReminders'
 import { digestIdFor, plannedDigestDays } from './dailyDigest'
@@ -89,6 +90,24 @@ export function storedFamilyExpectations(now: number = Date.now()): FamilyExpect
       expected: blockRemindOn ? [...wantedStudyBlockReminders(loadStudyBlocks(), now).keys()] : [],
     },
   ]
+}
+
+/**
+ * 总开关关闭：**清空系统队列 + 清空六家记账**。
+ *
+ * 为什么记账必须跟着清（而不是像以前那样只清课程/学习块两家）：记账是「我排过谁」的
+ * 一等数据，队列清空后它却还留着，那四家就成了「排过、但队列里既没有、也不再想要」
+ * ——`auditFamily` 正把它读成**陈旧记账**，于是用户关掉提醒后反而在设置里看到一条
+ * 不存在的陈旧提醒（诊断指向不存在的问题比没有诊断更坏）；下次开启时各家也是在脏记账上
+ * 做清扫。
+ *
+ * 为什么不逐家调 `cancelXxx`：那要求每家都导出取消入口（SISU 计划家就没有自己的），
+ * 而且新增一家就得记得回来补一行。这里直接按 `NOTIF_LEDGER_KEYS` 遍历——家族清单的
+ * 唯一所有者是 `notifLedger`，加一家自动被覆盖。
+ */
+export async function cancelAllReminderFamilies(): Promise<void> {
+  await cancelAllNotifications().catch(() => {})
+  for (const key of Object.values(NOTIF_LEDGER_KEYS)) saveNotifLedger(key, [])
 }
 
 export interface ReminderHealth {

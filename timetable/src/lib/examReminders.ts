@@ -3,6 +3,7 @@ import type { Lesson } from '../types'
 import { formatTime } from './date'
 import { ensurePermission, exactAlarmsEnabled } from './notifications'
 import { NOTIF_LEDGER_KEYS, loadNotifLedger, ownedStaleIds, saveNotifLedger } from './notifLedger'
+import { notificationDrifted } from './pendingNotifications'
 
 /**
  * 考试提醒：考试前 7 天和 1 天各推一条。
@@ -87,11 +88,11 @@ export async function refreshExamReminders(
     await LocalNotifications.cancel({ notifications: stale.map((id) => ({ id })) })
   }
 
-  const scheduledIds = new Set(queuedIds)
+  const pendingById = new Map(pending.notifications.map((n) => [n.id, n]))
   const exact = await exactAlarmsEnabled()
-  const toSchedule = [...wanted.values()]
-    .filter(({ id }) => !scheduledIds.has(id))
-    .map(({ id, at, lesson, beforeD }) => ({
+  const desired = [...wanted.values()].map(({ id, at, lesson, beforeD }) => ({
+    at,
+    payload: {
       id,
       title: texts.title,
       body: texts.body(
@@ -103,7 +104,17 @@ export async function refreshExamReminders(
       schedule: { at, allowWhileIdle: true, exact },
       smallIcon: 'ic_stat_lesson',
       iconColor: '#e7e5e4',
-    }))
+    },
+  }))
+  const toSchedule = desired.filter(({ payload }) => !pendingById.has(payload.id)).map(({ payload }) => payload)
+  // 考试时间被改（课程详情改时间走 `updateLesson`，**id 不变**）时，已排期的那两条（前 7 天 /
+  // 前 1 天）要跟着走：它们沿用的是考试的钟点，钟点变了却不动就等于响在错的时间。
+  const toUpdate = desired
+    .filter(({ at, payload }) =>
+      notificationDrifted(pendingById.get(payload.id), { id: payload.id, at, title: texts.title }),
+    )
+    .map(({ payload }) => payload)
+  if (toUpdate.length > 0) await LocalNotifications.update({ notifications: toUpdate })
   if (toSchedule.length > 0) {
     await LocalNotifications.schedule({ notifications: toSchedule })
   }
