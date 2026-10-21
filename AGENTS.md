@@ -42,7 +42,7 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 1. 本地门禁全绿 → `git checkout -b feat/<题>` → 分批提交（每批一个清晰 commit，仓库风格：祈使句 + 原因）。
 2. push → 开 PR → 合并 → push 触发的构建自动发 **patch**（如 v0.3.1）。
 3. 要发 minor/major：合并后 `gh workflow run native-build.yml -f publish=true -f minor=true`（workflow 里也支持 major 入参）。
-4. **【修正·2026-10-15】验证 release 资产（以 `gh release view` 实际列表为准，文件**名含版本号**，别按固定名找）**：`LUT-Timetable-Setup-<v>.exe`(+`.blockmap`)、`LUT-Timetable-<v>.msi`、`latest.yml`、`app-release.apk`、`LUT-Timetable-unsigned.ipa`（iOS）。已不再产出 `apk-metadata.json`。三张硬证据：① 用 aapt 确认 APK `versionName` 与 tag 一致（`versionCode = major*1000000+minor*1000+patch`）；② `latest.yml` 的 `version`/`size`/`sha512` 与**下载下来的** Setup.exe 逐字节对得上（应用内更新的载荷完整性，`openssl dgst -sha512 -binary … | openssl base64 -A`）；③ IPA 里 `Payload/App.app/App` 与 `Info.plist` 都在且 plist 里 `CFBundleShortVersionString` = tag。
+4. **【修正·2026-10-15】验证 release 资产（以 `gh release view` 实际列表为准，文件**名含版本号**，别按固定名找）**：`LUT-Timetable-Setup-<v>.exe`(+`.blockmap`)、`LUT-Timetable-<v>.msi`、`latest.yml`、`app-release.apk`、`LUT-Timetable-unsigned.ipa`（iOS）。已不再产出 `apk-metadata.json`。三张硬证据：① 用 aapt 确认 APK `versionName` 与 tag 一致（`versionCode = major*1000000+minor*1000+patch`）；② `latest.yml` 的 `version`/`size`/`sha512` 与**下载下来的** Setup.exe 逐字节对得上（应用内更新的载荷完整性，`openssl dgst -sha512 -binary … | openssl base64 -A`）；③ IPA 里 `Payload/App.app/App` 与 `Info.plist` 都在，且 plist 里 `CFBundleShortVersionString` **精确等于** tag、`CFBundleVersion` 等于 tag 派生的 build 号（【修正·2026-10-21】旧的「字符串出现在 plist 里就算过」不够——0.3.15/0.3.16 的 `CFBundleShortVersionString` 是 `0.3 (3016)`、`CFBundleVersion` 是 `0.3.16`，字段整个反了，CI 的 `grep` 依然绿。现在 CI 用 `plutil -extract … raw` 逐字段断言；本地核对用 `py -3 -c "import zipfile,plistlib;…"` 读二进制 plist）。
 5. 应用内更新验证：旧版客户端启动 → 更新横幅 → 下载 APK → 安装 → `adb shell dumpsys package | grep versionName`。
 
 ### 真实数据验证
@@ -158,6 +158,7 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **pbxproj = old-style ASCII plist**: `plutil` REFUSES to write it back ("Conversion to OpenStep format is not supported") - patch MARKETING_VERSION/CURRENT_PROJECT_VERSION with `sed -i ''` on macOS.
 - **IPA shape check trap**: `grep 'Payload/App.app/App/'` (trailing slash) only matches the directory entry, never the Mach-O file. Verify `Info.plist` presence + `CFBundleExecutable` instead.
 - Version stamping parity: same tag-derived stamp as Android (MARKETING_VERSION="X.Y (Z*1000000+Y*1000+Z)" style), Info.plist verified to embed the tag version; web bundle embeds VITE_APP_VERSION the same way.
+- **【修正·2026-10-21】`MARKETING_VERSION` 的 "X.Y (build)" 写法是错的，已改成两个纯数字字段**：iOS 的 `CFBundleShortVersionString` 必须是三段点分数字（sideload 工具拿它显示与比较版本），build 号放 `CFBundleVersion`。0.3.15/0.3.16 反向写入（short=`0.3 (3016)`、version=`0.3.16`），CI 只 grep 版本串所以一路绿。修法：`MARKETING_VERSION=$VERSION`、`CURRENT_PROJECT_VERSION=major*1e6+minor*1e3+patch`（与 Android versionCode 同值），CI 用 `plutil -extract … raw` 逐字段断言 App 与小组件两个 plist。
 
 ## iOS WidgetKit widget - 2026-09-23
 - **Data path**: Capacitor Preferences on iOS = `UserDefaults.standard`; the `lutWidget` local plugin copies `widget_payload_v1` into the App Group suite (`group.dev.lut.timetable`) then `WidgetCenter.shared.reloadAllTimelines()`. Web layer unchanged (same contract as Android).
