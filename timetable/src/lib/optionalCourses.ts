@@ -1,6 +1,8 @@
 import type { CourseFact } from './sisuCourseFacts'
 import type { SisuPlanItem, SisuStudyPlan } from './sisuStudyPlan'
+import type { Lesson } from '../types'
 import { planItemIdentity } from './sisuCourseSelection'
+import { PRESSURE_SCORE, bestOfferingPressure, type WindowPressure } from './optionalPressure'
 import { ABSOLUTE_MAX_WEEKLY_HOURS, courseWeeklyHours } from './sisuWorkload'
 
 export type OptionalTag = 'software' | 'systems' | 'ai' | 'math' | 'career' | 'society'
@@ -28,6 +30,7 @@ export interface OptionalCourse {
 export const OPTIONAL_COURSES: readonly OptionalCourse[] = [
   {
     code: 'CT30A1500', title: 'Software Engineering Tools and Practices', tags: ['software', 'career'], priority: 10, categoryImpact: 'elective',
+    overlaps: ['CT70A9150'],
     why: {
       zh: '把 CT60A4050 的理论落成 CI/CD、自动化与 DevOps 实践，直接服务 Capstone 和实习。',
       en: 'Turns CT60A4050 theory into CI/CD, automation and DevOps practice; feeds the capstone and internships.',
@@ -111,6 +114,36 @@ export const OPTIONAL_COURSES: readonly OptionalCourse[] = [
     },
   },
   {
+    code: 'CT70A9700', title: 'Cloud Services and Infrastructure', tags: ['systems', 'software', 'career'], priority: 9, categoryImpact: 'elective',
+    why: {
+      zh: 'Lahti 校区 P3–P4 开课（6 学分、0-5、无先修），正好落在 2026-27 的空档；和 Linux/DevOps 是一条线上的云基础设施能力。',
+      en: 'Taught in Lahti in P3–P4 (6 cr, 0-5, no prerequisites); lands in the empty 2026-27 window and continues the Linux/DevOps line into cloud infrastructure.',
+    },
+  },
+  {
+    code: 'CT30A3232', title: 'Basics of Linux', tags: ['systems', 'software'], priority: 8, categoryImpact: 'elective',
+    why: {
+      zh: '正统 Linux 基础（3 学分、0-5、无先修）；Lappeenranta 混合教学、考试在校考场，建议排 2027 夏季 P5，避开已满载的 P1–P2。',
+      en: 'A proper Linux foundation (3 cr, 0-5, no prerequisites); blended in Lappeenranta with an on-campus exam — put it in the 2027 summer P5 window instead of the full P1–P2.',
+    },
+  },
+  {
+    code: 'CT70A9150', title: 'Introduction to DevOps', tags: ['systems', 'software', 'career'], priority: 6, categoryImpact: 'elective',
+    overlaps: ['CT30A1500'],
+    why: {
+      zh: 'DevOps 入门（3 学分、Pass/Fail、全年在线自学）；与 CT30A1500（6 学分、0-5）二选一，别重复。',
+      en: 'Introductory DevOps (3 cr, pass/fail, fully online); pick either this or CT30A1500 (6 cr, 0-5), not both.',
+    },
+  },
+  {
+    code: 'CT10A0030', title: 'Introduction to Linux command line', tags: ['systems', 'software'], priority: 5, categoryImpact: 'elective',
+    overlaps: ['CT30A3232'],
+    why: {
+      zh: '1 学分、Pass/Fail 的命令行速成，全年在线自学可随时插；选了 Basics of Linux 就不必再选。',
+      en: 'A 1 cr pass/fail command-line crash course, online all year so it fits any window; redundant once Basics of Linux is in the plan.',
+    },
+  },
+  {
     code: 'CT10A0013', title: 'Introduction to Python Programming', tags: ['software', 'ai'], priority: 5, categoryImpact: 'elective',
     why: {
       zh: '快速补 Python，服务 AI/数据课程与脚本化。',
@@ -133,6 +166,11 @@ export interface OptionalRecommendation {
   netCredits: number
   weeklyDelta: number
   swapOptions: OptionalSwapOption[]
+  /**
+   * 候选课开课窗口的课表拥挤程度（最宽松的那个窗口）。
+   * 只有调用方把已订阅课表传进来时才计算——没有课表数据就不假装知道。
+   */
+  pressure?: WindowPressure
 }
 
 const LIKELY_EQUIVALENT: Record<string, readonly string[]> = {
@@ -222,6 +260,8 @@ export function recommendOptionalCourses(
     limit?: number
     targetYears?: number
     maxWeeklyHours?: number
+    /** 已订阅课表；传入后推荐会按开课窗口的空档排序。 */
+    lessons?: readonly Lesson[]
   } = {},
 ): OptionalRecommendation[] {
   const codes = planCodes(plan)
@@ -251,6 +291,7 @@ export function recommendOptionalCourses(
       // In a 2-year plan extras are only sensible when a swap keeps the total flat.
       if (targetYears <= 2 && swapOptions.length === 0) return []
       if (weeklyDelta > maxWeeklyHours) return []
+      const pressure = options.lessons ? bestOfferingPressure(options.lessons, fact.offerings) : undefined
       return [{
         course,
         fact,
@@ -259,12 +300,14 @@ export function recommendOptionalCourses(
         netCredits: fact.credits,
         weeklyDelta,
         swapOptions,
+        pressure,
       }]
     })
     .sort((a, b) => {
       const score = (item: OptionalRecommendation) => item.course.priority * 10 +
         (item.prereqStatus === 'ok' ? 4 : item.prereqStatus === 'likely-equivalent' ? 2 : 0) +
-        (item.swapOptions.length > 0 ? 3 : 0) - item.weeklyDelta / 10
+        (item.swapOptions.length > 0 ? 3 : 0) - item.weeklyDelta / 10 +
+        (item.pressure ? PRESSURE_SCORE[item.pressure.status] : 0)
       return score(b) - score(a) || a.course.code.localeCompare(b.course.code)
     })
     .slice(0, options.limit ?? 8)

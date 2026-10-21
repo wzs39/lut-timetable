@@ -139,11 +139,13 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     : compareScenarios(comparisonInput, comparisonTargets)),
   [comparisonInput, comparisonTargets, rebalanceOptions, scenarioPrefs.autoBalance])
   const feasibleYears = useMemo(() => earliestFeasibleYears(scenarioComparison), [scenarioComparison])
+  // 课表一起传进去：只看学分与周工作量会推荐出「负荷有余量、但课时根本插不进」的课。
   const optionalRecommendations = useMemo(() => recommendOptionalCourses(plan, COURSE_FACTS, {
     limit: 8,
     targetYears: scenarioPrefs.targetYears,
     maxWeeklyHours: 50,
-  }), [plan, scenarioPrefs.targetYears])
+    lessons,
+  }), [plan, scenarioPrefs.targetYears, lessons])
 
   useEffect(() => () => searchController.current?.abort(), [])
 
