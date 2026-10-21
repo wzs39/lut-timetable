@@ -738,3 +738,11 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **截图不可靠时用 DOM 尺寸**：本机预览视口的 `devicePixelRatio≈0.9`，`preview_screenshot` 产物是 2520×1750（CSS 1600 的 1.575×），聊天里右侧看起来被裁掉；判断溢出要看 `document.documentElement.scrollWidth === clientWidth`（本次两页均 1600=1600、390 档 433=433）与 `#moodle-panel.scrollWidth`，不要凭截图目测。
 - 门禁：`npx tsc -b --pretty false`（0）/ `npx vitest run`（132 文件 / **1104 通过**，比上批 +4）/ `npm run test:consistent`（1104:1104）/ `npx oxlint`（0 error、24 warning 既存）/ `npm run build`（0）。
 - **未验证（明说）**：没有重打 Android/Electron 产物（只动 web 布局与纯展示逻辑），也没在真机上点过；手机档只量了 390 级别的 grid/order，没有截图。
+
+## 2026-10-21 · v0.3.16 / v0.3.17 发布验收（含应用内更新全链路）
+
+- **发布资产三证（0.3.17 实测）**：APK `versionName=0.3.17` / `versionCode=3017`；`latest.yml` 的 `size`+`sha512` 与**下载下来的** Setup.exe 逐字节一致；IPA 的 App 与 `PlugIns/LUTWidget.appex` 两个 plist 都是 `CFBundleShortVersionString=0.3.17`、`CFBundleVersion=3017`。APK 里的 `assets/public/assets/*.js` 也能 grep 到同一版本串（`VITE_APP_VERSION` 与 tag 同源）。
+- **应用内更新 E2E（模拟器 Pixel8_API36，可复用步骤）**：装旧版 release APK（签名冲突先 `adb uninstall`，注意系统自动备份会在重装后把 localStorage 灌回来）→ 启动 → 更多 → 检查更新 → 横幅「发现新版本 0.3.17」→ 点「下载 APK」走 Chrome（首次会遇 **Safe Browsing「File might be harmful」**，需点「Download anyway」）→ `/sdcard/Download/app-release (1).apk` 大小与 release 资产完全相同 → `adb install -r` 升级（**不用卸载**，签名一致、数据保留）→ 版本变 `0.3.17`，再点检查更新得到「已是最新版本 0.3.17」。唯一没手点的是系统安装器弹窗（用 `adb install -r` 等价代跑）。
+- **WebView 里 `<a download>` 的 CDP `.click()` 不算用户手势**，Chrome 不会开始下载；要验下载必须 `adb shell input tap` 打真实坐标（uiautomator 也常常看不到抽屉里的 WebView 文本，改用 CDP `document.body.innerText` 读文案）。
+- **Git Bash 的路径转换会咬 adb**：`adb shell ls /sdcard/Download` 会被改成 `D:/Program Files/Git/sdcard/...`，一律 `MSYS_NO_PATHCONV=1`；`adb pull` 的目标同理（先 `cd` 到目录再用相对名）。
+- **iOS 版本字段写反的修复见上方【修正·2026-10-21】**：0.3.16 及更早的 IPA 里 `CFBundleShortVersionString` 是 `0.3 (3016)`——sideload 工具用它显示/比较版本，属真缺陷；0.3.17 起两个字段各归其位，CI 改为逐字段断言。
