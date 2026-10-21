@@ -11,7 +11,7 @@ const item = (code: string, studyYear: string, periods: number[], patch: Partial
 const fact = (code: string, patch: Partial<CourseFact> = {}): CourseFact => ({
   code, credits: 6, gradeScale: '0-5', totalHours: 162, hoursSource: 'sisu',
   assessmentMethods: [], formalPrerequisites: [], offerings: [], offeringPattern: [1, 2],
-  offeringConfidence: 'sisu-2026-27', ...patch,
+  offeringConfidence: 'sisu-2026-27', examSittings: [], ...patch,
 })
 
 const plan = (items: SisuPlanItem[]): SisuStudyPlan => ({ goalCredits: 180, items })

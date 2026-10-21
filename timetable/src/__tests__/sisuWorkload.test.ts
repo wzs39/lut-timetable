@@ -31,6 +31,7 @@ function fact(code: string, patch: Partial<CourseFact> = {}): CourseFact {
     offerings: [],
     offeringPattern: [1],
     offeringConfidence: 'sisu-2026-27',
+    examSittings: [],
     ...patch,
   }
 }

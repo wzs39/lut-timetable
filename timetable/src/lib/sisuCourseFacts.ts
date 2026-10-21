@@ -16,6 +16,13 @@ export interface CourseOffering {
   periods: number[]
 }
 
+/** A separate exam sitting. Kept out of the teaching offerings on purpose — see the fetch script. */
+export interface ExamSitting {
+  name: string
+  startDate: string
+  endDate: string
+}
+
 export interface CourseFact {
   code: string
   /** Public SISU name (English); absent for catalogue-less plan courses. */
@@ -35,10 +42,11 @@ export interface CourseFact {
   offerings: CourseOffering[]
   offeringPattern: number[]
   offeringConfidence: OfferingConfidence
+  examSittings: ExamSitting[]
   selfPaced?: boolean
 }
 
-export const SISU_FACTS_GENERATED_AT = "2026-10-21T02:14:37.936Z"
+export const SISU_FACTS_GENERATED_AT = "2026-10-21T08:50:26.874Z"
 
 export const COURSE_FACTS: Record<string, CourseFact> = {
   "CT60A5550": {
@@ -80,6 +88,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BM20A9200": {
@@ -122,6 +131,23 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2026-12-14",
+        "endDate": "2026-12-15"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-03-05",
+        "endDate": "2027-03-06"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-04-27",
+        "endDate": "2027-04-28"
+      }
+    ],
     "selfPaced": false
   },
   "CT60A4050": {
@@ -163,6 +189,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BM20A9301": {
@@ -203,6 +230,18 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       3
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-03-03",
+        "endDate": "2027-03-04"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-04-28",
+        "endDate": "2027-04-29"
+      }
+    ],
     "selfPaced": false
   },
   "CT10A9900": {
@@ -248,6 +287,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A0250": {
@@ -289,6 +329,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A2700": {
@@ -330,6 +371,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD4100": {
@@ -378,6 +420,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       1
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD4110": {
@@ -429,6 +472,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD4130": {
@@ -477,6 +521,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "KE00BX35": {
@@ -550,6 +595,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "KE00DA03": {
@@ -637,6 +683,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "stale",
+    "examSittings": [],
     "selfPaced": false
   },
   "K200DJ96": {
@@ -649,6 +696,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "formalPrerequisites": [],
     "offerings": [],
     "offeringPattern": [],
+    "examSittings": [],
     "offeringConfidence": "unknown",
     "selfPaced": false
   },
@@ -662,6 +710,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "formalPrerequisites": [],
     "offerings": [],
     "offeringPattern": [],
+    "examSittings": [],
     "offeringConfidence": "unknown",
     "selfPaced": false
   },
@@ -714,6 +763,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT30A2850": {
@@ -758,6 +808,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BM20A8801": {
@@ -798,6 +849,18 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2027-04-28",
+        "endDate": "2027-04-29"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-04-28",
+        "endDate": "2027-04-29"
+      }
+    ],
     "selfPaced": false
   },
   "CT60A9602": {
@@ -842,6 +905,13 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-05-10",
+        "endDate": "2027-05-11"
+      }
+    ],
     "selfPaced": false
   },
   "CT30A3401": {
@@ -885,6 +955,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A4500": {
@@ -934,6 +1005,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A4700": {
@@ -973,6 +1045,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT30A3350": {
@@ -1014,6 +1087,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A5540": {
@@ -1054,6 +1128,38 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2026-12-02",
+        "endDate": "2026-12-03"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2026-12-02",
+        "endDate": "2026-12-03"
+      },
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2027-03-01",
+        "endDate": "2027-03-02"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-03-01",
+        "endDate": "2027-03-02"
+      },
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2027-04-12",
+        "endDate": "2027-04-13"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-04-12",
+        "endDate": "2027-04-13"
+      }
+    ],
     "selfPaced": false
   },
   "CT30A2910": {
@@ -1106,6 +1212,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A4800": {
@@ -1147,6 +1254,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A5511": {
@@ -1194,6 +1302,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A5522": {
@@ -1240,6 +1349,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A4350": {
@@ -1283,6 +1393,18 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       3
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-03-04",
+        "endDate": "2027-03-05"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-05-11",
+        "endDate": "2027-05-12"
+      }
+    ],
     "selfPaced": false
   },
   "CT60A7660": {
@@ -1325,6 +1447,13 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-05-10",
+        "endDate": "2027-05-11"
+      }
+    ],
     "selfPaced": false
   },
   "CT60A9800": {
@@ -1365,6 +1494,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD5010": {
@@ -1407,6 +1537,13 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-05-13",
+        "endDate": "2027-05-14"
+      }
+    ],
     "selfPaced": false
   },
   "HDD5020": {
@@ -1449,6 +1586,23 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2026-12-18",
+        "endDate": "2026-12-19"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-03-05",
+        "endDate": "2027-03-06"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-05-11",
+        "endDate": "2027-05-12"
+      }
+    ],
     "selfPaced": false
   },
   "HDD5030": {
@@ -1491,6 +1645,23 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2026-12-21",
+        "endDate": "2026-12-22"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-02-01",
+        "endDate": "2027-02-02"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-05-03",
+        "endDate": "2027-05-04"
+      }
+    ],
     "selfPaced": false
   },
   "HDD5040": {
@@ -1533,6 +1704,23 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2026-12-22",
+        "endDate": "2026-12-23"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-02-03",
+        "endDate": "2027-02-04"
+      },
+      {
+        "name": "Exam, Lahti",
+        "startDate": "2027-05-04",
+        "endDate": "2027-05-05"
+      }
+    ],
     "selfPaced": false
   },
   "CT10A5000": {
@@ -1574,6 +1762,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "LUTKYPSAT": {
@@ -1598,6 +1787,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD5000": {
@@ -1651,6 +1841,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BH60A6200": {
@@ -1692,6 +1883,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BH60A6802": {
@@ -1760,6 +1952,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BH60A7201": {
@@ -1807,6 +2000,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "MOOC0002A": {
@@ -1834,6 +2028,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0002B": {
@@ -1859,6 +2054,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0002C": {
@@ -1886,6 +2082,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0002D": {
@@ -1913,6 +2110,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0001A": {
@@ -1940,6 +2138,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0001B": {
@@ -1967,6 +2166,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0001C": {
@@ -1994,6 +2194,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0001D": {
@@ -2021,6 +2222,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0003A": {
@@ -2048,6 +2250,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0003B": {
@@ -2075,6 +2278,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0003C": {
@@ -2102,6 +2306,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0003D": {
@@ -2129,6 +2334,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "BH60A7400": {
@@ -2176,6 +2382,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BH60A7410": {
@@ -2215,6 +2422,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BH60A7500": {
@@ -2256,6 +2464,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "MOOC0005A": {
@@ -2283,6 +2492,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0006B": {
@@ -2310,6 +2520,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0006D": {
@@ -2337,6 +2548,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0006A": {
@@ -2364,6 +2576,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0004A": {
@@ -2391,6 +2604,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "HDD4020": {
@@ -2440,6 +2654,38 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2026-12-17",
+        "endDate": "2026-12-18"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2026-12-17",
+        "endDate": "2026-12-18"
+      },
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2027-02-15",
+        "endDate": "2027-02-16"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-02-15",
+        "endDate": "2027-02-16"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-03-30",
+        "endDate": "2027-03-31"
+      },
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2027-03-30",
+        "endDate": "2027-03-31"
+      }
+    ],
     "selfPaced": false
   },
   "HDD4030": {
@@ -2488,6 +2734,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       3
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "MOOC0006C": {
@@ -2515,6 +2762,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "HDD4010": {
@@ -2573,6 +2821,38 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       1
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2026-10-21",
+        "endDate": "2026-10-22"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2026-10-21",
+        "endDate": "2026-10-22"
+      },
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2026-12-08",
+        "endDate": "2026-12-09"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2026-12-08",
+        "endDate": "2026-12-09"
+      },
+      {
+        "name": "Exam, in English, Lahti",
+        "startDate": "2027-02-02",
+        "endDate": "2027-02-03"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-02-02",
+        "endDate": "2027-02-03"
+      }
+    ],
     "selfPaced": false
   },
   "HDD4040": {
@@ -2621,6 +2901,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "MOOC0006E": {
@@ -2648,6 +2929,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "MOOC0005B": {
@@ -2675,6 +2957,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": true
   },
   "CT30A1500": {
@@ -2715,6 +2998,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT30A8912": {
@@ -2766,6 +3050,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A5103": {
@@ -2807,6 +3092,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT30A3204": {
@@ -2862,6 +3148,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT80A0301": {
@@ -2915,6 +3202,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT70A9300": {
@@ -2979,6 +3267,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT10A7052": {
@@ -3020,6 +3309,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT30A1400": {
@@ -3070,6 +3360,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT30A3370": {
@@ -3117,6 +3408,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT30A1600": {
@@ -3149,6 +3441,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
     "offerings": [],
     "offeringPattern": [],
     "offeringConfidence": "unknown",
+    "examSittings": [],
     "selfPaced": false
   },
   "BM20A6100": {
@@ -3193,6 +3486,33 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Midterm exam 1, in English, Lpr",
+        "startDate": "2026-10-23",
+        "endDate": "2026-10-24"
+      },
+      {
+        "name": "Midterm exam 2, in English, Lpr",
+        "startDate": "2026-12-18",
+        "endDate": "2026-12-19"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-02-15",
+        "endDate": "2027-02-16"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-03-30",
+        "endDate": "2027-03-31"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-05-10",
+        "endDate": "2027-05-11"
+      }
+    ],
     "selfPaced": false
   },
   "BM40A0702": {
@@ -3235,6 +3555,23 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2026-12-15",
+        "endDate": "2026-12-16"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-01-25",
+        "endDate": "2027-01-26"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-05-14",
+        "endDate": "2027-05-15"
+      }
+    ],
     "selfPaced": false
   },
   "BM40A1900": {
@@ -3277,6 +3614,13 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-05-03",
+        "endDate": "2027-05-04"
+      }
+    ],
     "selfPaced": false
   },
   "BM20A7102": {
@@ -3335,6 +3679,18 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [
+      {
+        "name": "Exam, in Finnish, Lpr",
+        "startDate": "2027-04-26",
+        "endDate": "2027-04-27"
+      },
+      {
+        "name": "Exam, in English, Lpr",
+        "startDate": "2027-04-26",
+        "endDate": "2027-04-27"
+      }
+    ],
     "selfPaced": false
   },
   "HDD7010": {
@@ -3386,6 +3742,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD7020": {
@@ -3457,6 +3814,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD7030": {
@@ -3508,6 +3866,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD7040": {
@@ -3559,6 +3918,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "HDD4120": {
@@ -3610,6 +3970,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT10A0013": {
@@ -3655,6 +4016,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A0203": {
@@ -3706,6 +4068,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A2412": {
@@ -3757,6 +4120,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A4002": {
@@ -3808,6 +4172,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A4304": {
@@ -3857,6 +4222,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "BM20A6600": {
@@ -3906,6 +4272,38 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       3
     ],
     "offeringConfidence": "stale",
+    "examSittings": [
+      {
+        "name": "Exam",
+        "startDate": "2021-03-10",
+        "endDate": "2021-03-11"
+      },
+      {
+        "name": "Exam + other method",
+        "startDate": "2021-04-15",
+        "endDate": "2021-04-16"
+      },
+      {
+        "name": "Exam",
+        "startDate": "2021-10-29",
+        "endDate": "2021-10-30"
+      },
+      {
+        "name": "Exam",
+        "startDate": "2022-03-02",
+        "endDate": "2022-03-03"
+      },
+      {
+        "name": "Exam",
+        "startDate": "2022-05-09",
+        "endDate": "2022-05-10"
+      },
+      {
+        "name": "Exam",
+        "startDate": "2022-09-14",
+        "endDate": "2022-09-15"
+      }
+    ],
     "selfPaced": false
   },
   "CT60A5500": {
@@ -3947,6 +4345,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       2
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A4160": {
@@ -3998,6 +4397,7 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       5
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   },
   "CT60A5532": {
@@ -4039,6 +4439,197 @@ export const COURSE_FACTS: Record<string, CourseFact> = {
       4
     ],
     "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
+    "selfPaced": false
+  },
+  "CT70A9700": {
+    "code": "CT70A9700",
+    "name": "Cloud Services and Infrastructure",
+    "sisuId": "otm-a849f6d3-fcce-4fd1-af1f-ae087fb70fde",
+    "credits": 6,
+    "creditRange": {
+      "min": 6,
+      "max": 6
+    },
+    "gradeScale": "0-5",
+    "totalHours": 162,
+    "hoursSource": "sisu",
+    "workloadAnomaly": false,
+    "workloadNote": "Lectures 24h, exercise classes 24h, independent reading, research and assignments 40h, project work 48h, preparing for exam and learning portfolio 26h. Total 162 h.",
+    "assessmentCriteria": {
+      "en": "Grade 0-5. To pass the course, a student needs to receive at least 50 % from the maximum points of mandatory assignments. To achieve the highest grade, 90 % of the maximum points is needed. The grading is linear between these ends.",
+      "fi": "Grade 0-5. To pass the course, a student needs to receive at least 50 % from the maximum points of mandatory assignments. To achieve the highest grade, 90 % of the maximum points is needed. The grading is linear between these ends."
+    },
+    "assessmentMethods": [
+      "Course Completion"
+    ],
+    "formalPrerequisites": [],
+    "offerings": [
+      {
+        "id": "lut-CT70A9700-t1-26-27",
+        "name": "Blended teaching, Lahti",
+        "startDate": "2027-01-11",
+        "endDate": "2027-04-24",
+        "periods": [
+          3,
+          4
+        ]
+      }
+    ],
+    "offeringPattern": [
+      3,
+      4
+    ],
+    "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
+    "selfPaced": false
+  },
+  "CT30A3232": {
+    "code": "CT30A3232",
+    "name": "Basics of Linux",
+    "sisuId": "otm-d51a48e0-6c6d-4f3c-90c2-3b26075ec138",
+    "credits": 3,
+    "creditRange": {
+      "min": 3,
+      "max": 3
+    },
+    "gradeScale": "0-5",
+    "totalHours": 81,
+    "hoursSource": "sisu",
+    "workloadAnomaly": false,
+    "workloadNote": "Online,  self study course. Examination in Exam classroom (in LUT  campus).   Self study 40 h, online exercises 33 h,   preparing for exam 6 h. Exam 2 h. Total 81 h. Optional sessions in class room.",
+    "assessmentCriteria": {
+      "en": "0-5. Exam, tasks and online quizzes.   Exam requires that a student has acceptably completed quizzes and tasks before the exam.",
+      "fi": "0-5. Exam, tasks and online quizzes. Exam requires that a student has acceptably completed quizzes and tasks before the exam."
+    },
+    "assessmentMethods": [
+      "Course Completion"
+    ],
+    "formalPrerequisites": [],
+    "offerings": [
+      {
+        "id": "lut-CT30A3232-t2-26-27",
+        "name": "Blended teaching, Lpr",
+        "startDate": "2027-06-01",
+        "endDate": "2027-07-31",
+        "periods": [
+          5
+        ]
+      },
+      {
+        "id": "lut-CT30A3232-t1-26-27",
+        "name": "Blended teaching, Lpr",
+        "startDate": "2026-08-31",
+        "endDate": "2026-12-12",
+        "periods": [
+          1,
+          2
+        ]
+      }
+    ],
+    "offeringPattern": [
+      1,
+      2,
+      5
+    ],
+    "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
+    "selfPaced": false
+  },
+  "CT10A0030": {
+    "code": "CT10A0030",
+    "name": "Introduction to Linux command line",
+    "sisuId": "otm-babcb8cb-4915-42e3-9786-60deb279eb97",
+    "credits": 1,
+    "creditRange": {
+      "min": 1,
+      "max": 1
+    },
+    "gradeScale": "pass-fail",
+    "totalHours": 27,
+    "hoursSource": "ects-estimate",
+    "workloadAnomaly": false,
+    "workloadNote": "Self-study, online 100 % 27 h.",
+    "assessmentCriteria": {
+      "en": "Moodle tasks",
+      "fi": "Moodle tehtävät 100 %"
+    },
+    "assessmentMethods": [
+      "Course Completion"
+    ],
+    "formalPrerequisites": [],
+    "offerings": [
+      {
+        "id": "lut-CT10A0030-t1-26-27",
+        "name": "Online teaching",
+        "startDate": "2026-08-01",
+        "endDate": "2027-07-31",
+        "periods": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    ],
+    "offeringPattern": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
+    "selfPaced": false
+  },
+  "CT70A9150": {
+    "code": "CT70A9150",
+    "name": "Introduction to DevOps",
+    "sisuId": "otm-754d98c0-f0ab-4dd3-8a7c-63e7c0e02ec0",
+    "credits": 3,
+    "creditRange": {
+      "min": 3,
+      "max": 3
+    },
+    "gradeScale": "pass-fail",
+    "totalHours": 81,
+    "hoursSource": "sisu",
+    "workloadAnomaly": false,
+    "workloadNote": "Online materials and readings 27 h, exercises 54 h, total 81 h.",
+    "assessmentCriteria": {
+      "en": "Online assignments 100 %",
+      "fi": "Online assignments 100 %"
+    },
+    "assessmentMethods": [
+      "Course Completion"
+    ],
+    "formalPrerequisites": [],
+    "offerings": [
+      {
+        "id": "lut-CT70A9150-t1-26-27",
+        "name": "Online teaching",
+        "startDate": "2026-08-01",
+        "endDate": "2027-07-31",
+        "periods": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    ],
+    "offeringPattern": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "offeringConfidence": "sisu-2026-27",
+    "examSittings": [],
     "selfPaced": false
   }
 }
