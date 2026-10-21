@@ -18,6 +18,7 @@ function fact(code: string, credits: number, totalHours: number, pattern: number
     offerings: [],
     offeringPattern: pattern,
     offeringConfidence: 'sisu-2026-27',
+    examSittings: [],
   }
 }
 

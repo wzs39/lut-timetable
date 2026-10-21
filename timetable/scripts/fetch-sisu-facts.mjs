@@ -11,7 +11,9 @@ import { writeFileSync } from 'node:fs'
 
 const PLAN_CODES = `CT60A5550 BM20A9200 CT60A4050 BM20A9301 CT10A9900 CT60A0250 CT60A2700 HDD4100 HDD4110 HDD4130 KE00BX35 KE00DA03 K200DJ96 K200DJ99 CT60A2450 CT30A2850 BM20A8801 CT60A9602 CT30A3401 CT60A4500 CT60A4700 CT30A3350 CT60A5540 CT30A2910 CT60A4800 CT60A5511 CT60A5522 CT60A4350 CT60A7660 CT60A9800 HDD5010 HDD5020 HDD5030 HDD5040 CT10A5000 LUTKYPSAT HDD5000 BH60A6200 BH60A6802 BH60A7201 MOOC0002A MOOC0002B MOOC0002C MOOC0002D MOOC0001A MOOC0001B MOOC0001C MOOC0001D MOOC0003A MOOC0003B MOOC0003C MOOC0003D BH60A7400 BH60A7410 BH60A7500 MOOC0005A MOOC0006B MOOC0006D MOOC0006A MOOC0004A HDD4020 HDD4030 MOOC0006C HDD4010 HDD4040 MOOC0006E MOOC0005B`.split(/\s+/)
 
-const OPTIONAL_CODES = `CT30A1500 CT30A8912 CT60A5103 CT30A3204 CT80A0301 CT70A9300 CT10A7052 CT30A1400 CT30A3370 CT30A1600 BM20A6100 BM40A0702 BM40A1900 BM20A7102 HDD7010 HDD7020 HDD7030 HDD7040 HDD4120 CT10A0013 CT60A0203 CT60A2412 CT60A4002 CT60A4304 BM20A6600 CT60A5500 CT60A4160 CT60A5532`.split(/\s+/)
+// Linux / cloud / DevOps: found via course_unit_search(fullTextQuery: "linux"|"devops"|"cloud").
+// Kept in the snapshot so the optional-study engine can price them without a request.
+const OPTIONAL_CODES = `CT30A1500 CT30A8912 CT60A5103 CT30A3204 CT80A0301 CT70A9300 CT10A7052 CT30A1400 CT30A3370 CT30A1600 BM20A6100 BM40A0702 BM40A1900 BM20A7102 HDD7010 HDD7020 HDD7030 HDD7040 HDD4120 CT10A0013 CT60A0203 CT60A2412 CT60A4002 CT60A4304 BM20A6600 CT60A5500 CT60A4160 CT60A5532 CT70A9700 CT30A3232 CT10A0030 CT70A9150`.split(/\s+/)
 
 const CODES = [...new Set([...PLAN_CODES, ...OPTIONAL_CODES])]
 
@@ -107,7 +109,7 @@ async function fetchFact(code, id) {
     return {
       code, sisuId: undefined, credits, gradeScale: 'unknown',
       totalHours: credits > 0 ? Math.round(credits * 27) : 0, hoursSource: 'ects-estimate',
-      assessmentMethods: [], formalPrerequisites: [], offerings: [], offeringPattern: [],
+      assessmentMethods: [], formalPrerequisites: [], offerings: [], offeringPattern: [], examSittings: [],
       offeringConfidence: 'unknown', selfPaced: code.startsWith('MOOC'),
     }
   }
@@ -131,6 +133,20 @@ async function fetchFact(code, id) {
   const prerequisites = [...new Set((unit.compulsoryFormalPrerequisites ?? [])
     .flatMap((group) => group.prerequisites ?? [])
     .flatMap((prerequisite) => (prerequisite.courseUnits ?? []).map((course) => course.code)))]
+  // Exam sittings are realisations too, but they are deliberately kept out of
+  // `offerings`: folding them in would stretch a course's teaching window and
+  // inflate its teaching periods. They are stored separately so callers can
+  // still warn about an exam cluster — a course whose exam is 2 weeks after
+  // teaching ends is not "free" in that gap.
+  const examSittings = (unit.courseUnitRealisations ?? [])
+    .filter((realisation) => /exam|tentti|kuulustelu/i.test(realisation.name?.en ?? ''))
+    .map((realisation) => ({
+      name: realisation.name?.en ?? '',
+      startDate: realisation.activityPeriod?.startDate ?? '',
+      endDate: realisation.activityPeriod?.endDate ?? '',
+    }))
+    .filter((sitting) => sitting.startDate && sitting.endDate)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))
   const teaching = (unit.courseUnitRealisations ?? []).filter((realisation) => !/exam/i.test(realisation.name?.en ?? ''))
   const offerings = teaching
     .map((realisation) => ({
@@ -162,6 +178,7 @@ async function fetchFact(code, id) {
     offerings,
     offeringPattern,
     offeringConfidence,
+    examSittings,
     selfPaced: code.startsWith('MOOC'),
   }
 }
@@ -196,6 +213,13 @@ export interface CourseOffering {
   periods: number[]
 }
 
+/** A separate exam sitting. Kept out of the teaching offerings on purpose — see the fetch script. */
+export interface ExamSitting {
+  name: string
+  startDate: string
+  endDate: string
+}
+
 export interface CourseFact {
   code: string
   /** Public SISU name (English); absent for catalogue-less plan courses. */
@@ -215,6 +239,7 @@ export interface CourseFact {
   offerings: CourseOffering[]
   offeringPattern: number[]
   offeringConfidence: OfferingConfidence
+  examSittings: ExamSitting[]
   selfPaced?: boolean
 }
 
