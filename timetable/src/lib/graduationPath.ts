@@ -1,5 +1,6 @@
 import type { CourseFact } from './sisuCourseFacts'
-import type { PlanCategory, SisuPlanItem } from './sisuStudyPlan'
+import type { PlanCategory } from './sisuStudyPlan'
+import type { PersonalPlanCourse } from './personalStudyPlan'
 import { likelyPrerequisiteCodes } from './optionalCourses'
 
 /**
@@ -190,7 +191,7 @@ export interface CutOptions {
  * 硬约束：某模块的余量被砍光之后，该模块剩下的课一律不动 —— 即使它价值更低。
  */
 export function suggestCuts(
-  plan: readonly SisuPlanItem[],
+  plan: readonly PersonalPlanCourse[],
   facts: Readonly<Record<string, CourseFact>>,
   categoryMinimums: Readonly<Record<PlanCategory, number>>,
   options: CutOptions = {},
@@ -198,7 +199,7 @@ export function suggestCuts(
   const goal = options.goalCredits ?? 180
   const maxHours = options.maxWeeklyHours ?? 60
 
-  const totalOf = (rows: readonly SisuPlanItem[]) => rows.reduce((sum, row) => sum + (row.credits ?? 0), 0)
+  const totalOf = (rows: readonly PersonalPlanCourse[]) => rows.reduce((sum, row) => sum + (row.credits ?? 0), 0)
   const planned = totalOf(plan)
   const completed = totalOf(plan.filter((row) => row.completed))
   const creditsToCut = Math.max(0, planned - goal)
@@ -226,9 +227,9 @@ export function suggestCuts(
     .filter((row) => !row.completed)
     .filter((row) => (row.credits ?? 0) > 0)
     // 学位程序要求的占位课不参与砍课 —— 学分少但砍了程序上不成立。
-    .filter((row) => courseValue(row.courseCode ?? '').value !== 'administrative')
+    .filter((row) => courseValue(row.code ?? '').value !== 'administrative')
     .map((row) => {
-      const code = row.courseCode ?? ''
+      const code = row.code ?? ''
       const fact = facts[code]
       const value = courseValue(code)
       const periods = row.periods ?? []

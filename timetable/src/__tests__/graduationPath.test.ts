@@ -8,28 +8,25 @@ import {
   suggestCuts,
 } from '../lib/graduationPath'
 import type { CourseFact } from '../lib/sisuCourseFacts'
-import type { PlanCategory, SisuPlanItem } from '../lib/sisuStudyPlan'
+import type { PlanCategory } from '../lib/sisuStudyPlan'
+import type { PersonalPlanCourse } from '../lib/personalStudyPlan'
 
 const MINIMUMS: Record<PlanCategory, number> = {
   general: 31, language: 10, intermediate: 103, minor: 20, elective: 0,
 }
 
-let seq = 0
 const item = (
   code: string,
   credits: number,
   category: PlanCategory,
-  patch: Partial<SisuPlanItem> = {},
-): SisuPlanItem => ({
-  id: `i${seq++}`,
-  kind: 'course',
+  patch: Partial<PersonalPlanCourse> = {},
+): PersonalPlanCourse => ({
+  code,
   title: code,
-  courseCode: code,
   credits,
   category,
   periods: [1],
   completed: false,
-  createdAt: '2026-08-20T00:00:00.000Z',
   ...patch,
 })
 
