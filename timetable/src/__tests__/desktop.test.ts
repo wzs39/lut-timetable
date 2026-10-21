@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 import { acceleratorLabel, desktopBridge, trayLabels } from '../lib/desktop'
+import { VIEWS } from '../lib/navigation'
 
 /**
  * 守卫：桌面常驻功能（托盘 / 全局快捷键）的契约。
@@ -11,7 +12,7 @@ import { acceleratorLabel, desktopBridge, trayLabels } from '../lib/desktop'
  * package.json 当数据集读，断言各方对齐；托盘文案只有 tray-labels.json 一个家。
  */
 const sources = import.meta.glob(
-  ['../../electron/*.cjs', '../../electron/*.json', '../../package.json', '../../src/App.tsx'],
+  ['../../electron/*.cjs', '../../electron/*.json', '../../package.json'],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>
 
@@ -21,15 +22,14 @@ const appIconCjs = sources['../../electron/app-icon.cjs'] ?? ''
 const trayLabelsJson = sources['../../electron/tray-labels.json'] ?? ''
 const preloadCjs = sources['../../electron/preload.cjs'] ?? ''
 const pkgJson = sources['../../package.json'] ?? ''
-// glob 的键形状随 Vite 解析而变化，按后缀取，别写死。
-const appTsx = sources[Object.keys(sources).find((k) => k.endsWith('App.tsx')) ?? ''] ?? ''
-
-/** 视图名的唯一权威：渲染端路由词表。主进程发的名字必须在这里面。 */
+/**
+ * 视图名的唯一权威：渲染端声明表（lib/navigation）。
+ * 以前这里去 App.tsx 源码里抠路由正则；声明表收口后直接读它就是同一份事实，
+ * 而且主进程再发 'assignments' 这类名字会立刻红。
+ */
 function routerViewNames(): string[] {
-  expect(appTsx.length, 'App.tsx 没进 import.meta.glob，词表守卫等于没跑').toBeGreaterThan(100)
-  const hit = /\((today\|[a-z]+(?:\|[a-z]+)+)\)/.exec(appTsx)
-  expect(hit, 'App.tsx 里找不到视图路由词表').not.toBeNull()
-  return hit![1].split('|')
+  expect(VIEWS.length, '视图声明表是空的，词表守卫等于没跑').toBeGreaterThan(2)
+  return VIEWS.map((decl) => decl.route)
 }
 
 /** 托盘文案契约的键（主进程兜底、渲染端推送、i18n 都必须同键）。 */

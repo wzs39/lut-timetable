@@ -24,7 +24,8 @@ export function dueNotifId(taskId: string, beforeH: number): number {
 }
 
 export interface DueNotifTexts {
-  title: string
+  /** 按任务取标题：测验「即将关闭」与作业「即将截止」是两种文案。 */
+  title: (task: Task) => string
   body: (task: Task, dueText: string, beforeH: number) => string
 }
 
@@ -99,7 +100,7 @@ export async function refreshDueNotifications(
   const exact = await exactAlarmsEnabled()
   const desired = [...wanted.values()].map(({ id, at, task, url, beforeH }) => ({
     id,
-    title: texts.title,
+    title: texts.title(task),
     body: texts.body(task, formatDueTime(task.dueAt!, locale), beforeH),
     schedule: { at, allowWhileIdle: true, exact },
     extra: { url },
@@ -115,7 +116,7 @@ export async function refreshDueNotifications(
     return (
       previous !== undefined &&
       target !== undefined &&
-      notificationDrifted(previous, { id, at: target.at, title: texts.title, url: target.url })
+      notificationDrifted(previous, { id, at: target.at, title: texts.title(target.task), url: target.url })
     )
   })
 

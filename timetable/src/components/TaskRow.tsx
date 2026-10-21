@@ -1,6 +1,6 @@
 import { useI18n } from '../i18n'
 import { useNow } from '../lib/useNow'
-import { isOverdue, msUntilDue, type Task } from '../lib/tasks'
+import { deadlineLabelKey, isOverdue, moduleTypeOf, msUntilDue, type Task } from '../lib/tasks'
 import type { Lesson } from '../types'
 import { matchCourseCode } from '../lib/moodle'
 import { taskCmidOf, taskMatchKey } from '../lib/submissions'
@@ -60,6 +60,8 @@ export default function TaskRow({
 
   const leftMs = showCountdown && !task.completed ? msUntilDue(task, new Date(now)) : null
   const leftMin = leftMs != null ? Math.round(leftMs / 60000) : null
+  // 测验是「关闭」，作业是「截止」；迟交截止只在 assign 的宽限窗口出现。
+  const dueLabel = t(deadlineLabelKey(moduleTypeOf(task)))
 
   const st = md.subStatus.get(taskMatchKey(task))
 
@@ -124,9 +126,21 @@ export default function TaskRow({
             )}
             {task.dueAt && (
               <span className={'inline-flex items-center gap-1' + (overdue ? ' font-medium text-[var(--danger)]' : '')}>
-                <Icon name="clock" size={11} /> {formatDateTime(task.dueAt, locale)}{overdue ? ` · ${t('taskOverdue')}` : ''}
+                <Icon name="clock" size={11} /> {dueLabel} {formatDateTime(task.dueAt, locale)}{overdue ? ` · ${t('taskOverdue')}` : ''}
               </span>
             )}
+            {task.cutoffAt && task.cutoffAt !== task.dueAt && (
+              <span className="inline-flex items-center gap-1">
+                <Icon name="clock" size={11} /> {t('taskCutoff')} {formatDateTime(task.cutoffAt, locale)}
+              </span>
+            )}
+            {task.gradingDueAt &&
+              task.gradingDueAt !== task.dueAt &&
+              task.gradingDueAt !== task.cutoffAt && (
+                <span className="inline-flex items-center gap-1">
+                  <Icon name="clock" size={11} /> {t('taskGradingDue')} {formatDateTime(task.gradingDueAt, locale)}
+                </span>
+              )}
             {task.startAt && (
               <span className="inline-flex items-center gap-1 whitespace-nowrap">
                 <Icon name="live" size={10} /> {formatDateTime(task.startAt, locale)}

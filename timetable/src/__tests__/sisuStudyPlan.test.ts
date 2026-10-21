@@ -53,8 +53,14 @@ describe('SISU local study plan', () => {
     expect(isSisuPlanItem({ ...created, title: '  ' })).toBe(false)
   })
 
-  it('loads defaults and preserves a validated local study plan in backup storage', () => {
-    expect(loadSisuStudyPlan()).toEqual({ goalCredits: 180, items: [] })
+  it('seeds the personal plan on first run and preserves a validated plan afterwards', () => {
+    const seeded = loadSisuStudyPlan()
+    expect(seeded.goalCredits).toBe(180)
+    expect(seeded.items.length).toBeGreaterThan(60)
+    expect(seeded.items.find((item) => item.courseCode === 'CT60A4050')).toMatchObject({
+      category: 'general', studyYear: '2026-2027', periods: [1, 2], timingSource: 'pdf-plan',
+    })
+    expect(seeded.items.find((item) => item.courseCode === 'K200DJ96')?.completed).toBe(true)
     const created = createSisuPlanItem({ kind: 'course', title: 'Algorithms', credits: 5 })
     saveSisuStudyPlan({ goalCredits: 210, items: [created, { ...created, id: '' } as typeof created] })
     expect(loadSisuStudyPlan()).toEqual({

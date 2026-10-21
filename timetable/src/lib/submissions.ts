@@ -1,4 +1,5 @@
 import type { Task } from './tasks'
+import type { ActivityDates, ActivityDatesByCmid } from './activityDates'
 import { wsCall, validateGradesToken, loadGradesSource } from './grades'
 
 /**
@@ -30,6 +31,10 @@ export interface SubmissionStatus {
    * tanpa panggilan jaringan tambahan).
    */
   dueAt?: string
+  /** 迟交截止（cutoffdate）：due 之后仍可提交到这一刻。 */
+  cutoffAt?: string
+  /** 评分截止（gradingduedate）：教师批改期限。 */
+  gradingDueAt?: string
 }
 
 interface RawAssignment {
@@ -37,6 +42,10 @@ interface RawAssignment {
   name?: string
   courseid?: number
   duedate?: number
+  /** 迟交截止（Unix 秒）；0 / 缺省 = 不开放迟交。 */
+  cutoffdate?: number
+  /** 评分截止（Unix 秒）：教师批改期限，不是学生提交期限。 */
+  gradingduedate?: number
   allowsubmissionsfromdate?: number
   /** course module id — mod/assign/view.php 深链的规范参数。 */
   cmid?: number
@@ -68,12 +77,14 @@ export function parseAssignments(response: unknown): Array<{
   name: string
   course: string
   dueAt?: string
+  cutoffAt?: string
+  gradingDueAt?: string
   startAt?: string
   cmid?: number
 }> {
   const courses = (response as { courses?: RawCourse[] })?.courses
   if (!Array.isArray(courses)) return []
-  const out: Array<{ id: number; name: string; course: string; dueAt?: string; startAt?: string; cmid?: number }> = []
+  const out: Array<{ id: number; name: string; course: string; dueAt?: string; cutoffAt?: string; gradingDueAt?: string; startAt?: string; cmid?: number }> = []
   for (const c of courses) {
     const courseName = c.shortname || c.fullname || ''
     for (const a of c.assignments ?? []) {
@@ -83,6 +94,8 @@ export function parseAssignments(response: unknown): Array<{
         name: a.name.trim(),
         course: courseName,
         dueAt: a.duedate ? new Date(a.duedate * 1000).toISOString() : undefined,
+        cutoffAt: a.cutoffdate ? new Date(a.cutoffdate * 1000).toISOString() : undefined,
+        gradingDueAt: a.gradingduedate ? new Date(a.gradingduedate * 1000).toISOString() : undefined,
         startAt: a.allowsubmissionsfromdate
           ? new Date(a.allowsubmissionsfromdate * 1000).toISOString()
           : undefined,
@@ -297,17 +310,30 @@ export function applySubmissionStatus(
 export async function fetchSubmissionStatus(
   src: { token: string; userid?: number } | null,
   fallbackStatusByCmid?: Map<number, SubmissionStatus> | (() => Promise<Map<number, SubmissionStatus>>),
-): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string>; statusByCmid: Map<number, SubmissionStatus>; deadlinesByCmid: Map<number, string>; fellBackToGrades: boolean }> {
-  if (!src?.token) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), deadlinesByCmid: new Map(), fellBackToGrades: false }
+): Promise<{ status: Map<string, SubmissionStatus>; urlByKey: Map<string, string>; statusByCmid: Map<number, SubmissionStatus>; deadlinesByCmid: Map<number, string>; datesByCmid: ActivityDatesByCmid; fellBackToGrades: boolean }> {
+  if (!src?.token) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), deadlinesByCmid: new Map(), datesByCmid: new Map(), fellBackToGrades: false }
   const userid = src.userid ?? (await validateGradesToken(src.token))
   // Enrol-anchor kini dijawab moodleSync.primeEnrolAnchor dari pemanggil
   // backgroundRefresh — tidak lagi di sini (dulu duplikat 6 salinan).
   const assigns = await wsCall<{ courses?: RawCourse[] }>(src.token, 'mod_assign_get_assignments')
   const meta = parseAssignments(assigns)
-  if (meta.length === 0) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), deadlinesByCmid: new Map(), fellBackToGrades: false }
-  const deadlinesByCmid = new Map<number, string>()
+  if (meta.length === 0) return { status: new Map(), urlByKey: new Map(), statusByCmid: new Map(), deadlinesByCmid: new Map(), datesByCmid: new Map(), fellBackToGrades: false }
+  // 活动自身声明的开始/截止：任务行、成绩卡、内容树的唯一日期来源。
+  // deadlinesByCmid 保留为「只含截止」的派生视图（既有调用方不必改）。
+  const datesByCmid = new Map<number, ActivityDates>()
   for (const assignment of meta) {
-    if (assignment.cmid != null && assignment.dueAt) deadlinesByCmid.set(assignment.cmid, assignment.dueAt)
+    if (assignment.cmid == null) continue
+    const dates: ActivityDates = {
+      startAt: assignment.startAt,
+      dueAt: assignment.dueAt,
+      cutoffAt: assignment.cutoffAt,
+      gradingDueAt: assignment.gradingDueAt,
+    }
+    if (dates.startAt || dates.dueAt || dates.cutoffAt || dates.gradingDueAt) datesByCmid.set(assignment.cmid, dates)
+  }
+  const deadlinesByCmid = new Map<number, string>()
+  for (const [cmid, dates] of datesByCmid) {
+    if (dates.dueAt) deadlinesByCmid.set(cmid, dates.dueAt)
   }
 
   const ids = meta.map((a) => a.id)
@@ -334,7 +360,12 @@ export async function fetchSubmissionStatus(
     if (!a) continue
     const key = taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt })
     // 截止时间随 status 一起下发：内容树按 cmid 联接后与任务卡信息对齐。
-    const withDue: SubmissionStatus = a.dueAt ? { ...st, dueAt: a.dueAt } : st
+    const withDue: SubmissionStatus = {
+      ...st,
+      ...(a.dueAt ? { dueAt: a.dueAt } : {}),
+      ...(a.cutoffAt ? { cutoffAt: a.cutoffAt } : {}),
+      ...(a.gradingDueAt ? { gradingDueAt: a.gradingDueAt } : {}),
+    }
     status.set(key, withDue)
     // cmid → 课程内任务页（mod/assign/view.php?id=<cmid>）是官方深链。
     // ICS/timeline 来源的任务没有这个 URL（ICS 无 URL 属性）——归档时回填。
@@ -365,14 +396,19 @@ export async function fetchSubmissionStatus(
         const fb = fallback.get(a.cmid)
         if (!fb) continue
         const key = taskMatchKey({ title: a.name, course: a.course, dueAt: a.dueAt })
-        const withDue: SubmissionStatus = a.dueAt ? { ...fb, dueAt: a.dueAt } : fb
+        const withDue: SubmissionStatus = {
+          ...fb,
+          ...(a.dueAt ? { dueAt: a.dueAt } : {}),
+          ...(a.cutoffAt ? { cutoffAt: a.cutoffAt } : {}),
+          ...(a.gradingDueAt ? { gradingDueAt: a.gradingDueAt } : {}),
+        }
         status.set(key, withDue)
         urlByKey.set(key, `https://moodle.lut.fi/mod/assign/view.php?id=${a.cmid}`)
         statusByCmid.set(a.cmid, withDue)
       }
     }
   }
-  return { status, urlByKey, statusByCmid, deadlinesByCmid, fellBackToGrades: fellBack }
+  return { status, urlByKey, statusByCmid, deadlinesByCmid, datesByCmid, fellBackToGrades: fellBack }
 }
 
 /** Sumber token saat ini (null bila belum terhubung). */

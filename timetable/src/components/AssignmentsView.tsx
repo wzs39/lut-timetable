@@ -12,6 +12,8 @@ import {
 } from '../lib/tasks'
 import { matchCourseCode } from '../lib/moodle'
 import TaskRow from './TaskRow'
+import CollapsiblePanel from './CollapsiblePanel'
+import { DashboardHero, DashboardSplit, StatTile } from './Dashboard'
 import { normalizeCourseCode } from '../lib/ics'
 import { QUICK_LINKS } from '../lib/quickLinks'
 import ExternalLink from './ExternalLink'
@@ -60,13 +62,20 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
 
   // 折叠抽屉（默认收起，避免堆满一屏）
   const [showAddForm, setShowAddForm] = useState(false)
-  const [showLinks, setShowLinks] = useState(false)
   // 按影响排序（课程剩余权重 × 紧迫度）：一次性偏好，存 storage
   const [byImpact, setByImpact] = useState(() => readString(KEYS.assignImpact) === 'true')
   useEffect(() => writeString(KEYS.assignImpact, String(byImpact)), [byImpact])
 
   const courses = useMemo(() => courseOptions(lessons), [lessons])
   const pending = tasks.filter((task) => !task.completed).length
+  // KPI 用全量任务（与搜索无关）；chips 的计数跟随搜索，两者职责不同。
+  const weekAhead = Date.now() + 7 * 24 * 3600 * 1000
+  const overdueCount = tasks.filter((task) => !task.completed && isOverdue(task)).length
+  const due7Count = tasks.filter((task) => {
+    if (task.completed || !task.dueAt || isOverdue(task)) return false
+    return new Date(task.dueAt).getTime() <= weekAhead
+  }).length
+  const doneCount = tasks.filter((task) => task.completed).length
 
   const reset = () => {
     setTitle('')
@@ -176,47 +185,71 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
 
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
-      <div className="mx-auto max-w-xl space-y-4">
-        {/* Header row */}
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <h2 className="inline-flex items-center gap-2 text-sm font-semibold"><Icon name="graduation" size={16} /> {t('assignTitle')}</h2>
-            <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
-              {t('assignSubtitle', { n: pending })}
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-1.5">
-            <button
-              onClick={() => setShowAddForm((o) => !o)}
-              className="app-btn-primary px-2.5 min-h-9 text-xs"
-              title={t('taskAdd')}
-            >
-              ＋
-            </button>
-            {onClose && (
-              <button onClick={onClose} className="app-btn px-2.5 min-h-9" title={t('closeHint')}><Icon name="close" size={14} /></button>
-            )}
-          </div>
-        </div>
+      <div className="mx-auto max-w-xl space-y-3 @container md:max-w-3xl xl:max-w-6xl">
+        <DashboardHero
+          title={t('assignTitle')}
+          icon="graduation"
+          subtitle={t('assignSubtitle', { n: pending })}
+          actions={
+            <>
+              <button
+                onClick={() => setShowAddForm((o) => !o)}
+                className="app-btn-primary px-2.5 min-h-9 text-xs"
+                title={t('taskAdd')}
+                aria-expanded={showAddForm}
+              >
+                ＋
+              </button>
+              {onClose && (
+                <button onClick={onClose} className="app-btn px-2.5 min-h-9" title={t('closeHint')}><Icon name="close" size={14} /></button>
+              )}
+            </>
+          }
+        >
+          <StatTile
+            label={t('moodleGlancePending')}
+            value={pending}
+            tone="info"
+            hint={t('assignKpiPendingHint')}
+            onClick={() => setGroupFilter('all')}
+            pressed={groupFilter === 'all'}
+          />
+          <StatTile
+            label={t('assignOverdue')}
+            value={overdueCount}
+            tone={overdueCount > 0 ? 'danger' : 'ok'}
+            hint={t('assignKpiOverdueHint')}
+            onClick={() => setGroupFilter('overdue')}
+            pressed={groupFilter === 'overdue'}
+          />
+          <StatTile
+            label={t('assignDue7')}
+            value={due7Count}
+            tone={due7Count > 0 ? 'due' : 'ok'}
+            hint={t('assignKpiDue7Hint')}
+            onClick={() => setGroupFilter('due7')}
+            pressed={groupFilter === 'due7'}
+          />
+          <StatTile
+            label={t('assignDone')}
+            value={doneCount}
+            tone="ok"
+            hint={t('assignKpiDoneHint')}
+            onClick={() => { setShowCompleted(true); setGroupFilter('done') }}
+            pressed={groupFilter === 'done'}
+          />
+        </DashboardHero>
 
-        {/* 搜索框 + 显示已完成：同行（窄屏不再和筛选 chips 抢宽度） */}
+        <DashboardSplit
+          main={
+            <>
         <div className="flex items-center gap-2">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={t('assignSearchPh')}
             className="app-input min-w-0 flex-1"
-          />            <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-2)]">
-            <input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} className="accent-sky-500" />
-            {t('tasksShowCompleted')}
-          </label>
-          <label
-            className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-2)]"
-            title={t('assignImpactTitle')}
-          >
-            <input type="checkbox" checked={byImpact} onChange={(event) => setByImpact(event.target.checked)} className="accent-sky-500" />
-            {t('assignImpactSort')}
-          </label>
+          />
         </div>
 
         {/* 分组筛选 chips */}
@@ -293,32 +326,6 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
           </section>
         )}
 
-        {/* ---- 收纳抽屉：常用平台 ---- */}
-        <section className="app-card">
-          <button
-            onClick={() => setShowLinks((o) => !o)}
-            title={t('toggleHint')}
-            className="flex w-full items-center justify-between px-3 py-2.5"
-          >
-            <span className="text-xs font-semibold text-[var(--text-1)] inline-flex items-center gap-1.5"><Icon name="link" size={12} /> {t('quickLinks')}</span>
-            <span className="text-[var(--text-3)] inline-flex"><Icon name={showLinks ? 'chevron-down' : 'chevron-right'} size={12} /></span>
-          </button>
-          {showLinks && (
-            <div className="animate-modal-in grid grid-cols-3 gap-1.5 border-t border-[var(--line)] p-3">
-              {QUICK_LINKS.map((l) => (
-                <ExternalLink
-                  key={l.key}
-                  href={l.url}
-                  className="app-btn px-2 py-1.5 text-center text-[11px] truncate"
-                  title={l.url}
-                >
-                  {<Icon name={l.icon} size={12} />} {l.name}
-                </ExternalLink>
-              ))}
-            </div>
-          )}
-        </section>
-
         {/* Grouped task list */}
         {GROUP_ORDER.every((g) => (groups.get(g) ?? []).length === 0) ? (
           <p className="py-10 text-center text-xs text-[var(--text-3)]">
@@ -360,6 +367,46 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
             })}
           </div>
         )}
+            </>
+          }
+          aside={
+            <CollapsiblePanel
+              storageKey={KEYS.assignToolsOpen}
+              label={<span className="inline-flex items-center gap-1.5"><Icon name="settings" size={12} /> {t('assignToolsTitle')}</span>}
+            >
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-2)]">
+                    <input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} className="accent-sky-500" />
+                    {t('tasksShowCompleted')}
+                  </label>
+                  <label
+                    className="flex items-center gap-1.5 text-[11px] text-[var(--text-2)]"
+                    title={t('assignImpactTitle')}
+                  >
+                    <input type="checkbox" checked={byImpact} onChange={(event) => setByImpact(event.target.checked)} className="accent-sky-500" />
+                    {t('assignImpactSort')}
+                  </label>
+                </div>
+                <div>
+                  <p className="mb-1 inline-flex items-center gap-1.5 text-[11px] font-semibold text-[var(--text-1)]"><Icon name="link" size={12} /> {t('quickLinks')}</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {QUICK_LINKS.map((l) => (
+                      <ExternalLink
+                        key={l.key}
+                        href={l.url}
+                        className="app-btn px-2 py-1.5 text-center text-[11px] truncate"
+                        title={l.url}
+                      >
+                        {<Icon name={l.icon} size={12} />} {l.name}
+                      </ExternalLink>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CollapsiblePanel>
+          }
+        />
       </div>
     </div>
   )

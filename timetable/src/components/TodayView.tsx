@@ -26,6 +26,8 @@ import { useCollapse } from '../lib/useCollapse'
 import { loadCachedNotifications, notificationsAsAlertSources } from '../lib/notificationsFeed'
 import { noticesForLessons, type LessonNotice } from '../lib/lessonAlerts'
 import { studyBlocksOnDay, type StudyBlock } from '../lib/studyBlocks'
+import SemesterStrip from './SemesterStrip'
+import WeekInsights from './WeekInsights'
 
 interface Props {
   lessons: Lesson[]
@@ -49,6 +51,8 @@ interface Props {
   onWatchRoom?: (target: string, label: string, on: boolean) => void
   /** 已确认的学习时段（只读列出；不是课程、不可点、不参与课表） */
   studyBlocks?: StudyBlock[]
+  /** 学期全景带点某一周 → App 切到那一周的周视图 */
+  onOpenWeek?: (weekStart: Date) => void
 }
 
 /** Dua tab 今日视图: 课程 (jadwal + navigasi) / 动态 (tugas, ujian, ruangan). */
@@ -99,7 +103,7 @@ function LessonNoticeChip({ notice }: { notice?: LessonNotice }) {
  *  - 动态: ruangan kosong, ujian, pengumuman, tugas jatuh tempo.
  * Tab terakhir dipakai kembali saat buka (persisten).
  */
-export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments, onOpenSettings, hasSources = true, subscriptions = [], onWatchRoom, studyBlocks = [] }: Props) {
+export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments, onOpenSettings, hasSources = true, subscriptions = [], onWatchRoom, studyBlocks = [], onOpenWeek }: Props) {
   const { t, locale } = useI18n()
   const now = useNow()
   const nowDate = useNowDate()
@@ -169,13 +173,6 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
     return { tone: 'empty', text: t('noLessonsToday'), lesson: null }
   })()
 
-  const bannerCls =
-    banner.tone === 'ongoing'
-      ? 'app-card border-[var(--line-ok)] text-[var(--text-1)]'
-      : banner.tone === 'next'
-        ? 'app-card text-[var(--text-1)]'
-        : 'app-card text-[var(--text-3)]'
-
   const todayLabel = formatLongDay(new Date(now), locale)
 
   // ---- 截止任务：今日截止 + 逾期汇总 ----
@@ -242,61 +239,88 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
       {/* ≥1280px：课程与动态并排（两栏信息密度更高，不用来回切 tab）；
           窄屏保持单栏 + tab 切换。 */}
       <div className="mx-auto max-w-xl space-y-3 xl:grid xl:max-w-5xl xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-5 xl:space-y-0">
-        <div className="flex items-center justify-between gap-2 xl:col-span-2">
-          <h2 className="text-sm font-semibold text-[var(--text-2)]">{todayLabel}</h2>
-          <div className="app-seg xl:hidden" role="tablist">
-            <button role="tab" aria-selected={tab === 'lessons'} onClick={() => switchTab('lessons')} className="px-2.5 py-1 text-[11px]">
-              {t('todayTabLessons')}
-            </button>
-            <button role="tab" aria-selected={tab === 'feed'} onClick={() => switchTab('feed')} className="px-2.5 py-1 text-[11px]">
-              {t('todayTabFeed')}
-              {feedCount > 0 && <span className="ml-1 tabular-nums text-[var(--text-3)]">{feedCount}</span>}
-            </button>
-          </div>
+        {/* 首屏英雄卡：日期 + 当前/下一节 + 三个数字。最该看的信息在同一块，
+            下面才是完整课表与动态；不在首屏再堆一行标题和一条独立横幅。 */}
+        <div className="xl:col-span-2">
+          <section className="app-hero p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="app-card-label">{todayLabel}</p>
+                <h2 className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-base font-semibold tracking-tight text-[var(--text-1)]">
+                  {banner.lesson ? (
+                    <>
+                      {banner.tone === 'ongoing' && (
+                        <span className="app-badge-live inline-flex items-center gap-1 text-[10px] font-medium">
+                          <Icon name="live" size={11} /> {t('nowOngoing')}
+                        </span>
+                      )}
+                      <span className="min-w-0 truncate">
+                        {banner.lesson.code ? `${banner.lesson.code} · ` : ''}
+                        {displayTitle(banner.lesson)}
+                      </span>
+                    </>
+                  ) : (
+                    <span>{banner.text}</span>
+                  )}
+                </h2>
+                <p className="mt-1 text-[11px] text-[var(--text-2)]">
+                  {banner.lesson ? (
+                    <span className="tabular-nums">
+                      {formatTime(banner.lesson.start, locale)} – {formatTime(banner.lesson.end, locale)}
+                      {banner.lesson.location ? ` · ${banner.lesson.location}` : ''}
+                      <span className="text-[var(--text-3)]"> · {banner.text}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[var(--text-3)]">{t('todayTabLessons')} · {t('todayTabFeed')}</span>
+                  )}
+                </p>
+              </div>
+              <div className="app-seg xl:hidden" role="tablist">
+                <button role="tab" aria-selected={tab === 'lessons'} onClick={() => switchTab('lessons')} className="px-2.5 py-1 text-[11px]">
+                  {t('todayTabLessons')}
+                </button>
+                <button role="tab" aria-selected={tab === 'feed'} onClick={() => switchTab('feed')} className="px-2.5 py-1 text-[11px]">
+                  {t('todayTabFeed')}
+                  {feedCount > 0 && <span className="ml-1 tabular-nums text-[var(--text-3)]">{feedCount}</span>}
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <div data-tone="info" className="stat-tile px-2.5 py-1.5">
+                <span className="stat-value text-base font-semibold tabular-nums">{today.length}</span>
+                <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceLessons')}</span>
+              </div>
+              {dueToday.length > 0 && (
+                <div data-tone="due" className="stat-tile px-2.5 py-1.5">
+                  <span className="stat-value text-base font-semibold tabular-nums">{dueToday.length}</span>
+                  <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceDue')}</span>
+                </div>
+              )}
+              {overdueTasks.length > 0 && (
+                <div data-tone="danger" className="stat-tile px-2.5 py-1.5">
+                  <span className="stat-value text-base font-semibold tabular-nums">{overdueTasks.length}</span>
+                  <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceOverdue')}</span>
+                </div>
+              )}
+              {banner.tone === 'empty' && !hasSources && onOpenSettings && (
+                <button
+                  onClick={onOpenSettings}
+                  className="app-btn-primary ml-auto shrink-0 px-2.5 py-1 text-[11px]"
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name="plus" size={12} /> {t('addTimetableSource')}
+                  </span>
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="xl:col-span-2">
+          <SemesterStrip lessons={lessons} tasks={tasks} onOpenWeek={onOpenWeek} />
         </div>
 
         <div className={'space-y-3' + (tab === 'lessons' ? '' : ' hidden xl:block')}>
-            <div className={'px-3 py-2.5 text-xs ' + bannerCls}>
-              {banner.lesson ? (
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">
-                      {banner.tone === 'ongoing' && <Icon name="live" size={11} className="mr-1" />} 
-                      {banner.lesson.code ? `${banner.lesson.code} · ` : ''}
-                      {banner.lesson.type && TYPE_META[banner.lesson.type] && (
-                        <span title={t(TYPE_META[banner.lesson.type].key)}>
-                          {<Icon name={TYPE_META[banner.lesson.type].icon} size={11} />}{' '}
-                        </span>
-                      )}
-                      {displayTitle(banner.lesson)}
-                    </div>
-                    <div className="mt-0.5 text-[11px] opacity-80">
-                      {formatTime(banner.lesson.start, locale)}
-                      {' – '}
-                      {formatTime(banner.lesson.end, locale)}
-                      {banner.lesson.location ? ` · ${banner.lesson.location}` : ''}
-                    </div>
-                  </div>
-                  <span className="shrink-0 text-[11px] font-medium whitespace-nowrap">
-                    {banner.text}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span>{banner.text}</span>
-                  {banner.tone === 'empty' && !hasSources && onOpenSettings && (
-                    <button
-                      onClick={onOpenSettings}
-                      className="app-btn-primary shrink-0 px-2.5 py-1 text-[11px]"
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <Icon name="plus" size={12} /> {t('addTimetableSource')}
-                      </span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
 
             {buildings.length > 0 && (
               <CollapsiblePanel
@@ -364,6 +388,9 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
         </div>
 
         <div className={'space-y-3' + (tab === 'feed' ? '' : ' hidden xl:block')}>
+            {/* ---- 本周提示：空档 / 赶场 / 满课（最多三条） ---- */}
+            <WeekInsights lessons={lessons} onSelect={onSelect} />
+
             {/* ---- 空闲教室 ---- */}
             {freeRooms.length > 0 && (
               <CollapsiblePanel

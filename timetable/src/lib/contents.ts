@@ -1,4 +1,5 @@
 import { wsCall, validateGradesSource } from './grades'
+import { parseModuleDates, type ActivityDates, type ActivityDatesByCmid } from './activityDates'
 import { domainCacheKey, readCache, writeCache, syncDomain } from './moodleSync'
 import { readJson } from './storage'
 import type { CacheEnvelope } from './moodleSync'
@@ -25,6 +26,11 @@ export interface CourseModule {
   visible: boolean
   /** 0 belum / 1 selesai / 2 lulus / 3 gagal / undefined tanpa pelacakan */
   completion?: number
+  /**
+   * Aktivitas membawa tanggal sendiri (opens/due/closes). Kita hanya memakai
+   * urutan timestamp-nya — label-nya dilokalkan oleh situs ("Opens:"/"Avautuu:").
+   */
+  dates?: ActivityDates
 }
 
 export interface CourseSection {
@@ -43,6 +49,11 @@ interface RawModule {
   description?: string | Array<{ name?: string; value?: string }>
   visible?: number | boolean
   completion?: number
+  /**
+   * Moodle: [{ label, timestamp, dataid }] — label dilokalkan (jangan dicocokkan),
+   * `dataid` 是语义键（实测为字符串：`timeclose` / `allowsubmissionsfromdate` …）。
+   */
+  dates?: Array<{ label?: string; timestamp?: number; dataid?: string | number } | null>
 }
 
 interface RawSection {
@@ -65,6 +76,32 @@ export function flattenDescription(d: RawModule['description']): string | undefi
   return text || undefined
 }
 
+/**
+ * 模块 id = cmid → modname：日期文案要区分测验「关闭」与作业「截止」。
+ * 与 `activityDatesFromSections` 同源（内容树是唯一知道模块类型的地方）。
+ */
+export function moduleTypesFromSections(sections: CourseSection[]): Map<number, string> {
+  const out = new Map<number, string>()
+  for (const section of sections) {
+    for (const module of section.modules) out.set(module.id, module.modname)
+  }
+  return out
+}
+
+/**
+ * 模块 id = cmid：内容树与任务列表用同一把键，不需要再从 URL 反解。
+ * 只收真的有日期的模块，空 map 让调用方零成本跳过。
+ */
+export function activityDatesFromSections(sections: CourseSection[]): ActivityDatesByCmid {
+  const out = new Map<number, ActivityDates>()
+  for (const section of sections) {
+    for (const module of section.modules) {
+      if (module.dates?.startAt || module.dates?.dueAt || module.dates?.cutoffAt || module.dates?.gradingDueAt) out.set(module.id, module.dates)
+    }
+  }
+  return out
+}
+
 /** core_course_get_contents → CourseSection[] (bagian tersembunyi dibuang). */
 export function parseCourseContents(response: unknown): CourseSection[] {
   if (!Array.isArray(response)) return []
@@ -78,6 +115,7 @@ export function parseCourseContents(response: unknown): CourseSection[] {
       if (m.id == null || !m.name || !m.modname) continue
       const mv = m.visible === undefined ? true : Boolean(m.visible)
       if (!mv) continue
+      const dates = parseModuleDates(m.dates)
       modules.push({
         id: m.id,
         name: m.name.trim(),
@@ -86,6 +124,7 @@ export function parseCourseContents(response: unknown): CourseSection[] {
         description: flattenDescription(m.description),
         visible: mv,
         completion: typeof m.completion === 'number' ? m.completion : undefined,
+        ...(dates.startAt || dates.dueAt || dates.cutoffAt || dates.gradingDueAt ? { dates } : {}),
       })
     }
     out.push({ id: s.id, name: s.name, visible, modules })

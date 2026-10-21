@@ -22,6 +22,7 @@ import {
 import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle } from '../lib/display'
 import { swipeIntent } from '../lib/swipe'
+import { WEEK_NAV, weekNavForDelta, type WeekNavId } from '../lib/navigation'
 import { studyBlocksOnDay, type StudyBlock } from '../lib/studyBlocks'
 import { WEEK_DENSITIES, hourPxOf, type WeekDensity } from '../lib/uiPrefs'
 import { noteForLesson, type NotesMap } from '../lib/notes'
@@ -45,10 +46,11 @@ interface Props {
   onSelect: (id: string) => void
   /** Catatan kursus: kode+jenis -> teks */
   notes?: NotesMap
-  /** Geser satu minggu (dipakai sapuan horizontal di tampilan mobile) */
-  onShiftWeek?: (delta: -1 | 1) => void
-  /** 回到本周（移动端周导航内的「本周」按钮） */
-  onThisWeek?: () => void
+  /**
+   * 周导航（翻周/回本周）。图标、文案与键位都来自 lib/navigation；
+   * 滑动手势同样经同一份声明换成动作，组件不再自带方向语义。
+   */
+  onWeekNav?: (id: WeekNavId) => void
   /** 周视图密度（每小时行高）；不传 = 标准档 */
   density?: WeekDensity
   onDensity?: (d: WeekDensity) => void
@@ -80,8 +82,7 @@ export default function WeekGrid({
   weekStart,
   onSelect,
   notes = {},
-  onShiftWeek,
-  onThisWeek,
+  onWeekNav,
   density = 'standard',
   onDensity,
   studyBlocks = [],
@@ -120,6 +121,15 @@ export default function WeekGrid({
   // 周导航文案（移动端内联导航；桌面端表头沿用同一对 helper）
   const weekNum = isoWeekNumber(weekStart)
   const weekRangeText = formatWeekRange(weekStart, locale)
+  /** 本周量：节数 + 接触课时（只用于工具条的两枚小徽标，不做统计口径）。 */
+  const weekLessonCount = lessons.length
+  const weekContactHours = Math.round(
+    lessons.reduce(
+      (sum, lesson) =>
+        sum + (new Date(lesson.end).getTime() - new Date(lesson.start).getTime()) / 3_600_000,
+      0,
+    ),
+  )
   /** 手机窄屏用的短日期段：第 39 周 · 9/21 – 9/27（完整文案留在 title 里） */
   const weekRangeShort = `${weekDays[0].getMonth() + 1}/${weekDays[0].getDate()} – ${
     weekDays[6].getMonth() + 1
@@ -234,9 +244,9 @@ export default function WeekGrid({
       setMobileDay(intent.day)
       return
     }
-    if (!onShiftWeek) return
+    if (!onWeekNav) return
     pendingDayRef.current = intent.day
-    onShiftWeek(intent.weekDelta)
+    onWeekNav(weekNavForDelta(intent.weekDelta).id)
   }
 
   // Urutan visual hari mobile: group yang masih tampil menjadi satu kontainer;
@@ -354,15 +364,15 @@ export default function WeekGrid({
         onTouchEnd={onTouchEnd}
       >
         {/* 周导航（<768px）：跟内容在一起——表头只留应用名 + 搜索，不再多一行按钮 */}
-        {onShiftWeek && (
+        {onWeekNav && (
           <div className="flex items-center gap-1 px-3 pt-2">
             <button
-              onClick={() => onShiftWeek(-1)}
+              onClick={() => onWeekNav(WEEK_NAV.prev.id)}
               className="app-btn shrink-0 min-h-8 px-2"
-              aria-label={t('prevWeek')}
-              title={t('prevWeek')}
+              aria-label={t(WEEK_NAV.prev.labelKey)}
+              title={t(WEEK_NAV.prev.labelKey)}
             >
-              <Icon name="chevron-left" size={15} />
+              <Icon name={WEEK_NAV.prev.icon} size={15} />
             </button>
             <span
               className="min-w-0 flex-1 truncate text-center text-[11px] tabular-nums text-[var(--text-2)]"
@@ -371,19 +381,19 @@ export default function WeekGrid({
               {t('weekRange', { w: weekNum, range: weekRangeShort })}
             </span>
             <button
-              onClick={() => onShiftWeek(1)}
+              onClick={() => onWeekNav(WEEK_NAV.next.id)}
               className="app-btn shrink-0 min-h-8 px-2"
-              aria-label={t('nextWeek')}
-              title={t('nextWeek')}
+              aria-label={t(WEEK_NAV.next.labelKey)}
+              title={t(WEEK_NAV.next.labelKey)}
             >
-              <Icon name="chevron-right" size={15} />
+              <Icon name={WEEK_NAV.next.icon} size={15} />
             </button>
-            {!isCurrentWeek && onThisWeek && (
+            {!isCurrentWeek && (
               <button
-                onClick={onThisWeek}
+                onClick={() => onWeekNav(WEEK_NAV.this.id)}
                 className="app-btn-primary shrink-0 min-h-8 px-2 text-[11px]"
               >
-                {t('thisWeek')}
+                {t(WEEK_NAV.this.labelKey)}
               </button>
             )}
           </div>
@@ -466,8 +476,14 @@ export default function WeekGrid({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* 工具条：本周冲突摘要（左） + 密度切换（右） */}
-      <div className="flex items-center gap-3 px-4 pt-2 pb-1">
+      {/* 工具条：本周量（左）+ 冲突摘要 + 密度切换（右）。 */}
+      <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line)] px-4 pb-1.5 pt-2">
+        <span className="app-badge shrink-0 tabular-nums" title={t('lessonsN', { n: weekLessonCount })}>
+          {t('lessonsN', { n: weekLessonCount })}
+        </span>
+        {weekContactHours > 0 && (
+          <span className="app-badge shrink-0 tabular-nums">{weekContactHours} h</span>
+        )}
         <div className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-2)]">
           {weekStrip}
         </div>

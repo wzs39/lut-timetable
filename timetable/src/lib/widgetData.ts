@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import type { Lesson } from '../types'
 import type { Task } from './tasks'
 import { logError } from './errorLog'
+import { viewDeclForRoute } from './navigation'
 
 /**
  * Jembatan data widget layar utama (Android AppWidget).
@@ -274,9 +275,11 @@ export function installWidgetNavBridge(): void {
     __widgetNav?: (view: string) => void
   }
   w.__widgetNav = (view: string) => {
-    // assign 仍接受（旧快捷方式/旧小组件缓存），App 层映射到 moodle。
-    if (!/^(today|week|assign|moodle)$/.test(view)) return
-    location.hash = `#/view/${view}`
+    // 视图名的权威是 lib/navigation：未知名字（旧缓存/原生拼错）直接忽略，
+    // 别名（assign）仍接受，App 层按声明映射到 moodle。
+    const decl = viewDeclForRoute(view)
+    if (!decl) return
+    location.hash = `#/view/${decl.route}`
     void (async () => {
       try {
         const { Preferences } = await import('@capacitor/preferences')

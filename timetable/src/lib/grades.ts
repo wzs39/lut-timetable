@@ -3,9 +3,12 @@ import { KEYS, readJson, writeJson, removeKey } from './storage'
 import { fetchMoodleWebService, moodleCredsFromUrl } from './fetchIcs'
 import { matchCourseCode, extractCourseCode, extractCourseTitle } from './courses'
 import { loadIdentityIndex } from './courseIdentity'
+import { normalizeCourseCode } from './ics'
 import { primeEnrolAnchor } from './moodleSync'
 import { getFinalCourseGrade } from './gradeCalc'
 import { activeSchemeWeights, applySchemeWeights, loadGradeSchemes } from './gradeScheme'
+import { COURSE_FACTS } from './sisuCourseFacts'
+import { applySisuWeights, planSisuWeights, type SisuWeightComponent } from './sisuGradeWeights'
 import { htmlToText } from './html'
 
 /**
@@ -53,6 +56,11 @@ export interface GradeItem {
    */
   gradeText?: string
   feedback?: string
+  /**
+   * 活动 cmid（仅 `itemtype === 'mod'` 的行）：活动日期联接键。
+   * 与内容树、任务列表用同一把键——三处显示同一组开始/截止。
+   */
+  cmid?: number
 }
 
 /**
@@ -96,6 +104,46 @@ export function gradeStatusByCmid(response: unknown): Map<number, GradeCmidStatu
   return out
 }
 
+/**
+ * 分类祖先链：categoryid → 直接父分类（课程根 = null）。
+ * 来源 gradereport_user_get_grades_table 的 parentcategories（根在前，
+ * 直接父分类是最后一项）；user_get_grade_items 不带这个字段。
+ */
+export type GradeCategoryParents = ReadonlyMap<number, number | null>
+
+/**
+ * gradereport_user_get_grades_table → { categoryid: 直接父分类 | null }。
+ *
+ * 只读 itemname.content 里的 data-categoryid 与 parentcategories；Moodle 把
+ * 分类名包在 <a> 里（data-categoryid 也在那个 <a> 上），但标记可能变，所以
+ * 同时接受裸文本与 HTML。解析失败（无 tables / 无 tabledata / 行不像分类）
+ * 一律跳过——层级只是权重合成的增强信息，脏表不能把成绩整段弄崩。
+ */
+export function parseGradeCategoryParents(response: unknown): GradeCategoryParents {
+  const out = new Map<number, number | null>()
+  const tables = (response as { tables?: unknown })?.tables
+  if (!Array.isArray(tables)) return out
+  for (const table of tables) {
+    const rows = (table as { tabledata?: unknown })?.tabledata
+    if (!Array.isArray(rows)) continue
+    for (const raw of rows as Record<string, unknown>[]) {
+      if (!raw || typeof raw !== 'object') continue
+      const itemname = raw.itemname as { content?: unknown } | undefined
+      const content = typeof itemname?.content === 'string' ? itemname.content : ''
+      const idMatch = /data-categoryid=["']?(\d+)/.exec(content)
+      if (!idMatch) continue
+      const id = Number(idMatch[1])
+      if (!Number.isFinite(id) || id <= 0) continue
+      // parentcategories = 从课程根到直接父分类的完整链；直接父 = 末项。
+      const chain = Array.isArray(raw.parentcategories)
+        ? raw.parentcategories.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)
+        : []
+      out.set(id, chain.length > 0 ? chain[chain.length - 1] : null)
+    }
+  }
+  return out
+}
+
 export interface CourseGrades {
   /** Kode kursus LUT bila cocok dengan jadwal, else kode pendek Moodle. */
   course: string
@@ -114,6 +162,16 @@ export interface CourseGrades {
   officialTotal?: number | null
   /** ID kursus Moodle untuk deep-link /grade/report/user/index.php?id=<id>. */
   courseId?: number
+  /**
+   * SISU 教师权重接管了 Moodle 成绩册权重时的证据。
+   * 只在「SISU 描述里的比例合计 ≈100% 且每个分项都找到对应 Moodle 项目」时出现。
+   */
+  weighting?: {
+    source: 'sisu'
+    components: SisuWeightComponent[]
+    /** 教师给的比例合计不是 100%，已按比例缩放。 */
+    normalized: boolean
+  }
 }
 
 export type GradesError =
@@ -126,6 +184,42 @@ export type GradesError =
 export async function validateGradesSource(src: { token: string; userid?: number }): Promise<{ token: string; userid: number }> {
   const userid = src.userid ?? (await validateGradesToken(src.token))
   return { token: src.token, userid }
+}
+
+/**
+ * SISU 教师权重接管一门课的权重（纯函数，不落盘）。
+ *
+ * 返回同一个对象（未接管）或新对象（已接管）；`average` 按同一份
+ * `getFinalCourseGrade` 重算，官方总评仍然优先——SISU 权重改变的是
+ * 每个项目的权重/贡献/预估，不篡改 Moodle 的官方成绩。
+ * 用户确认过的方案在外面判断，这里不碰。
+ */
+export function courseWithSisuWeights(c: CourseGrades, criteria: string | undefined | null): CourseGrades {
+  if (!criteria) return c
+  const plan = planSisuWeights(criteria, c.items)
+  if (!plan.applied) return c
+  const items = applySisuWeights(c.items, plan)
+  return {
+    ...c,
+    items,
+    weighting: { source: 'sisu', components: plan.components, normalized: plan.normalized },
+    average: getFinalCourseGrade(items, c.officialTotal),
+  }
+}
+
+/**
+ * 给一批课程补上 SISU 教师权重。
+ *
+ * 快照是「上次抓到的成绩」，权重是课程的当前属性——旧快照（或离线启动）
+ * 也应该显示教师权重，否则同一个项目会因网络状态而显示不同权重。
+ * 用户确认过的方案仍然优先（那是用户的显式决定）。
+ */
+export function withSisuWeights(courses: CourseGrades[]): CourseGrades[] {
+  return courses.map((course) => {
+    if (activeSchemeWeights(course.courseId)) return course
+    const criteria = COURSE_FACTS[normalizeCourseCode(course.course)]?.assessmentCriteria
+    return courseWithSisuWeights(course, criteria?.en ?? criteria?.fi)
+  })
 }
 
 export function loadGradesSource(): MoodleGradesSource | null {
@@ -185,9 +279,14 @@ function ratioToPercent(v: unknown): number | null {
   return Math.round((n <= 1.0001 ? n * 100 : n) * 10) / 10
 }
 
-function buildItems(raw: RawGradeItem[]): GradeItem[] {
+function buildItems(raw: (RawGradeItem & { itemtype?: string })[]): GradeItem[] {
   return raw.map((it) => ({
     name: htmlToText(it.itemname) || '—',
+    // cmid hanya bermakna untuk baris modul（category/course 行没这个东西）。
+    cmid:
+      it.itemtype === 'mod' && typeof it.cmid === 'number' && Number.isFinite(it.cmid)
+        ? it.cmid
+        : undefined,
     grade: toPercent(it.graderaw, it.grademax),
     max: typeof it.grademax === 'number' && it.grademax > 0 ? it.grademax : null,
     classAvg: toPercent(it.gradeaverage ?? it.average, it.grademax),
@@ -222,9 +321,12 @@ function buildItems(raw: RawGradeItem[]): GradeItem[] {
  *     权重全部丢失，what-if 与未评提示退化成简单平均；
  *  ③ 显式零权重：weightraw:0 的行（如 K200DJ96 两门不计分作业）与无权重
  *     的 'course' 总分行都不是可评项，但零权重是「老师的有效决定」，保留展示。
- * 做法：spreadCategoryWeights 按 raw 的 iteminstance ↔ 子项 categoryid
- * 配对，把分类权重均摊给无自身权重的成员项，然后丢掉 category 行——
- * GradeItem 形状不变，下游计算零改动。
+ * 做法：有 parentcategories（gradereport_user_get_grades_table）时用
+ * composeHierarchicalWeights 按整棵树逐层归一，合计正好 100%；拿不到
+ * 层级时退回 spreadCategoryWeights（只看直属成员）。两者都丢掉 category
+ * 行——GradeItem 形状不变，下游计算零改动。
+ * 【2026-10-21】旧均摊法在嵌套分类上会重复计权（真实 CT60A4050 合计
+ * 843.6%）；层级法按 root→leaf 的相对权归一修掉。
  */
 interface RawGradeItem {
   itemname?: string
@@ -243,6 +345,8 @@ interface RawGradeItem {
   feedback?: string
   /** ID kategori induk (baris item) — untuk mewarisi bobot kategori. */
   categoryid?: number
+  /** Course-module id (baris item bertipe 'mod') — kunci tanggal aktivitas. */
+  cmid?: number
 }
 
 interface RawCourseGrades {
@@ -252,7 +356,11 @@ interface RawCourseGrades {
 }
 
 /** gradereport_user_get_grade_items → CourseGrades[] (hanya kursus bernilai). */
-export function parseGradeItems(response: unknown, confirmedSchemes: Record<number, import('./gradeScheme').SchemeWeight[]> = {}): CourseGrades[] {
+export function parseGradeItems(
+  response: unknown,
+  confirmedSchemes: Record<number, import('./gradeScheme').SchemeWeight[]> = {},
+  categoryParentsByCourse?: ReadonlyMap<number, GradeCategoryParents>,
+): CourseGrades[] {
   const byId = (response as { usergrades?: unknown[] })?.usergrades
   if (!Array.isArray(byId)) return []
   const out: CourseGrades[] = []
@@ -267,7 +375,14 @@ export function parseGradeItems(response: unknown, confirmedSchemes: Record<numb
     const catIds = nonCat.map((it) =>
       typeof it.categoryid === 'number' && it.categoryid > 0 ? it.categoryid : null,
     )
-    spreadCategoryWeights(rawItems, parsedItems, catIds)
+    // parentcategories 可用时按整棵分类树合成 100% 总权重；拿不到表（旧
+    // 快照、API 失败）就退回旧的「分类权重均摊到直属成员」。
+    const parents = categoryParentsByCourse?.get(c.courseid ?? -1)
+    if (parents && parents.size > 0) {
+      composeHierarchicalWeights(rawItems, nonCat, parsedItems, catIds, parents)
+    } else {
+      spreadCategoryWeights(rawItems, parsedItems, catIds)
+    }
     const scheme = confirmedSchemes[c.courseid ?? -1] ?? activeSchemeWeights(c.courseid)
     const items = applySchemeWeights(parsedItems, scheme)
     if (items.length === 0) continue
@@ -336,6 +451,163 @@ function spreadCategoryWeights(
   }
 }
 
+type GradeWeightParticipant =
+  | { kind: 'item'; index: number; weight: number | null }
+  | { kind: 'category'; id: number; weight: number | null }
+
+/**
+ * 同级相对权：weightraw 原样（0.1 = 10%）；旧 weight 是百分数 → ÷100。
+ * 缺字段 = 无权重（null，不参与）；显式 0 也排除。不要在这里取整——
+ * 取整会累积到「权重合计 99.4%」，百分比只在最终写回时取 2 位。
+ */
+function weightRatioOf(row: RawGradeItem): number | null {
+  if (typeof row.weightraw === 'number' && Number.isFinite(row.weightraw)) return row.weightraw
+  if (typeof row.weight === 'number' && Number.isFinite(row.weight)) return row.weight / 100
+  return null
+}
+
+/**
+ * 用 parentcategories 链按层合成成绩权重（Moodle weighted mean）。
+ *
+ * 旧 spreadCategoryWeights 只看「分类 → 直属成员」，两个真实场景会算错：
+ *  ① 加权分类里还有子分类（KE00DA03 的 exam/exercise 与实际活动之间隔层），
+ *     旧法把父分类权重摊给直属子分类成员，兄弟子分类被忽略；
+ *  ② 子分类与成员同层时，旧法不按兄弟权重归一（1.5 份 → 成员合计超 100）。
+ * 本函数在根节点调用 assign(pool, 100)：
+ *  - 无 weightraw 的分类是透明分组，直接下钻（CT60A4050 的 "total"）；
+ *  - 分类/成员显式权重按兄弟权重归一（Moodle 的 Weighted mean of grades）；
+ *  - 同一池里有显式权重时，未设置权重的成员不参与（"-" = 无权重）；
+ *  - 全组都无显式权重 → 平均分（分数权重以 100% 出现时，如
+ *    CT60A4050 的 10 次 Exercise Attendance 平分 10%）。
+ * 只在能拿到层级时调用；纯函数（仅写 items[i].weight），GradeItem 形状不变。
+ */
+function composeHierarchicalWeights(
+  raw: RawGradeItem[],
+  itemRows: RawGradeItem[],
+  items: GradeItem[],
+  categoryIds: Array<number | null>,
+  parents: GradeCategoryParents,
+): void {
+  const categoryWeight = new Map<number, number | null>()
+  for (const row of raw) {
+    if (row.itemtype !== 'category' || typeof row.iteminstance !== 'number') continue
+    categoryWeight.set(row.iteminstance, weightRatioOf(row))
+  }
+  // 分类行 + 祖先都要有节点：课程根 / 中间分组层通常没有成绩行。
+  const parentOf = new Map<number, number | null>()
+  const ensureNode = (id: number): void => {
+    if (parentOf.has(id)) return
+    parentOf.set(id, parents.get(id) ?? null)
+  }
+  for (const id of categoryWeight.keys()) ensureNode(id)
+  for (const [id, parent] of parents) {
+    ensureNode(id)
+    if (parent != null) ensureNode(parent)
+  }
+  // 内容行引用的分类即使没有分类行也当顶层节点（不能让成员凭空消失）。
+  for (const cid of categoryIds) if (cid != null) ensureNode(cid)
+
+  const childrenOf = new Map<number | null, number[]>()
+  for (const id of parentOf.keys()) {
+    const parent = parentOf.get(id) ?? null
+    const list = childrenOf.get(parent)
+    if (list) list.push(id)
+    else childrenOf.set(parent, [id])
+  }
+  const membersOf = new Map<number | null, number[]>()
+  categoryIds.forEach((cid, index) => {
+    const key = cid != null && parentOf.has(cid) ? cid : null
+    const list = membersOf.get(key)
+    if (list) list.push(index)
+    else membersOf.set(key, [index])
+  })
+
+  const composed = new Array<number | null>(items.length).fill(null)
+  const hasMembers = new Map<number, boolean>()
+  function filled(id: number, path: Set<number>): boolean {
+    const cached = hasMembers.get(id)
+    if (cached != null) return cached
+    if (path.has(id)) return false
+    path.add(id)
+    const result =
+      (membersOf.get(id)?.length ?? 0) > 0 ||
+      (childrenOf.get(id) ?? []).some((child) => filled(child, path))
+    path.delete(id)
+    hasMembers.set(id, result)
+    return result
+  }
+
+  function collect(node: number | null, pool: GradeWeightParticipant[], path: Set<number>): void {
+    for (const child of childrenOf.get(node) ?? []) {
+      if (!filled(child, new Set())) continue
+      if (path.has(child)) continue
+      const weight = categoryWeight.get(child) ?? null
+      if (weight === 0) continue // 显式 0 = 老师排除，不参与
+      if (weight == null) {
+        path.add(child)
+        collect(child, pool, path)
+        path.delete(child)
+      } else {
+        pool.push({ kind: 'category', id: child, weight })
+      }
+    }
+    for (const index of membersOf.get(node) ?? []) {
+      const weight = weightRatioOf(itemRows[index])
+      if (weight === 0) continue
+      pool.push({ kind: 'item', index, weight })
+    }
+  }
+
+  function distribute(participant: GradeWeightParticipant, weight: number): void {
+    if (participant.kind === 'item') {
+      composed[participant.index] = weight
+      return
+    }
+    const pool: GradeWeightParticipant[] = []
+    collect(participant.id, pool, new Set([participant.id]))
+    assign(pool, weight, true)
+  }
+
+  function assign(pool: GradeWeightParticipant[], total: number, allowEqualShare: boolean): void {
+    if (pool.length === 0) return
+    const weighted = pool.filter((p) => p.weight != null)
+    if (weighted.length === 0) {
+      if (!allowEqualShare) return
+      const share = total / pool.length
+      for (const p of pool) distribute(p, share)
+      return
+    }
+    // 有显式权重的池里，未设置权重的项不参与（Moodle 的 "-" = 无权重；
+    // 真实 CT60A4050 根分类的 7 个 pass/fail 项就是这种情况）。
+    const sum = weighted.reduce((acc, p) => acc + (p.weight ?? 0), 0)
+    if (sum <= 0) return
+    for (const p of weighted) distribute(p, total * ((p.weight ?? 0) / sum))
+  }
+
+  const rootPool: GradeWeightParticipant[] = []
+  collect(null, rootPool, new Set())
+  const rootHasWeights = rootPool.some((p) => p.weight != null)
+  // 根层只在「有显式权重」时归一；全无权重 → 保持 null，不造假 100/n。
+  assign(rootPool, 100, false)
+
+  const rounded = composed.map((w) => (w == null ? null : Math.round(w * 100) / 100))
+  if (rootHasWeights) {
+    // 逐项取整会留下 ±0.0x 尾差（真实 CT60A4050 = 100.01）；记到最大
+    // 权重上，UI 的「权重共 {w}%」才正好是 100，且不假装多一位精度。
+    const total = rounded.reduce<number>((s, w) => s + (w ?? 0), 0)
+    let largest = -1
+    for (let i = 0; i < rounded.length; i++) {
+      if (rounded[i] == null) continue
+      if (largest < 0 || rounded[i]! > rounded[largest]!) largest = i
+    }
+    if (largest >= 0) rounded[largest] = Math.round((rounded[largest]! + (100 - total)) * 100) / 100
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    if (rounded[i] != null) items[i].weight = rounded[i]
+  }
+}
+
 /* ------------------------------ fetch API ------------------------------ */
 
 /**
@@ -384,13 +656,43 @@ export async function fetchGrades(
       }
     }),
   )
+  // 层级只为「分类行带权重」的课程补齐：LUT 的 CT60A4050 / KE00DA03 这类
+  // 课，user_get_grade_items 只给直属 categoryid，父分类链只有
+  // gradereport_user_get_grades_table 的 parentcategories 才有。扁平课
+  // （权重挂在叶子项）不需要，别为全校每门课多打一趟。
+  const categoryParentsByCourse = new Map<number, GradeCategoryParents>()
+  await Promise.all(
+    courseIds.map(async (courseid, index) => {
+      const raw = reports[index] as
+        | { usergrades?: Array<{ gradeitems?: Record<string, unknown>[] }> }
+        | null
+      const needsHierarchy = (raw?.usergrades ?? []).some((u) =>
+        (u?.gradeitems ?? []).some(
+          (item) =>
+            item?.itemtype === 'category' &&
+            (Number(item.weightraw) > 0 || Number(item.weight) > 0),
+        ),
+      )
+      if (!needsHierarchy) return
+      try {
+        categoryParentsByCourse.set(
+          courseid,
+          parseGradeCategoryParents(
+            await wsCall(src.token, 'gradereport_user_get_grades_table', { userid, courseid }),
+          ),
+        )
+      } catch {
+        // 表格 API 不可用（站点关闭 / 权限）→ 该课退回旧均摊，成绩照常。
+      }
+    }),
+  )
   const report = { usergrades: reports.flatMap((r) => (r as { usergrades?: unknown[] })?.usergrades ?? []) }
   const confirmedSchemes = Object.fromEntries(
     Object.entries(loadGradeSchemes()).flatMap(([id, record]) =>
       record.confirmedWeights ? [[Number(id), record.confirmedWeights]] : [],
     ),
   )
-  const parsed = parseGradeItems(report, confirmedSchemes)
+  const parsed = parseGradeItems(report, confirmedSchemes, categoryParentsByCourse)
   if (parsed.length === 0) throw { kind: 'empty' } as GradesError
 
   // Cocokkan ke jadwal lewat matcher tunggal (courses.ts): daftar enrol
@@ -419,6 +721,15 @@ export async function fetchGrades(
       c.course = extractCourseCode(label) ?? label
     }
   }
+  // 权重来源优先级：用户确认过的方案 > SISU 教师权重（描述里的比例）> Moodle 成绩册。
+  // 只在 parseSisuWeights 得到 ≈100% 且每个分项都对到项目时接管，否则保留
+  // Moodle 权重（半套映射会把别的分项权重悄悄挪走）。
+  for (let i = 0; i < parsed.length; i++) {
+    if (activeSchemeWeights(parsed[i].courseId)) continue
+    const criteria = COURSE_FACTS[normalizeCourseCode(parsed[i].course)]?.assessmentCriteria
+    parsed[i] = courseWithSisuWeights(parsed[i], criteria?.en ?? criteria?.fi)
+  }
+
   const byCourse = new Map<string, CourseGrades>()
   for (const c of parsed) byCourse.set(c.course, c)
   return {

@@ -1,15 +1,13 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  HDD_COURSES,
   buildPlannerCourses,
-  isSseRelevantCourse,
   loadSisuCoursePreferences,
-  rankPlannerCourses,
   saveSisuCoursePreferences,
 } from '../lib/sisuCourseCatalog'
 import type { Lesson } from '../types'
 import type { EnrolledCourse } from '../lib/courses'
+import type { SisuPlanItem } from '../lib/sisuStudyPlan'
 import { planItemIdentity, selectedPlannerCourseCredits, selectedPlannerCourses, togglePlannerCourseSelection, visiblePlannerCourses } from '../lib/sisuCourseSelection'
 
 beforeEach(() => localStorage.clear())
@@ -19,14 +17,14 @@ const lesson = (code: string | undefined, title: string): Lesson => ({
   start: '2026-09-01T08:00:00.000Z', end: '2026-09-01T09:00:00.000Z',
 })
 
-describe('SISU course planner catalogue', () => {
-  it('contains all 16 courses in the official SSE 2026–2027 HDD table', () => {
-    expect(HDD_COURSES).toHaveLength(16)
-    expect(HDD_COURSES.reduce((sum, item) => sum + (item.credits ?? 0), 0)).toBe(65)
-    expect(HDD_COURSES.find((item) => item.code === 'HDD5000')?.credits).toBe(0)
-  })
+const planItem = (code: string, title: string, patch: Partial<SisuPlanItem> = {}): SisuPlanItem => ({
+  id: `sisu:${code}`, kind: 'course', title, courseCode: code, credits: 6,
+  category: 'intermediate', studyYear: '2026-2027', periods: [1, 2], completed: false,
+  createdAt: '2026-08-20T00:00:00.000Z', timingSource: 'pdf-plan', ...patch,
+})
 
-  it('merges official HDD, Moodle enrolments and timetable courses without duplicating known codes', () => {
+describe('SISU course catalogue', () => {
+  it('seeds plan courses and merges Moodle/timetable records by known code', () => {
     const enrolled: EnrolledCourse[] = [
       { courseid: 86, shortname: 'HDD5020', fullname: 'HDD5020 Foundations of Information Processing (HDD)' },
       { courseid: 30361, shortname: 'CT60A4050', fullname: 'CT60A4050 Fundamentals of Software Engineering - Blended teaching' },
@@ -36,11 +34,13 @@ describe('SISU course planner catalogue', () => {
       lesson('CT60A4050', 'CT60A4050 Fundamentals of Software Engineering'),
       lesson(undefined, 'Local seminar'),
     ]
-    const courses = buildPlannerCourses(lessons, enrolled)
-    expect(courses).toHaveLength(HDD_COURSES.length + 2)
-    expect(courses.find((item) => item.code === 'HDD5020')?.sources).toEqual(['programme', 'moodle', 'timetable'])
-    expect(courses.find((item) => item.code === 'CT60A4050')?.sources).toEqual(['moodle', 'timetable'])
+    const plan = [planItem('HDD5020', 'Foundations of Information Processing'), planItem('CT60A4050', 'Fundamentals of Software Engineering')]
+    const courses = buildPlannerCourses(lessons, enrolled, [], undefined, plan)
+    expect(courses).toHaveLength(3)
+    expect(courses.find((item) => item.code === 'HDD5020')?.sources).toEqual(['plan', 'moodle', 'timetable'])
+    expect(courses.find((item) => item.code === 'CT60A4050')?.sources).toEqual(['plan', 'moodle', 'timetable'])
     expect(courses.find((item) => item.name === 'Local seminar')?.credits).toBeUndefined()
+    expect(courses.find((item) => item.code === 'HDD5020')?.category).toBe('intermediate')
   })
 
   it('does not merge a code-less Moodle course to a coded timetable course by title alone', () => {
@@ -57,7 +57,6 @@ describe('SISU course planner catalogue', () => {
       [{ courseid: 404, shortname, fullname: shortname }],
     )
     expect(merge().filter((item) => item.name === 'Local seminar')).toHaveLength(1)
-    expect(merge(undefined, 'CT60A4050 Local seminar').filter((item) => item.code === 'CT60A4050')).toHaveLength(1)
     expect(merge('CT60A4050').filter((item) => item.name === 'Local seminar')).toHaveLength(2)
   })
 
@@ -76,20 +75,10 @@ describe('SISU course planner catalogue', () => {
     expect(courses.find((item) => item.code === 'CT60A4050')?.sources).toEqual(['moodle', 'timetable'])
   })
 
-  it('matches enrolment identity by Moodle id through the canonical identity index', () => {
-    const courses = buildPlannerCourses([], [
-      { courseid: 30361, shortname: 'SWE', fullname: 'Software Engineering' },
-    ], [], {
-      codeFor: (id: number) => id === 30361 ? 'CT60A4050' : null,
-      forName: () => null,
-    } as never)
-    expect(courses.find((item) => item.code === 'CT60A4050')?.sources).toContain('moodle')
-  })
-
-  it('toggles one normalized identity and keeps selected public records available across searches', () => {
+  it('toggles one normalized identity and keeps selected public records across searches', () => {
     const course = buildPlannerCourses([], [], [{ id: 'otm-1', code: 'CT60A4050-3001', name: 'Software course', credits: 6 }])
       .find((item) => item.code === 'CT60A4050')!
-    const preferences = { focus: 'software' as const, selectedCourseKeys: [], selectedCourses: [] }
+    const preferences = { selectedCourseKeys: [], selectedCourses: [] }
     const selected = togglePlannerCourseSelection(preferences, course)
     expect(selected.selectedCourseKeys).toEqual(['code:CT60A4050'])
     expect(selected.selectedCourses).toHaveLength(1)
@@ -102,15 +91,14 @@ describe('SISU course planner catalogue', () => {
     expect(planItemIdentity({ title: '  Local   seminar ' })).toBe('title:local seminar')
   })
 
-  it('shows only current SISU query hits plus selected and planned courses', () => {
+  it('shows only current SISU query hits plus persisted selections', () => {
     const courses = buildPlannerCourses([], [], [
       { id: 'hit', code: 'CT60A4050', name: 'Software Engineering' },
       { id: 'stale', code: 'CT60A4100', name: 'Systems Design' },
     ])
     const visible = visiblePlannerCourses({
-      courses, focus: 'software', query: 'software', currentResultQuery: 'software',
+      courses, query: 'software', currentResultQuery: 'software',
       currentResultIdentities: ['code:CT60A4050'], selectedKeys: ['code:CT60A4100'],
-      plannedIdentities: new Set(), onlySseRelevant: false,
     })
     expect(visible.map((item) => item.code)).toEqual(['CT60A4050', 'CT60A4100'])
   })
@@ -125,7 +113,7 @@ describe('SISU course planner catalogue', () => {
     expect(courses.find((item) => item.code === 'CT60A8002')?.credits).toBe(6)
   })
 
-  it('merges public SISU matches with timetable, Moodle and HDD records without inventing metadata', () => {
+  it('merges public SISU matches with plan, Moodle and timetable records without inventing metadata', () => {
     const publicCourses = [
       {
         id: 'public-software',
@@ -135,66 +123,38 @@ describe('SISU course planner catalogue', () => {
         studyFields: ['Software engineering'],
         searchTags: ['software'],
       },
-      {
-        id: 'public-hdd',
-        code: 'HDD5030',
-        name: 'Data Structures and Algorithms',
-        credits: 6,
-      },
     ]
     const courses = buildPlannerCourses(
       [lesson('CT60A4050', 'CT60A4050 Fundamentals of Software Engineering')],
       [{ courseid: 30361, shortname: 'CT60A4050', fullname: 'CT60A4050 Fundamentals of Software Engineering' }],
       publicCourses,
+      undefined,
+      [planItem('CT60A4050', 'Fundamentals of Software Engineering')],
     )
     const software = courses.find((item) => item.code === 'CT60A4050')
-    const hdd = courses.find((item) => item.code === 'HDD5030')
-
     expect(courses.filter((item) => item.code === 'CT60A4050')).toHaveLength(1)
     expect(software).toMatchObject({
-      sources: ['sisu', 'moodle', 'timetable'],
+      sources: ['plan', 'sisu', 'moodle', 'timetable'],
       creditRange: { min: 3, max: 6 },
-      studyYears: [],
+      studyYears: ['2026-2027'],
     })
-    expect(software?.credits).toBeUndefined()
-    expect(isSseRelevantCourse(software!)).toBe(true)
-    expect(hdd).toMatchObject({ credits: 6, sources: ['programme', 'sisu'], studyYears: ['2026-2027'] })
-    expect(courses.filter((item) => item.code === 'HDD5030')).toHaveLength(1)
-    expect(selectedPlannerCourseCredits(selectedPlannerCourses(courses, ['CT60A4050']))).toEqual({ credits: 0, unknown: 1 })
-  })
-
-  it('ranks by chosen focus while keeping all course sources available', () => {
-    const courses = buildPlannerCourses([lesson('CT60A4050', 'Fundamentals of Software Engineering')])
-    const ranked = rankPlannerCourses(courses, 'ai')
-    expect(ranked).toHaveLength(HDD_COURSES.length + 1)
-    expect(ranked.slice(0, 3).map((item) => item.code)).toEqual(['HDD5010', 'HDD5030', 'HDD5040'])
-    expect(ranked.find((item) => item.code === 'CT60A4050')?.tags).toContain('software')
-    const relevanceFirst = [
-      { key: 'software', code: 'CT60A4050', name: 'Other', category: 'public' as const, tags: [], sources: ['sisu'] as const, relevanceText: 'software' },
-      { key: 'plain', code: 'ZZ100', name: 'Other', category: 'public' as const, tags: [], sources: ['sisu'] as const, relevanceText: 'none' },
-    ]
-    const rankedSoftware = rankPlannerCourses(relevanceFirst, 'software')
-    expect(rankedSoftware.map((item) => item.key)).toEqual(['software', 'plain'])
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'sociology and media studies' })).toBe(false)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'Tietojenkäsittelytiede' })).toBe(true)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'university tietojenkäsittely' })).toBe(true)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'university software licenses' })).toBe(false)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'Software Engineering' })).toBe(true)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'the relationship between physics and networks' })).toBe(false)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'theoretical physics' })).toBe(false)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'Data Structures and Algorithms' })).toBe(true)
-    expect(isSseRelevantCourse({ ...relevanceFirst[0], relevanceText: 'Tietojenkasittelytieteen perusteet' })).toBe(true)
+    expect(software?.credits).toBe(6)
   })
 
   it('persists unique selections and only totals credits with verified values', () => {
-    expect(loadSisuCoursePreferences()).toEqual({ focus: 'software', selectedCourseKeys: [], selectedCourses: [] })
+    expect(loadSisuCoursePreferences()).toEqual({ selectedCourseKeys: [], selectedCourses: [] })
     const preferences = saveSisuCoursePreferences({
-      focus: 'systems',
       selectedCourseKeys: ['HDD5030', 'HDD4110', 'HDD5030', 'moodle:unknown'],
       selectedCourses: [{ id: 'public-id', code: 'CT60A4050', name: 'Software test course', credits: 3 }],
     })
     expect(loadSisuCoursePreferences()).toEqual(preferences)
-    const courses = buildPlannerCourses([lesson('CT60A4050', 'Fundamentals of Software Engineering')])
+    const courses = buildPlannerCourses(
+      [lesson('CT60A4050', 'Fundamentals of Software Engineering')],
+      [],
+      [],
+      undefined,
+      [planItem('HDD5030', 'Data Structures and Algorithms')],
+    )
     expect(selectedPlannerCourseCredits(selectedPlannerCourses(courses, ['HDD5030', 'CT60A4050']))).toEqual({ credits: 6, unknown: 1 })
   })
 })

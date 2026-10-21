@@ -85,7 +85,7 @@ const DAY = 24 * HOUR
 const NOW = Date.parse('2026-10-15T12:00:00.000Z')
 
 const LESSON_TEXTS = { title: '课程提醒', body: () => 'x' }
-const DUE_TEXTS = { title: '作业即将截止', body: () => 'x' }
+const DUE_TEXTS = { title: () => '作业即将截止', body: () => 'x' }
 const EXAM_TEXTS = { title: '考试提醒', body: () => 'x' }
 const DIGEST_TEXTS = { title: '每日摘要', empty: '今天没有课', body: () => 'x' }
 const BLOCK_TEXTS = { title: '学习时段提醒', body: () => 'x' }

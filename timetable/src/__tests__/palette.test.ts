@@ -58,7 +58,15 @@ function task(p: Partial<Task>): Task {
   }
 }
 
-/** 动作组里的 id 顺序（用于断言插入位置，不依赖魔法下标） */
+/** 动作来自 lib/commands 的注册表；这里给一份稳定的替身，顺序即断言依据 */
+const COMMANDS = [
+  { id: 'settings', label: '设置', icon: 'settings' as const },
+  { id: 'exportBackup', label: '导出数据', icon: 'link' as const },
+  { id: 'exportIcs', label: '导出日历 (.ics)', icon: 'link' as const },
+  { id: 'dupes', label: '重复项 3', icon: 'puzzle' as const },
+]
+
+/** 动作组里的 id（带 cmd: 前缀，便于与课程/作业组区分） */
 const actionIds = (items: PaletteItem[]) =>
   items.filter((i) => i.group === 'actions').map((i) => i.id)
 
@@ -76,7 +84,7 @@ const build = (over: Partial<Parameters<typeof buildPalette>[0]> = {}) =>
       task({ id: 't1', title: 'Essay deadline', course: 'HDD4010', dueAt: '2026-10-01T12:00:00.000Z' }),
       task({ id: 't2', title: 'Quiz 2', completed: true }),
     ],
-    dupCount: 0,
+    commands: COMMANDS,
     ...over,
   })
 
@@ -113,11 +121,15 @@ describe('buildPalette', () => {
     })
   })
 
-  it('shows the duplicate-cleanup action only when duplicates exist', () => {
-    expect(build().some((i) => i.action.kind === 'dupes')).toBe(false)
-    const withDupes = build({ dupCount: 3 })
-    const dupes = withDupes.find((i) => i.action.kind === 'dupes')
-    expect(dupes?.label).toBe('重复项 3')
+  it('keeps the command registry order and hands each action back by id', () => {
+    const actions = build().filter((i) => i.group === 'actions')
+    expect(actions.map((i) => i.id)).toEqual([
+      'cmd:settings',
+      'cmd:exportBackup',
+      'cmd:exportIcs',
+      'cmd:dupes',
+    ])
+    expect(actions[1].action).toEqual({ kind: 'command', id: 'exportBackup' })
   })
 })
 
@@ -146,7 +158,7 @@ describe('filterPalette', () => {
   it('finds actions and views by their labels', () => {
     const items = build()
     expect(filterPalette(items, 'moodle').map((i) => i.action.kind)).toContain('view')
-    expect(filterPalette(items, '检查更新').map((i) => i.action.kind)).toEqual(['checkUpdate'])
+    expect(filterPalette(items, '设置').map((i) => i.id)).toEqual(['cmd:settings'])
   })
 
   it('requires every token to match (AND search)', () => {
@@ -188,21 +200,16 @@ describe('scoreItem', () => {
   })
 })
 
-describe('export actions', () => {
+describe('registered actions', () => {
   // 导出 .ics 之前在面板里只是「声明了 action 但没有条目」的死类型，
   // 手机上只能翻 设置 → 数据备份；这个测试锁住它能被搜到。
-  it('exposes both export actions, with duplicates inserted before them', () => {
-    const ids = actionIds(build({ dupCount: 0 }))
-    expect(ids).toContain('act:exportBackup')
-    expect(ids).toContain('act:exportIcs')
-
-    const withDups = actionIds(build({ dupCount: 3 }))
-    expect(withDups.indexOf('act:dupes')).toBeLessThan(withDups.indexOf('act:exportBackup'))
-    expect(withDups).toHaveLength(ids.length + 1)
+  it('exposes every registered command with a cmd- prefixed id', () => {
+    const ids = actionIds(build())
+    expect(ids).toEqual(COMMANDS.map((c) => `cmd:${c.id}`))
   })
 
   it('finds the .ics export by searching for it', () => {
     const hits = filterPalette(build(), '导出日历')
-    expect(hits.some((h) => h.id === 'act:exportIcs')).toBe(true)
+    expect(hits.some((h) => h.id === 'cmd:exportIcs')).toBe(true)
   })
 })

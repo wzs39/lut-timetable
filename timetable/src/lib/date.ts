@@ -140,6 +140,16 @@ export function formatDateTime(iso: string, locale?: string): string {
 }
 
 
+/** 紧凑日期时间（10/22 14:00）——窄行（内容树 / 成绩行）用，完整串放 title。 */
+export function formatDateTimeShort(iso: string, locale?: string): string {
+  return new Date(iso).toLocaleString(locale ?? undefined, {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 /** ISO-8601 week number (1-53). */
 export function isoWeekNumber(d: Date): number {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))

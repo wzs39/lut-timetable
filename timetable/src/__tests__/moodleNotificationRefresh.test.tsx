@@ -90,6 +90,7 @@ beforeEach(() => {
       urlByKey: new Map(),
       statusByCmid: new Map([...fallbackStatus, ...assignmentStatus]),
       deadlinesByCmid: deadline,
+      datesByCmid: new Map([...deadline].map(([cmid, dueAt]) => [cmid, { dueAt }])),
       fellBackToGrades: Boolean(fallbackStatus.size),
     }
   })

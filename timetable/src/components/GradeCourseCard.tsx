@@ -3,6 +3,8 @@ import type { CourseGrades, GradeItem } from '../lib/grades'
 import { contributionOf, courseProjection, effectiveGrade, gradeTargetPlan } from '../lib/gradeCalc'
 import { KEYS, readString, writeString } from '../lib/storage'
 import { useI18n } from '../i18n'
+import type { ActivityDatesByCmid } from '../lib/activityDates'
+import ActivityDatesText from './ActivityDatesText'
 import Icon from './Icon'
 
 /** 目标档位（百分制）。LUT 的 1–5 换算各课不同，所以直接用百分比，不替用户换算。 */
@@ -26,12 +28,18 @@ export default function GradeCourseCard({
   onJumpToCourse,
   onOpenUngradedTasks,
   schemeReview,
+  activityDates,
+  moduleKindByCmid,
 }: {
   c: CourseGrades
   onJumpToCourse?: (code: string) => void
   /** Ada di ≥1: chip "N belum dinilai" jadi tautan ke daftar tugas tersaring kursus ini. */
   onOpenUngradedTasks?: () => void
   schemeReview?: React.ReactNode
+  /** cmid 键控的活动日期（来自 useMoodleData）：与任务行/内容树同一份数据 */
+  activityDates?: ActivityDatesByCmid
+  /** cmid → modname：测验的日期是「关闭」，不是「截止」 */
+  moduleKindByCmid?: ReadonlyMap<number, string>
 }) {
   const { t } = useI18n()
   const [overrides, setOverrides] = useState<Record<number, number>>({})
@@ -138,6 +146,16 @@ export default function GradeCourseCard({
           ) : (
             proj.ungraded > 0 && <span>{t('gradeUngraded', { n: proj.ungraded })}</span>
           )}
+          {c.weighting?.source === 'sisu' && (
+            <span
+              className="ml-1 inline-flex items-center rounded bg-[var(--tint-info)] px-1 text-[9px] font-medium text-[var(--info)]"
+              title={t('gradeSisuWeightsTitle', {
+                list: c.weighting.components.map((component) => `${component.label} ${component.weight}%`).join(' · '),
+              }) + (c.weighting.normalized ? ` · ${t('gradeSisuNormalized')}` : '')}
+            >
+              {t('gradeSisuBadge')}
+            </span>
+          )}
         </span>
         <button
           onClick={() => setExpanded((o) => !o)}
@@ -207,6 +225,8 @@ export default function GradeCourseCard({
                 it={it}
                 override={overrides[i]}
                 onOverride={(v) => setOverride(i, v)}
+                dates={it.cmid != null ? activityDates?.get(it.cmid) : undefined}
+                kind={it.cmid != null ? moduleKindByCmid?.get(it.cmid) : undefined}
               />
             ))}
             {filtered.length === 0 && (
@@ -238,10 +258,16 @@ function GradeItemRow({
   it,
   override,
   onOverride,
+  dates,
+  kind,
 }: {
   it: GradeItem
   override: number | undefined
   onOverride: (v: string) => void
+  /** 该活动的开始/截止/迟交截止（活动数据优先，缺则为 undefined） */
+  dates?: { startAt?: string; dueAt?: string; cutoffAt?: string; gradingDueAt?: string }
+  /** Moodle 模块名：测验的日期是「关闭」，不是「截止」 */
+  kind?: string
 }) {
   const { t } = useI18n()
   const eff = effectiveGrade(it, override)
@@ -266,9 +292,21 @@ function GradeItemRow({
 
   return (
     <li className="flex items-center gap-2 text-[10px]">
-      <span className="min-w-0 flex-1 truncate text-[var(--text-2)]" title={it.feedback || it.name}>
-        {editing && <span className="mr-1 inline-flex align-[-1px] text-[var(--info)]">✎</span>}
-        {it.name}
+      <span className="min-w-0 flex-1 text-[var(--text-2)]" title={it.feedback || it.name}>
+        <span className="block truncate">
+          {editing && <span className="mr-1 inline-flex align-[-1px] text-[var(--info)]">✎</span>}
+          {it.name}
+        </span>
+        {dates && (
+          <ActivityDatesText
+            startAt={dates.startAt}
+            dueAt={dates.dueAt}
+            cutoffAt={dates.cutoffAt}
+            gradingDueAt={dates.gradingDueAt}
+            kind={kind}
+            className="mt-0.5 block text-[9px] text-[var(--text-3)]"
+          />
+        )}
       </span>
       {(it.weight != null || contrib != null || it.classAvg != null) && (
         <span className="shrink-0 tabular-nums text-[var(--text-3)]">

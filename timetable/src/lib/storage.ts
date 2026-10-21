@@ -51,6 +51,12 @@ export const KEYS = {
   gradeTarget: 'tt_grade_target_v1',
   /** 作业页：按影响分（课程剩余权重 × 紧迫度）排序 */
   assignImpact: 'tt_assign_impact',
+  /** 作业页侧栏「工具」面板的折叠状态 */
+  assignToolsOpen: 'tt_assign_tools_open',
+  /** 成绩页侧栏「排序与筛选」面板的折叠状态 */
+  gradesToolsOpen: 'tt_grades_tools_open',
+  /** 出勤打卡：按「课程发生键」而不是同步生成的 lesson.id 记录 */
+  attendance: 'tt_attendance_v1',
   /** 本地错误环形缓冲（最近 N 条，导出诊断用） */
   errorLog: 'tt_error_log_v1',
   /** 订阅式提醒（课程变动 / 教室空出） */
@@ -73,6 +79,8 @@ export const KEYS = {
   courseResourceRecent: 'tt_course_resource_recent_v1',
   sisuStudyPlan: 'tt_sisu_study_plan_v1',
   sisuCoursePreferences: 'tt_sisu_course_preferences_v1',
+  /** 毕业情景：目标年限 / 取消课程 / 只保留最低要求（不改写计划本身） */
+  sisuScenario: 'tt_sisu_scenario_v1',
   /** 已由用户确认的独立学习时段（不并入课程或 Moodle 任务） */
   studyBlocks: 'tt_study_blocks_v1',
   /** 学习时段偏好（窗口/时长/缓冲/范围）；唯一所有者是 lib/studyBlockPrefs.ts */

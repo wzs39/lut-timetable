@@ -18,6 +18,7 @@ import {
   saveGradesSnapshot,
   saveGradesSource,
   validateGradesToken,
+  withSisuWeights,
   type CourseGrades,
   type GradesError,
 } from '../lib/grades'
@@ -27,7 +28,19 @@ import {
   fetchSubmissionStatus,
   type SubmissionStatus,
 } from '../lib/submissions'
-import { markActivityCompletion, updateCachedCompletion } from '../lib/contents'
+import {
+  activityDatesFromSections,
+  loadCachedContents,
+  moduleTypesFromSections,
+  markActivityCompletion,
+  updateCachedCompletion,
+  type CourseSection,
+} from '../lib/contents'
+import {
+  applyActivityDatesToTasks,
+  mergeActivityDates,
+  type ActivityDatesByCmid,
+} from '../lib/activityDates'
 import { primeEnrolAnchor } from '../lib/moodleSync'
 import { fetchActionEvents, fetchActivityUrls, mergeActionEvents, upgradeIcsTaskUrls } from '../lib/actions'
 import {
@@ -73,6 +86,12 @@ export interface MoodleData {
   subByCmid: ReadonlyMap<number, SubmissionStatus>
   /** Known Moodle activity deadlines by course-module id, including unsubmitted quizzes. */
   activityDeadlinesByCmid: ReadonlyMap<number, string>
+  /** 活动自身的开始/截止（cmid 键控）：任务行、成绩卡、内容树的同一份数据 */
+  activityDatesByCmid: ActivityDatesByCmid
+  /** cmid → Moodle modname：日期文案区分测验「关闭」与作业「截止」 */
+  moduleKindByCmid: ReadonlyMap<number, string>
+  /** 内容树拿到新 sections 后回灌模块日期（零网络，供任务与成绩卡复用） */
+  registerContentsDates: (sections: CourseSection[]) => void
   busy: 'idle' | 'sync' | 'grades' | 'subs'
   message: string | null
   /** Aliran notifikasi Moodle (satu pemilik: provider ini) */
@@ -127,13 +146,104 @@ export function MoodleProvider({
   const [ics, setIcs] = useState<MoodleSource | null>(() => loadMoodleSource())
   const [token, setToken] = useState(() => loadGradesSource())
   // 冷启动快照：重启/断网时先展示上次成绩（首屏即有内容），网络刷新成功后覆盖。
-  const [grades, setGrades] = useState<CourseGrades[] | null>(() => loadGradesSnapshot()?.courses ?? null)
+  const [grades, setGrades] = useState<CourseGrades[] | null>(() => {
+    const snapshot = loadGradesSnapshot()
+    // 旧快照也要补上 SISU 教师权重：权重是课程属性，不该因是否联网而变。
+    return snapshot ? withSisuWeights(snapshot.courses) : null
+  })
   const [subMap, setSubMap] = useState<Map<string, SubmissionStatus>>(new Map())
   const [subByCmid, setSubByCmid] = useState<Map<number, SubmissionStatus>>(new Map())
-  const [assignmentDeadlinesByCmid, setAssignmentDeadlinesByCmid] = useState<Map<number, string>>(new Map())
+  /** 任务/课程的最新副本：异步回调要读当前值，不读渲染时的闭包。 */
+  const tasksRef = useRef(tasks)
+  const lessonsRef = useRef(lessons)
+  useEffect(() => {
+    tasksRef.current = tasks
+  }, [tasks])
+  useEffect(() => {
+    lessonsRef.current = lessons
+  }, [lessons])
+  /**
+   * 活动日期（cmid 键控）：assign 元数据（精确）覆盖内容树模块 dates。
+   * state 供消费方渲染，ref 供回调在异步返回后同步读取（不在渲染期读写 ref）。
+   */
+  const [activityDatesByCmid, setActivityDatesByCmid] = useState<ActivityDatesByCmid>(new Map())
+  const [moduleKindByCmid, setModuleKindByCmid] = useState<ReadonlyMap<number, string>>(new Map())
+  const datesRef = useRef<ActivityDatesByCmid>(new Map())
+  const assignmentDatesRef = useRef<ActivityDatesByCmid>(new Map())
+  const contentDatesRef = useRef<ActivityDatesByCmid>(new Map())
+  const moduleKindsRef = useRef<Map<number, string>>(new Map())
+  /** 合并两份日期并同步给 state + ref；返回合并结果供调用方立即套用。 */
+  const refreshDates = useCallback((): ActivityDatesByCmid => {
+    const next = mergeActivityDates(contentDatesRef.current, assignmentDatesRef.current)
+    datesRef.current = next
+    setActivityDatesByCmid(next)
+    return next
+  }, [])
+
+  /**
+   * 写任务的唯一套日期+提交口：任何合并/归档/URL 升级都过这里。
+   * `force=false` 时只在日期或内容真的变了才 onTasks（避免无意义落盘/重渲染）；
+   * 调用方明确知道任务集变了（新增/归档）就用 `force=true`。
+   */
+  const commitIfChanged = useCallback(
+    (next: Task[], force = false): Task[] => {
+      const withDates = applyActivityDatesToTasks(next, datesRef.current)
+      if (force || withDates !== next) onTasks(withDates)
+      return withDates
+    },
+    [onTasks],
+  )
+  /** 无条件提交（拉取后整表替换的场景）。 */
+  const commitTasks = useCallback(
+    (next: Task[]): Task[] => commitIfChanged(next, true),
+    [commitIfChanged],
+  )
+  /** 读已缓存 contents（不联网）把 quiz/forum 的日期补进来。 */
+  const ingestCachedContents = useCallback(
+    (courses: CourseGrades[] | null) => {
+      if (!courses?.length) return
+      let dirty = false
+      const merged = new Map(contentDatesRef.current)
+      const kinds = new Map(moduleKindsRef.current)
+      for (const course of courses) {
+        if (course.courseId == null) continue
+        const sections = loadCachedContents(course.courseId)
+        if (!sections) continue
+        for (const [cmid, modname] of moduleTypesFromSections(sections)) kinds.set(cmid, modname)
+        for (const [cmid, dates] of activityDatesFromSections(sections)) {
+          merged.set(cmid, { ...merged.get(cmid), ...dates })
+          dirty = true
+        }
+      }
+      moduleKindsRef.current = kinds
+      setModuleKindByCmid(kinds)
+      if (!dirty) return
+      contentDatesRef.current = merged
+      refreshDates()
+    },
+    [refreshDates],
+  )
+  const registerContentsDates = useCallback(
+    (sections: CourseSection[]) => {
+      const kinds = new Map(moduleKindsRef.current)
+      for (const [cmid, modname] of moduleTypesFromSections(sections)) kinds.set(cmid, modname)
+      moduleKindsRef.current = kinds
+      setModuleKindByCmid(kinds)
+      const incoming = activityDatesFromSections(sections)
+      if (incoming.size === 0) return
+      contentDatesRef.current = mergeActivityDates(contentDatesRef.current, incoming)
+      refreshDates()
+      commitIfChanged(tasksRef.current)
+    },
+    [commitIfChanged, refreshDates],
+  )
   const activityDeadlinesByCmid = useMemo(() => {
-    return new Map([...activityDeadlinesFromTasks(tasks), ...assignmentDeadlinesByCmid])
-  }, [tasks, assignmentDeadlinesByCmid])
+    const out = new Map([...activityDeadlinesFromTasks(tasks)])
+    for (const [cmid, dates] of activityDatesByCmid) {
+      if (dates.dueAt) out.set(cmid, dates.dueAt)
+    }
+    return out
+  }, [tasks, activityDatesByCmid])
   /**
    * 树徽标的合并视图：submissions 域（教师视角 API，部分站点可用）优先，
    * grades 域（学生可读的 gradeitems）填补 LUT 等拒绝学生调 mod_assign 的站点。
@@ -175,10 +285,6 @@ export function MoodleProvider({
    * data yang ditampilkan. Dijalankan sekali segera setelah login sukses,
    * lalu setiap REFRESH_INTERVAL_MS selama token ada. */
   const REFRESH_INTERVAL_MS = 30 * 60 * 1000
-  const tasksRef = useRef(tasks)
-  tasksRef.current = tasks
-  const lessonsRef = useRef(lessons)
-  lessonsRef.current = lessons
   const inFlightRef = useRef(false)
   const notificationRefreshRef = useRef(false)
   const lastNotificationRefreshAtRef = useRef(Number.NEGATIVE_INFINITY)
@@ -214,16 +320,20 @@ export function MoodleProvider({
           saveGradesSnapshot(gradesR.value.courses)
           saveGradesSource({ ...tk, lastSync: new Date().toISOString() })
           setToken((prev) => (prev ? { ...prev, lastSync: new Date().toISOString() } : prev))
+          // 已缓存的 contents 里带 quiz/forum 的日期：不联网，能补就补。
+          ingestCachedContents(gradesR.value.courses)
         }
       } catch { /* silent */ }
       try {
         if (subsR.status === 'fulfilled') {
-          const { status, urlByKey, statusByCmid, deadlinesByCmid } = subsR.value
+          const { status, urlByKey, statusByCmid, datesByCmid } = subsR.value
           setSubMap(status)
           setSubByCmid(statusByCmid)
-          setAssignmentDeadlinesByCmid((prev) => new Map([...prev, ...deadlinesByCmid]))
-          const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
-          if (r.archived > 0) onTasks(r.tasks)
+          // 活动日期优先：assign 元数据覆盖已缓存的模块日期，再回写到任务。
+          assignmentDatesRef.current = mergeActivityDates(assignmentDatesRef.current, datesByCmid)
+          refreshDates()
+          const archived = applySubmissionStatus(tasksRef.current, status, urlByKey)
+          commitIfChanged(archived.tasks, archived.archived > 0)
         }
       } catch { /* silent */ }
       try {
@@ -242,7 +352,7 @@ export function MoodleProvider({
             const urls = await fetchActivityUrls(tk.token, staleIds)
             next = upgradeIcsTaskUrls(r.tasks, urls).tasks
           } catch { /* silent */ }
-          if (r.added > 0 || r.updated > 0 || next !== r.tasks) onTasks(next)
+          commitIfChanged(next, r.added > 0 || r.updated > 0 || next !== r.tasks)
         }
       } catch { /* silent */ }
       try {
@@ -251,7 +361,7 @@ export function MoodleProvider({
     } finally {
       inFlightRef.current = false
     }
-  }, [onTasks])
+  }, [commitIfChanged, ingestCachedContents, refreshDates])
 
   const refreshFromNotification = useCallback(async () => {
     const now = Date.now()
@@ -285,19 +395,20 @@ export function MoodleProvider({
         fetchNotifications(tk, { force: true }),
       ])
       if (subsR.status === 'fulfilled') {
-        const { status, urlByKey, statusByCmid, deadlinesByCmid } = subsR.value
+        const { status, urlByKey, statusByCmid, datesByCmid } = subsR.value
         setSubMap(status)
         setSubByCmid(statusByCmid)
-        setAssignmentDeadlinesByCmid((prev) => new Map([...prev, ...deadlinesByCmid]))
-        const r = applySubmissionStatus(tasksRef.current, status, urlByKey)
-        if (r.archived > 0) onTasks(r.tasks)
+        assignmentDatesRef.current = mergeActivityDates(assignmentDatesRef.current, datesByCmid)
+        refreshDates()
+        const archived = applySubmissionStatus(tasksRef.current, status, urlByKey)
+        commitIfChanged(archived.tasks, archived.archived > 0)
       }
       if (notifR.status === 'fulfilled') setNotifications(notifR.value)
     } finally {
       inFlightRef.current = false
       notificationRefreshRef.current = false
     }
-  }, [mergeGradeStatus, onTasks, toSubmissionStatus])
+  }, [commitIfChanged, mergeGradeStatus, refreshDates, toSubmissionStatus])
 
   // Interval tunggal: hanya berjalan saat token ada. Tick di-skip bila tab
   // tersembunyi (hemat baterai), sedang ada operasi manual, atau refresh
@@ -398,9 +509,12 @@ export function MoodleProvider({
     clearGradesSnapshot()
     setSubMap(new Map())
     setSubByCmid(new Map())
-    setAssignmentDeadlinesByCmid(new Map())
+    // 断开令牌 = 活动数据也一并清掉（不留旧日期鬼影）。
+    assignmentDatesRef.current = new Map()
+    contentDatesRef.current = new Map()
+    refreshDates()
     setMessage(null)
-  }, [])
+  }, [refreshDates])
 
   const loginErrMsg = useCallback(
     (e: unknown): string => {
@@ -523,7 +637,8 @@ export function MoodleProvider({
           finalTasks = up.tasks
           if (up.upgraded > 0) setMessage(t('actionSyncOk', { a: r.added, u: r.updated + up.upgraded, n: events.length }))
         } catch { /* URL kalender tetap */ }
-        onTasks(finalTasks)
+        // URL 升级后才有 cmid → 活动日期在这一步才套得上（首次同步可能还是 ICS 值）。
+        commitTasks(finalTasks)
         if (finalTasks === r.tasks) setMessage(t('actionSyncOk', { a: r.added, u: r.updated, n: events.length }))
         return
       }
@@ -532,7 +647,7 @@ export function MoodleProvider({
         return
       }
       const r = await syncMoodle(ics, tasks, lessons)
-      onTasks(r.tasks)
+      commitTasks(r.tasks)
       setIcs(loadMoodleSource())
       setMessage(t('moodleSyncOk', { a: r.added, u: r.updated }))
     } catch (e) {
@@ -540,7 +655,7 @@ export function MoodleProvider({
       if (ics) {
         try {
           const r = await syncMoodle(ics, tasks, lessons)
-          onTasks(r.tasks)
+          commitTasks(r.tasks)
           setIcs(loadMoodleSource())
           setMessage(t('moodleSyncOk', { a: r.added, u: r.updated }))
           return
@@ -550,7 +665,7 @@ export function MoodleProvider({
     } finally {
       setBusy('idle')
     }
-  }, [busy, token, ics, tasks, lessons, onTasks, t])
+  }, [busy, token, ics, tasks, lessons, commitTasks, t])
 
   const refreshGrades = useCallback(async () => {
     if (busy !== 'idle' || !token) return
@@ -564,13 +679,14 @@ export function MoodleProvider({
       const withTime = { ...token, lastSync: new Date().toISOString() }
       saveGradesSource(withTime)
       setToken(withTime)
+      ingestCachedContents(res.courses)
       setMessage(t('gradesLastSync', { n: res.courses.length, time: timeStr() }))
     } catch (e) {
       setMessage(gradesErrMsg(e))
     } finally {
       setBusy('idle')
     }
-  }, [busy, token, lessons, gradesErrMsg, t, timeStr])
+  }, [busy, token, lessons, gradesErrMsg, ingestCachedContents, t, timeStr])
 
   const markNotificationRead = useCallback((id: string) => {
     markRead(id)
@@ -590,9 +706,9 @@ export function MoodleProvider({
   const applyCompletion = useCallback(
     (cmid: number, completed: boolean) => {
       const r = applyCompletionToTasks(tasksRef.current, cmid, completed)
-      if (r.changed > 0) onTasks(r.tasks)
+      if (r.changed > 0) commitTasks(r.tasks)
     },
-    [onTasks],
+    [commitTasks],
   )
 
   /**
@@ -621,12 +737,13 @@ export function MoodleProvider({
         const res = await fetchGrades(token, lessons)
         fb = toSubmissionStatus(res.statusByCmid)
       } catch { /* 回退不可用就按原样处理主链路 */ }
-      const { status, urlByKey, statusByCmid, deadlinesByCmid, fellBackToGrades } = await fetchSubmissionStatus(token, fb)
+      const { status, urlByKey, statusByCmid, datesByCmid, fellBackToGrades } = await fetchSubmissionStatus(token, fb)
       setSubMap(status)
       setSubByCmid(statusByCmid)
-      setAssignmentDeadlinesByCmid((prev) => new Map([...prev, ...deadlinesByCmid]))
+      assignmentDatesRef.current = mergeActivityDates(assignmentDatesRef.current, datesByCmid)
+      refreshDates()
       const r = applySubmissionStatus(tasks, status, urlByKey)
-      if (r.archived > 0) onTasks(r.tasks)
+      commitIfChanged(r.tasks, r.archived > 0)
       if (r.archived > 0) setMessage(t('subSyncOk', { n: r.archived }))
       else if (fellBackToGrades) setMessage(t('subSyncFromGrades'))
       else setMessage(t('subSyncNone'))
@@ -635,7 +752,7 @@ export function MoodleProvider({
     } finally {
       setBusy('idle')
     }
-  }, [busy, token, lessons, tasks, onTasks, gradesErrMsg, t])
+  }, [busy, token, lessons, tasks, commitIfChanged, refreshDates, gradesErrMsg, t])
 
   /* --------- Cold-start deep link (app dibunuh saat di browser) ---------
    * Official app menangani ini lewat checkIntent pada deviceready: Android
@@ -680,6 +797,9 @@ export function MoodleProvider({
       subStatus: subMap,
       subByCmid,
       activityDeadlinesByCmid,
+      activityDatesByCmid,
+      moduleKindByCmid,
+      registerContentsDates,
       busy,
       message,
       notifications,
@@ -701,7 +821,7 @@ export function MoodleProvider({
       applyCompletion,
       pushTaskCompletion,
     }),
-    [ics, token, grades, subMap, subByCmid, activityDeadlinesByCmid, busy, message, notifications, markNotificationRead, refreshNotifications, refreshFromNotification, ssoAvailable, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions, applyCompletion, pushTaskCompletion],
+    [ics, token, grades, subMap, subByCmid, activityDeadlinesByCmid, activityDatesByCmid, moduleKindByCmid, registerContentsDates, busy, message, notifications, markNotificationRead, refreshNotifications, refreshFromNotification, ssoAvailable, ssoState, ssoMessage, setIcsUrl, disconnectIcs, connectToken, disconnectToken, loginWithSso, syncNow, refreshGrades, syncSubmissions, applyCompletion, pushTaskCompletion],
   )
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>

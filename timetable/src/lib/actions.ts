@@ -39,6 +39,8 @@ interface RawActionEvent {
   id?: number
   name?: string
   timesort?: number
+  /** Waktu jatuh tempo sebenarnya (timesort hanya kunci urutan). */
+  timedue?: number
   modulename?: string
   action?: { actionable?: boolean; itemtype?: string; url?: string }
   courseid?: number
@@ -149,7 +151,9 @@ export function parseActionEvents(response: unknown): ActionEvent[] {
       id: `moodle-act:${e.id}`,
       title: e.name.trim(),
       course: e.course?.shortname || e.course?.fullname || undefined,
-      dueAt: e.timesort ? new Date(e.timesort * 1000).toISOString() : undefined,
+      // timedue = batas waktu aktivitas; timesort hanya kunci pengurutan.
+      // Tanggal MULAI tidak ditebak dari timestart — itu urusan data aktivitas.
+      dueAt: (e.timedue ?? e.timesort) ? new Date(((e.timedue ?? e.timesort) as number) * 1000).toISOString() : undefined,
       url: actionUrl,
       modtype: mod,
     })

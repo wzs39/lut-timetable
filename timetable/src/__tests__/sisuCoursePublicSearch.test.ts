@@ -10,7 +10,7 @@ vi.mock('../lib/fetchIcs', () => ({
   hasLutBridge: () => false,
 }))
 
-import { searchSisuPublicCatalog } from '../lib/sisuCourse'
+import { lookupSisuCourseByCode, searchSisuPublicCatalog } from '../lib/sisuCourse'
 
 const fetchMock = vi.fn()
 
@@ -20,6 +20,22 @@ beforeEach(() => {
 })
 
 afterEach(() => vi.unstubAllGlobals())
+
+describe('SISU code lookup', () => {
+  it('never falls back to a fuzzy first hit for an unknown code', async () => {
+    fetchMock.mockResolvedValue({ json: async () => ({ data: { course_unit_search: [
+      { id: 'wrong-course', code: 'CT60A2450', name: { en: 'Different course' }, credits: { min: 6, max: 6 } },
+    ] } }) })
+    expect(await lookupSisuCourseByCode('K200DJ99')).toBeNull()
+  })
+
+  it('returns the exact normalized code match', async () => {
+    fetchMock.mockResolvedValue({ json: async () => ({ data: { course_unit_search: [
+      { id: 'right-course', code: 'CT60A4050-3001', name: { en: 'Software engineering' }, credits: { min: 6, max: 6 } },
+    ] } }) })
+    expect(await lookupSisuCourseByCode('ct60a4050')).toMatchObject({ id: 'right-course', code: 'CT60A4050-3001' })
+  })
+})
 
 describe('public SISU course search', () => {
   it('fetches every result page and keeps credit ranges while leaving study year unknown', async () => {

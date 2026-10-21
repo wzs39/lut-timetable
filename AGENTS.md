@@ -5,7 +5,7 @@
 ## 1. 项目地图
 
 - **架构**：单页 React + TS（`timetable/src`）为唯一 UI 源；Electron（Windows）与 Capacitor（Android）只是壳。逻辑全部放 `src/lib`（纯函数、可测），壳只做桥。
-- **关键目录**：`src/lib/*` 数据域与纯函数 · `src/hooks/useMoodleData.tsx` 同步编排中枢 · `src/components/moodle/*` Moodle 页分段 · `android/app/src/main/java/dev/lut/timetable/` 小组件（Kotlin，TodayWidgetProvider）· `.github/workflows/native-build.yml` 发布链。
+- **关键目录**：`src/lib/*` 数据域与纯函数 · `src/hooks/useMoodleData.tsx` 同步编排中枢 · `src/components/moodle/*` Moodle 页分段 · `src/i18n/messages.ts` 全部中英文案（单一文件，键对齐由 `i18nParity.test.ts` 守卫）· `docs/architecture.md` 功能落位与新增功能配方 · `android/app/src/main/java/dev/lut/timetable/` 小组件（Kotlin，TodayWidgetProvider）· `.github/workflows/native-build.yml` 发布链。
 - **数据一致性契约**：Moodle courseid ↔ SISU 课程码 ↔ 显示名 统一查 `src/lib/courseIdentity.ts` 身份表，禁止在域内自造启发式匹配。
 - **同步域**：五个 Moodle 域（grades/notifications/submissions/contents/timeline）走 `src/lib/moodleSync.ts` 的声明式注册表（TTL 缓存 + 在途去重 + 失败回退缓存）。加新域 = 注册一条，不复制模式。
 - **双源任务**：ICS 日历任务与 action 时间线任务按 eventId 去重合并（`moodle.ts`），action 接管后 ICS 不复活。
@@ -178,7 +178,7 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **抽屉不重写内容**：`MoreSheet` = 动作网格（设置 / 筛选 / 冲突 / 重复 / 隐藏恢复 / 更新 / 语言 / 重开引导，App 用 `useMemo` 组装成 `SheetAction[]`）+ `<Sidebar embedded>`；`embedded` 让侧栏在抽屉里 `flex-1 min-h-0` + 上边框（桌面仍 `h-full` + 右边框）。动作点击即关抽屉（`a.onRun()` 然后 `onClose()`）。
 - **表单只留一份**：手动添加课程表单从 Sidebar 抽成 `ManualLessonForm.tsx`，侧栏与抽屉共用；折叠状态仍共享同一个 key `tt_sidebar_manual_open`。
 - **空课日措辞按天区分**：手机按天视图滑到非今天时用 `noLessonsThatDay`（当天没有课程），只有真·今天才用 `noLessonsToday`——否则滑到周一却显示「今天没有课程」。
-- **Windows 端口坑**：5233 这类端口 `vite preview` 直接 `EACCES`（系统保留段），5311 可用；端口被占用时 preview 直接失败，先 `curl` 探活再决定复用（旧进程仍在跑也能直接服务新 `dist/`）。
+- **Windows 端口坑**：5233 这类端口 `vite preview` 直接 `EACCES`（系统保留段）；排除段会随 Windows/Hyper-V 重排，2026-10-21 实测 5311/5312/5314 全在 5041–5557 内、`4173` 可用。先 `netsh interface ipv4 show excludedportrange protocol=tcp` 再选端口，别记死一个；端口被占用时 preview 直接失败，先 `curl` 探活再决定复用（旧进程仍在跑也能直接服务新 `dist/`）。
 - **抽屉分区默认收起、分面记忆**：抽屉里四个数据/工具分区（来源同步 / 手动添加 / 查询课程 / 常用平台）全部折叠且 `defaultOpen=false`，手机打开「更多」先只看到动作网格。折叠状态用 **独立的 `tt_sheet_*` key**（`sheetSourcesOpen/ManualOpen/SearchOpen/LinksOpen`），与桌面侧栏的 `tt_sidebar_manual_open`/`tt_sidebar_links_open` 互不干扰——共用一个 key 会让桌面展开过的块在抽屉里也弹开，「默认只露动作网格」就守不住了。收起时在标题行右侧留 `hint`（如「1 个来源」），折叠区不至于是黑箱。
 - **分区的唯一渲染入口**：`Sidebar.tsx` 的 `Group({ embedded, title, desktopKey?, desktopOpen?, sheetKey, hint? })` 统一分派——桌面没有 `desktopKey` 的块渲染为普通标题 `Block`（同步日历 / 查询课程，不可折叠，保持原样），有 key 的走 `Section`；`embedded` 一律走折叠 + sheet key。`CourseSearch` 自带的 `<h2>` 删掉了（标题归外层所有，否则抽屉里套一层会出现两个标题）。
 - **两个入口的模式差异要用测试锁住**：`moreSheet.test.tsx` 断言默认四块 `aria-expanded=false` + 展开后写 `tt_sheet_*` 且**不动** `tt_sidebar_*` + 重挂载后仍保持；新建 `sidebar.test.tsx` 断言桌面侧栏仍是「普通标题 + 手动添加默认收起 + 常用平台默认展开」，写的是 `tt_sidebar_*`。折叠内容仍在 DOM 里（`collapse-wrap` 靠 0fr + `inert` 隐藏），所以断言要查 `aria-expanded`/类名而不是「文本不存在」。
@@ -354,7 +354,7 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 ## 计划 ↔ SISU 公开目录结合（2026-10-01）
 
 - **不碰 SISU 认证**：个人学习计划（PSP）在强认证后面，本应用没有也暂不打算有 SISU 登录。能做的「结合」只有两件：（1）计划项按课程代码深链到 SISU 官方课程页；（2）用公开目录核对名称/学分。别把「能核对学分」当成「同步了计划」。
-- **一个代码一次请求**：`lib/sisuCourse.ts` 新增 `lookupSisuCourseByCode`（`codeQuery` + `universityOrgIds` + `validity: ONGOING_AND_FUTURE`，按规范化代码精确挑行、取不到才退回首行），顺带写 `tt_sisu_course_ids` 缓存供 `resolveSisuCourseUrl` 复用。真实响应字段实测为 `id code name{en fi} credits{min max}`；**没有**能证明当前授课学年的字段——与 `searchSisuPublicCatalog` 一致，`studyYears` 保持空，学年不参与核对（否则会误报不一致）。
+- **一个代码一次请求**：`lib/sisuCourse.ts` 新增 `lookupSisuCourseByCode`（`codeQuery` + `universityOrgIds` + `validity: ONGOING_AND_FUTURE`，【修正·2026-10-21】只接受规范化代码精确相等的行；**不再回退首行**——模糊搜索会返回别的课，造成错误深链与假学分匹配），顺带写 `tt_sisu_course_ids` 缓存供 `resolveSisuCourseUrl` 复用。真实响应字段实测为 `id code name{en fi} credits{min max}`；**没有**能证明当前授课学年的字段——与 `searchSisuPublicCatalog` 一致，`studyYears` 保持空，学年不参与核对（否则会误报不一致）。
 - **解析只留一份**：`searchSisuPublicCatalog` 与 `lookupSisuCourseByCode` 共用 `parseCatalogRow`，别在两处各写一遍 credits/name 解析。
 - **核对策略是纯函数**：`lib/sisuPlanMatch.ts` 的 `checkPlanItemAgainstCatalog` 只比名称（大小写/空白/尾部标点不敏感）与学分（**任一侧缺失就不下结论**，避免把「没填」当不一致），返回 `no-code | not-found | match | differs` + `differs[]` + 命中的目录记录。组件只渲染，不重算。
 - **代码规范化唯一来源**：`normalizeSisuCode`（trim + 去 `-dddd` + 大写）在 sisuCourse 里；`planCourseCodes` 与深链都复用它，别自写正则。
@@ -386,7 +386,7 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **偏好是现读的，不是挂载时读的**：hook 在每次「生成学习时段建议」时 `loadStudyBlockPrefs()`，所以设置页改完立刻生效；`onSisuPrefsChanged` 只负责让计划页重挂载（清掉旧窗口下算出的待确认建议）。别把 prefs 塞进 `useState` 初始值了事——那样改完不重挂载就等于没改。
 - **滑杆的无障碍名不能与既有控件撞名**：`role=slider` 的 `aria-label` 是测试定位锚点，但侧栏「手动添加课程」的时间输入早已占用「开始时间/结束时间」，真 DOM 里两者同时存在 → `querySelector('[aria-label="开始时间"]')` 命中 2 个元素、屏幕阅读器也分不清。改名「每日开始/每日结束」后才唯一。**教训**：新控件的 `aria-label` 先用真页面查一遍同名元素数量，别只在组件测试里看自己的那份 DOM。
 - **验证方法（本轮可复用的做法）**：`vite preview`（本机 IPv6 loopback；`netstat` 确认 listener）服务本地构建产物 → 真浏览器里 ① 数 `input[type=range][aria-label]` 的名字/区间/默认值并断言全部落在 `#settings-study` 内；② 用 `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set` + `dispatchEvent(new Event('input'))` 拖 range（React 受控值必须这样驱动），断言**落盘值 + 控件回显**（拖到 9 被钳成 10）；③ 种一条明天的任务后真点「生成学习时段建议」，看真实排程结果随偏好变化（存 30 分钟/窗口 08–10 → `10月16日 08:00–08:30`；清掉偏好键 → 回到 60 分钟块），且确认前 `tt_study_blocks_v1` 为 null、来源任务逐字节未变。用完清样例数据 + 停 preview 进程（`taskkill //PID`）；**这不是打包产物/装机验证**，如实记账。
-- **【修正·2026-10-15 后续批次】`remindEnabled` 已不是「无消费方的意图位」**：它是学习块提醒的开关（设置 → 学习偏好），有消费方（`NotificationManager` 收 `studyBlockRemindEnabled`）、有落盘、有测试锁定；诊断面板也按它决定「这家该不该有排期」。原文那条「本轮不排任何通知」只描述了那个批次当时的状态。**仍未做**：按星期几的差异化作息、偏好跨设备同步。
+- **【修正·2026-10-15 后续批次】`remindEnabled` 已不是「无消费方的意图位」**：它是学习块提醒的开关（设置 → 学习偏好），有消费方（`NotificationManager` 收 `studyBlockRemindEnabled`）、有落盘、有测试锁定；诊断面板也按它决定「这家该不该有排期」。原文那条「本轮不排任何通知」只描述了那个批次当时的状态。**【修正·2026-10-20】按星期几的差异化作息已落地**（见文末「按星期几窗口」一节）；**仍未做**：偏好跨设备同步。
 - 门禁（2026-10-15 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → 98 文件 / **776 通过**（基线 760 + 新增 16）/ 0；`npm run test:consistent` → `collected=776 executed=776` / 0；`npx oxlint` → **0 error、25 warning**（均既存）/ 0；`npm run build` → ✓ built in 438ms / 0。本批涉及测试：`studyBlockPrefs.test.ts`（新增 5）、`components/studyBlockSettings.test.tsx`（新增 6）、`studyBlocks.test.ts`（+4 偏好用例）、`sisuStudyBlockHook.test.tsx`（+1 偏好用例）。
 
 ## 2026-10-15 · 学习块提醒（10 分钟前）+ 「变更即重算」显式化
@@ -487,3 +487,253 @@ cd timetable && npx tsc -b --pretty false && npx vitest run && npx oxlint
 - **本批没有跑真机/打包产物校验（明说）**：开工时 `adb devices` 为空、`tasklist` 里没有已装桌面客户端，起模拟器 + `cap copy` + gradle + 装机的代价与收益不成比例，所以本批的证据面只到**两层测试**：集成层（`reminderFamiliesConcurrency.test.ts`，真实 localStorage + 有状态假队列 + 真 `NotificationManager` 同一张家族注册表）与组件接线层（jsdom 渲染真 `NotificationManager`）。**未覆盖**：真设备上的插件行为、桌面打包产物、面板在真 UI 下的读数。下次碰这一块时按 playbook 的老办法补一次装机实证。
 - **本批改动**：`src/lib/reminderHealth.ts`（新增 `cancelAllReminderFamilies`）、`src/lib/dailyDigest.ts`（早退前提改为「签名 ∧ 队列就位」）、`src/components/NotificationManager.tsx`（总开关分支改走单一入口）、`src/lib/pendingNotifications.ts`（新增 `DesiredNotification` + `notificationDrifted`，与载荷解析同一个家）、`src/lib/notifications.ts` / `dueNotifications.ts` / `examReminders.ts`（三家都改成「不在队列→schedule，在队列但漂移→update」）、`src/__tests__/reminderFamiliesConcurrency.test.ts`（+8：删任务 / 删考试 / 总开关清六家账 / 摘要补回 / 没变化不重排 / 截止·课时·考试三条漂移；假插件改为忠实回读载荷 + `queuedAt()`）、`src/__tests__/components/notificationManagerStudyBlocks.test.tsx`（改 1 条断言 + mock 补新导出）。
 - 门禁（2026-10-16 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → 109 文件 / **888 通过**（基线 880 + 新增 8）/ 0；`npm run test:consistent` → `collected=888 executed=888` / 0；`npx oxlint` → **0 error、24 warning**（与上轮持平、无新增）/ 0；`npm run build` → ✓ built in 436ms / 0。
+
+## 2026-10-20 · 学期全景 / 本周提示 / 打印 / 出勤 + i18n 拆分
+
+- **messages 搬家**：`i18n.tsx` 从 1461 行降到 70 行（只留 Provider / `translate` / `useI18n` / `localeOf`），文案全在 `src/i18n/messages.ts`。新增 `i18nParity.test.ts`：zh/en 键集合、空值、`{param}` 占位符三者必须一致——这是文案唯一守卫，漏翻不再静默显示 key。`export type Lang` 仍从 `i18n.tsx` 转出，既有 import 不用改。
+- **学期全景（`lib/semester.ts`）**：窗口从课表首末课推导（周一对齐），少于 4 周补到 4、超过 30 周以当前周为中心截断；课表为空回退当前周 ±8 周。负荷 0–5 **相对本窗口最忙一周**归一化（换学期不会整体变浅）。任务按 `dueAt` 归周，**无截止时间不参与**。本地日 key 一律手写 `yyyy-mm-dd`，不用 `toISOString`（UTC+8 差一天）。组件 `SemesterStrip` 只渲染；窄条 `w-2.5`，不要 `flex-1`（4 周时会被拉成大方块）。
+- **本周提示（`lib/weekInsights.ts`）**：`tight-hop > long-day > long-gap` 排序，最多 3 条；只提示未来（长空档要求下一节尚未开始、满课日要求当天尚未结束）。赶课复用 `roomHops`，别再写一份「步行估计」。卡片日期用 `toLocaleDateString({month:'numeric',day:'numeric'})`（完整「10月22日周四」在 36px 列里会折行）。
+- **打印（`components/PrintWeek.tsx` + `index.css`）**：课表层常驻 DOM，屏幕 `display:none`；`@media print` 用 `.app-shell > :not(.print-sheet){display:none}` 收掉其余节点，`@page size:A4 landscape`。入口两处：命令面板 + 设置「数据与工具」。**Android WebView 没有系统打印服务**，用 `lib/print.ts` 的 `canPrintSchedule()` 隐藏入口（不给假按钮）。**第一版真坑**：打印列没写 `min-width:0; overflow-wrap:anywhere`，760px 下长课名直接冲出卡片；`grid-template-columns: repeat(7,minmax(0,1fr))` 只解决列宽，不解决内容溢出。
+- **出勤（`lib/attendance.ts`）**：发生键 = ICS `uid`，没有 uid 时退到 `代码|开始时刻`，**绝不用 `lesson.id`**（ICS 重新同步会换 id，历史出勤会全部失联）；存储键 `tt_attendance_v1` 进 `KEYS`（自动进备份）。停课不计分母、未结束课不计入、80% 整不预警。详情页 `AttendanceControl` 三态可再点清除；`lessons` 传入全部可见课以算课程级比例。
+- **渲染期不能调 `Date.now()`**：oxlint 的 `react(purity)` 会报；出勤控制改用 `useNow()` 共享时钟（30s tick），顺带让「这节课开始了吗」自动更新。
+- **字号阶**：`index.css` 新增 `.text-micro`(11) / `.text-meta`(12) / `.text-body`(13)，`app-card-label` 10→11px。旧界面仍大量 `text-[10px]`，按屏逐步迁移，不要一次性全局替换。
+- **桌面宽度**：Moodle / 作业页从 `max-w-xl` 放宽到 `md:max-w-2xl xl:max-w-4xl`，设置弹层到 `md:max-w-lg xl:max-w-2xl`；**仍是单列**，计划里的真两栏（Moodle 侧栏卡 / 设置左导航）未做。
+- **本轮没做的结构大改（明说，避免误以为已落地）**：组件域目录搬迁、Settings 拆壳（仍 916 行）、WeekGrid/TodayView/LessonDetail 拆分、命令注册表（动作仍是 palette union + buildPalette + App switch + MoreSheet 多处）、弹层状态机、App 瘦身（仍 ~1240 行）、头部/周导航收口、EmptyState。先交付可验证的新功能与最安全的 i18n 拆分，避免结构大改和功能混在一个 diff 里。
+- **实测（本地构建 + 4407 preview，隔离 profile）**：全景带 4 周条、当前周高亮、点周跳转；提示卡显示「连堂可能赶不上：R112 → NIE73_B211」；打印版式把 `@media print` 的 mediaText 临时改成 `screen` 后截图（1200px 下 7 列不溢出、无按钮、只含本周）；详情页点「到课」→ `tt_attendance_v1` 写入 `CT60A4050|2026-10-19T05:00:00.000Z`，UI 变 `1/1 · 100%`，再点同态清除。**未验证**：Android/iOS 真机、桌面打包产物、真实打印机（只验证了 CSS 版式）。
+- 坑：Windows 保留端口段会挡 `vite preview`（5311/5399 都 EACCES），用 `node -e "…listen(0)"` 拿一个临时端口再起；`preview_resize` 不会重载页面，之前改过的 `CSSMediaRule` 会保留，重新 `navigate reload` 才还原。
+- 门禁（2026-10-20 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → 117 文件 / **925 通过**（基线 888 + 新增 37）/ 0；`npm run test:consistent` → `collected=925 executed=925` / 0；`npx oxlint` → **0 error、24 warning**（无新增）/ 0；`npm run build` → ✓ built / 0。
+
+## 2026-10-20 · 结构批次：命令注册表 / 弹层状态机 / 头部拆分 / 设置分区（只为「之后加功能更快」）
+
+用户这一轮的目标不是新功能，而是**让下一个功能只需要改一处**。三处「加法税」逐个消掉：
+
+- **一个动作只写一遍（`lib/commands.ts`）**。`buildAppCommands` 是应用动作的唯一声明处，每条带 `showInPalette/showInMenu/showInSheet` 与 `pending/priority`；命令面板（`lib/palette` 的 `{kind:'command', id}`）、桌面 `AppMenu`、移动「更多」抽屉三处都从它派生。以前加动作要改 union + `buildPalette` + App switch + 两个菜单，漏一处就是「声明了但没接」的死类型。**App 的 dispatch 现在只有 `command` 一个 case 查表执行**，别再给单个动作加分支。
+- **一个弹层只写一行（`lib/overlays.ts` + `hooks/useOverlays`）**。原先 6 个 `useState` 布尔 + 快捷键 effect 里再枚举一遍；新模型是带 `value` 的栈（课程详情用 `open('lesson', id)` / `value('lesson')`，`selectedId` 的 state 已删）。**顺手修掉一个真 bug**：分享 / 导入弹层从来没进过快捷键闸门，弹层开着按「2」会把底下的周视图切走——现在 `overlays.blocking` 从登记表推导，`shareDialogOpen` 补上那一路。
+- **一个设置项一个文件（`components/settings/*`）**。`Settings.tsx` 925 → 236 行，只剩外框 + 分类索引 + 五个 `<Group>`；分区文件自己持本地状态（来源输入、SISU 偏好、导入提示…），常量/纯函数在 `settings/tokens.ts`、组件在 `settings/shared.tsx`（**混导出会触发 `only-export-components`**，本轮就是靠拆出 tokens.ts 把 warning 拉回基线 24）。
+- **头部/底部/更新条拆出 App**：`AppHeader` / `BottomNav` / `UpdateToast`，`App.tsx` 1161 → 980 行。视图与周起点仍是 App 独占的受控状态，组件只发事件；`MoodleUnreadBadge` 跟着头部搬走。
+- **坑：`useOverlays` 的 Esc 返回值不能在 `setState` 的 updater 里赋值**。StrictMode 下 updater 会跑两次，且那属于渲染期副作用；正确写法是从闭包里的 `stack` 算 `topEscapeTarget`，再 `setState(s => closeOverlay(s, id))`。
+- **坑：读源码的接线守卫要跟着搬家**。`pendingNotificationsPanel` 那条断言原来在 `Settings.tsx` 里找 `<PendingNotificationsPanel />`，拆文件后必然红——修法是保持意图（logs 分组 → `<LogsSection>` → 面板），并把 `import.meta.glob` 从单文件扩到 `components/settings/*.tsx`，不是删断言。
+- **真浏览器验证（本地构建 + 3050 preview，复用同端口）**：5 个分区都渲染（sections 4/2/2/4/4，9 个学习时段输入，5 个索引按钮）；设置打开时按「2」视图不动（→ 今日仍 `aria-pressed=true`）；`⋯` 菜单 → Esc 关闭（`aria-expanded=false`、面板消失）；390px 下底部三标签 + 更多抽屉（格子顺序 设置/筛选/冲突检查/检查更新/语言·EN），Esc 关抽屉（468ms，含 220ms 退出动画）；设置里 Esc → `animate-exit-down` 立即出现、随后卸载，**行为与拆分前一致**。
+- **验证环境的两个坑（别误判成代码坏了）**：① 本机 `preview_press 'Escape'` 不生效（palette 自己 input 上的 Esc 也不响应），改用 `element.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`——React 根监听照样跑，先确认合成事件能关 palette 再用它验其它弹层；② 后台标签页会把 `setTimeout` 节流到 ≥1s，220ms 的退出动画实测要 ~2s 才卸载，**看到「Esc 后没立刻消失」先看有没有 exit 类**；③ 截图仍报 "produced no frames"，按老规矩退到 DOM 断言。
+- **仍未做（明说）**：WeekGrid (774) / TodayView (679) / LessonDetail (616) 未拆；组件域目录未搬迁；Moodle / 设置的「真两栏」未做；`EmptyState` 未抽。这些是纯渲染组件的拆法，收益低于「加东西的税」，不必为了行数去动。
+- 门禁（2026-10-20 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **120 文件 / 942 通过**（925 基线 + 17 条新增：`overlays.test.tsx` 9 + 同批注册表 `commands.test.ts` 6 + `appMenu.test.tsx` 2）/ 0；`npm run test:consistent` → `collected=942 executed=942` / 0；`npx oxlint` → **0 error、24 warning**（与基线持平）/ 0；`npm run build` → ✓ built in 513ms / 0。
+
+## 2026-10-20 · 活动日期同源 + 计划内取舍与完成预估
+
+- **一个 cmid 一份日期（`lib/activityDates.ts`）**：assign 元数据（`allowsubmissionsfromdate`/`duedate`）与 `core_course_get_contents` 模块 `dates[]` 合并成 `ActivityDatesByCmid`，**活动有值覆盖任务上的 ICS 推断值、缺字段保留原值**（绝不清空）；内容树模块 `dates` 的 label 被站点语言翻译（"Opens:"/"Avautuu:"），所以 `parseModuleDates` **只看时间戳先后**（≥2 个取 min/max，1 个只当截止）。手动任务、无 cmid 的日历事件永不改写。
+- **写任务只有一个出口**：`useMoodleData` 的 `commitIfChanged(next, force)` —— 套活动日期 + 只在变化/强制时 `onTasks`（submissions 归档 / timeline 合并 / URL 升级 / 内容树回灌全走它，`commitTasks` = `force:true` 的薄包装）。不要在新路径里直接 `onTasks(tasks)`：漏套日期是静默的，任务行会显示旧时间。内容树渲染时 `registerContentsDates(sections)` 零网络回灌，任务行/成绩卡当场变准。渲染唯一件 `components/ActivityDatesText.tsx`（紧凑 `10/22 14:00` + `title` 全文），内容树 / 成绩卡共用。
+- **计划分析是三个纯函数（`lib/planAnalysis.ts`）**：`analysePlan`（按每周节次判冲突，**只在未完成课程之间**算）、`recommendPlanCourses`（无冲突 > 学分密度 > 周期短 > 已在课表；每个信号给一条可读理由，冲突里低分那门进 `drop`）、`estimateCompletion`（跨学段学分按 `credits/periods.length` 均摊，节奏夹 15–35/段，`now` 可注入）。**只在已加入计划的课程里取舍**，不对外推荐目录新课。
+- **没有时间信息 ≠ 没冲突**：`sessions.length === 0` 时不给 `noConflict` 理由（只给 `unmatched`/`credits`）。学分/周期缺失时**不下结论**（`unknownCredits` / `noPeriodInfo` 分别计数并显示），别把「没填」当 0。
+- **UI 只渲染模型**：hook 输出 `planAnalysis / planRecommendations / completionEstimate`，`SisuStudyPlan` 新增卡片只做 switch(reason.kind)；冲突时间标签借已知周一（2026-01-05）+ `toLocaleString({weekday:short, hour, minute})` 出本地化文案，不新增星期名表。
+- **测试坑（本轮踩到的）**：① 把窄行改成紧凑格式后，`courseContentsTree*Deadlines` 的旧断言必红——修法是断言「短文本 + `closest('[title]')` 含完整时间」，**不是删断言**；② `fetchSubmissionStatus` 的 mock 必须跟着加 `datesByCmid`，否则 `mergeActivityDates(undefined)` 抛 `map is not iterable`（是 mock 漏字段，不是真实代码）；③ 计划项标题现在同时出现在计划列表与「建议先选」，`getByText` 会撞多个 → 用 `getAllByText` 保意图。
+- **真浏览器实证（本地构建 + 4173 preview，种子 3 节课 + 4 个计划项）**：冲突对 `CT60A1000 ↔ CT60A2000 · 周一11:00–12:00`（重叠区间裁剪正确）、推荐顺序 Networks > SE > Data（无冲突者在前）、`建议调整 Data Structures`、预估 `目标还差 40 / 未完成 18 / 差 22 / 约 3 个学段（2 学期）· 每学段 15 / 预计 2027 年 6 月（P4）`、`3 门课无周期信息`。截图 `timetable/screenshots/plan-analysis.png`。
+- **未验证（明说）**：真实 Moodle token 下的活动日期回放（本机无 token，只跑了纯函数与组件测试）；Android/桌面打包产物未重装。Windows 端口坑复习：`5317`/`5401` 落在排除段直接 EACCES，`4173` 可用。
+- 门禁（2026-10-20 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **122 文件 / 969 通过**（基线 942 + 新增 26：`activityDates` 10 + `planAnalysis` 15 + `sisuStudyPlan` 1，另修 4 个既有文件的断言/mock）/ 0；`npm run test:consistent` → `collected=969 executed=969` / 0；`npx oxlint` → **0 error、22 warning** / 0；`npm run build` → ✓ built / 0。
+
+## 2026-10-20 · 视图切换与周导航收口到一份声明
+
+- **一张表管四个入口（`lib/navigation.ts`）**：`VIEWS`（route / view / labelKey / icon / `shortcut` / `inHeader` / `inBottomNav` / `badges` / `clearsAssignPreset`）与 `WEEK_NAV`（id → delta/label/icon/shortcut）。头部切换器、底部标签栏、命令面板的 views 组、键盘快门全部派生；加视图只改这一行（新页面才再动 `App.tsx` 的渲染分支）。
+- **别名用声明表达，不要靠 if**：`assign` 仍是合法路由（route）但落到 `moodle`（view）并 `clearsAssignPreset`。深链 `#/view/assign`、面板「作业」、数字键 3 走同一个 `openView(decl)`，不再各写一遍 `if (view === 'assign') openAssignments(null)`。
+- **`WEEK_NAV` 用 `Record<WeekNavId, WeekNavDecl>` 而不是数组**：`WEEK_NAV.prev` 静态可用，组件里不会出现「找不到这条周导航」的分支；面板顺序另用 `WEEK_NAV_ORDER`（仍是 this/prev/next，与旧面板一致）。`weekStartAfter(weekStart, nav, now)` 是唯一周位移函数（delta 0 取 `now` 所在周，不是当前周）。
+- **徽标归属留在壳层，但「挂哪些」写进声明**：`BottomNav` 现在自己 `useMoodleData()` 求和（`badges: ['tasks','unread']`），App 不再传 `badge={{moodle: unread + pending}}`；头部按同一份 badges 分别渲染待办数与未读并排。加视图带角标只改 `badges`。
+- **桌面守卫改成读声明而不是抠源码**：`desktop.test.ts` 原来从 `App.tsx` 正则里抠 `(today|week|assign|moodle)`，现在直接 `import { VIEWS }`——同一份事实、更强约束（主进程再发 `assignments` 立刻红）。
+- **深链/小组件只有一个解析器**：`main.tsx`（冷启动小组件 nav）、`widgetData.installWidgetNavBridge`、App 的 hashchange 全走 `viewDeclFromRoute` / `viewDeclFromHash`；未知名字直接忽略，不再有第二份 `^(today|week|assign|moodle)$` 正则。
+- **视觉零漂移**：头部仍是「今日 / 周视图 / Moodle」三项（`assign` 不进壳层），今日/周视图保持纯文字（`headerIcon` 只有 Moodle 为 true），Moodle 仍挂两个徽标；底部仍是三项 + 更多。周视图移动端的 ‹ › / 本周 也从声明取图标与文案。
+- **验证坑（本轮实际踩到的，比代码更值得记）**：
+  ① 用 `element.click()` / `dispatchEvent(keydown)` 之后**同步读 DOM 会读到更新前的状态**（React 批处理）——先 `await setTimeout(60)` 再断言，否则会误判「快捷键没生效」；② 首次启动引导弹层开着时所有数字/方向键都被 `overlays.blocking` 正常拦掉，种子环境要先写 `tt_onboarding_done` 并 reload；③ 命令面板没有 `role="dialog"`，别用 `.fixed.inset-0` 找它——用输入框 placeholder 定位（`搜索课程、作业或操作…`）。
+- **真浏览器实证（本地构建 + 4173 preview）**：面板「视图」组顺序 = 今日 / 周视图 / 作业 / Moodle / 本周 / 上一周 / 下一周（声明顺序）；数字键 1/2/4 切页、3 落 Moodle；`→` 43→44→45 周、`T` 回 43；`#/view/assign` 落 Moodle、`#/view/week` 落周视图；390px 底部栏 周视图→Moodle 的 `aria-pressed` 切换、周视图移动端「下一周」44 →「本周」回 43。截图 `timetable/screenshots/view-nav-declaration.png`。
+- **新增测试**：`navigation.test.ts`（11 条：路由唯一、壳层只放真页面、快捷键不撞车、alias/hash/key 解析、双语标签、周边界、面板派生顺序）+ `components/viewNav.test.tsx`（4 条：头部按声明渲染/顺序/aria-pressed/周导航回调）。`weekGrid.test.tsx` 的滑动断言从 `onShiftWeek(±1)` 改为 `onWeekNav('prev'|'next')`（意图不变，跟随声明）。
+- **仍未验证**：Android/桌面打包产物、真机；主进程托盘/跳转列表的真实点击（本轮只跑了词表守卫，未重跑真产物）。
+- 门禁（2026-10-20 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **124 文件 / 984 通过**（969 基线 + 新增 15：navigation 11 + viewNav 4）/ 0；`npm run test:consistent` → `collected=984 executed=984` / 0；`npx oxlint` → **0 error、22 warning**（与基线持平）/ 0；`npm run build` → ✓ built / 0。
+## 2026-10-20 · 学习时段偏好按星期几差异化（继承 + 单日覆盖）
+
+- **形状是「继承 + 局部覆盖」，不是「7 份独立窗口」**：`StudyBlockPrefs.dayOverrides: Partial<Record<0..6, { off?, startHour?, endHour? }>>`，键与 `Date#getDay()` 同（0 = 周日），显示顺序另由 `STUDY_BLOCK_WEEKDAYS = [1..6, 0]` 给出。字段全部可选，没填的一侧继续继承全局 `dayStartHour/dayEndHour`——若存成 7 份独立窗口，用户调一次全局窗口，所有单独设过的日子就被钉死在旧值上（这是本仓「两个家」的经典翻车姿势）。
+- **日窗口的合成只有 `studyDayWindow(prefs, weekday)` 一个入口**：返回该日实际可用的 `{startHour, endHour}`，`null` = 不安排（`skipWeekends` 命中周末 / 单日 `off`）。排程器逐日问它，设置页也用它回显。别在 `planStudyBlocks` 里写「全局窗口 + 例外」——那样设置页与排程会是两份口径，漂移时没有任何东西会红。
+- **「默认值即契约」照旧守**：`dayOverrides: {}` 时每一天与全局窗口逐字节一致，Phase 1/2 的排程测试原样通过就是守卫。**DEFAULT 精确 `toEqual` 的那条测试要跟着加 `dayOverrides: {}`**（新增字段会让旧期望红，这是预期，不是回归）。
+- **归一化的三条额外规则**（都在 `normalizeDayOverrides` 里）：① 键不在 0–6、或字段全非法（`off: 'yes'`、`startHour: '8'`）的条目直接丢弃，不猜成周一；② 单侧覆盖也要与全局另一侧合得成一块——放不下就把两侧都落成显式实际窗口（存 `{startHour: 8, endHour: 10}`，而不是留一个骗人的 `{endHour: 9}`），`fitWindow` 仍是唯一的「最小窗口」算法；③ 丢掉全部字段的空覆盖不留在存储里（否则 UI 会把「没有覆盖」显示成「单独窗口」）。**`off: false` 不是「要保存的字段」**：它是「用户把 off 关掉了」，归一化后该字段消失。
+- **设置 UI 只渲染选中那一天**：`.app-seg` 七天选择（按钮 `title` = 该日实际窗口、有覆盖的日子带「·」标记、选中日的滑杆标签借 `translate('zh','studyBlockPrefDayStart',{day})` 组成「周三 开始」避免与全局「每日开始」撞名），下面是「这天不安排」复选框 + 清除链接。7×2 条滑杆全铺开会让这一屏变成噪音。`skipWeekends` 开着时周末的控件禁用并给说明——否则会出现「复选框没勾却提示不安排」的自相矛盾。选中日固定默认周一，**不要默认「今天」**：那样测试与截图会随日期漂移（本仓已有同类学费）。
+- **视觉坑（这次真截到了）**：七个按钮在 251px 宽的预览面板里会把「周一」折成两行（按钮内容宽只剩 16px）。修法是 `min-w-0 flex-1 whitespace-nowrap px-0.5 text-[10px] leading-none`；390px 下每格 ~44px、1440px 下 ~87px，两档都不折行（DOM 量过）。顺带：状态行在「不安排 / 周末禁排」时不渲染，避免和复选框文案重复一次。
+- **反向验证（必须做，否则测试可能是摆设）**：把 `studyDayWindow(prefs, startOfDay.getDay())` 改成常量 `1`，`studyBlocks.test.ts` 立刻 5 条红（4 条新增 + 既有的「跳过周末」），证明新增用例真的在验「逐日窗口」而不是碰巧通过。
+- **真产物实测（`vite preview` 服务本地 `dist`，非模拟）**：设置 → 学习偏好 → 选「周三」→ 拖「周三 结束」到 16 → 落盘 `{"dayOverrides":{"3":{"endHour":16}}}`（只写被改动的一侧，全局 `dayEndHour` 仍是 22）、标题变 `周三 · 08:00–16:00`、状态「单独窗口 08:00–16:00」；勾「这天不安排」后滑杆消失、落盘 `{"off":true,"endHour":16}`（保留窗口，取消勾选可恢复）。**排程结果随之变化**：种一条截止周三 20:00 的任务 → 生成建议得 `10月21日周三 08:00–09:00`；把周三设为不安排在生成 → `本周无可用时段`。样例任务/偏好键已清、preview 进程已停。
+- 门禁（2026-10-20 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **124 文件 / 1004 通过**（984 基线 + 新增 20：`studyBlockPrefs` 11 + `studyBlocks` 4 + `studyBlockSettings` 5）/ 0；`npm run test:consistent` → `collected=1004 executed=1004` / 0；`npx oxlint` → **0 error、22 warning**（与基线持平）/ 0；`npm run build` → ✓ built / 0。截图 `timetable/screenshots/study-block-per-weekday.png`。
+## 2026-10-20 · 真实 Moodle 活动日期回放（assign 元数据 ↔ 内容树 dates ↔ UI）
+
+- **先别急着判"网络不通"**：本轮开头连续三次 `curl https://moodle.lut.fi/` 超时（TCP 443 也 False），几分钟后同一个地址 200、`--resolve moodle.lut.fi:443:157.24.137.99` 0.34s。**同一条命令重试 + 直连 IP 对比**再下结论：LUT 这条出口的丢包是阵发性的，一次超时不等于封禁。（`sisu.lut.fi` 在全程都通，别拿它当反证。）
+- **真实字段图景（2026-10-20，11 门课 / 回放 3 门 / 32 条模块日期）**：
+  - `core_course_get_contents` 的 module 键里有 `id`(=**cmid**)、`dates`、`completion`、`completiondata`、`visible`、`url`、`modname`、`modplural`、`purpose`、`onclick`、`customdata`、`contents`、`contentsinfo`、`branded`、`downloadcontent`、`groupmode`、`indent`、`instance`、`afterlink`、`activitybadge`、`contextid`、`noviewlink`、`uservisible`、`visibleoncoursepage`、`description`。
+  - `module.dates[]` 条目**只有** `{label, timestamp, dataid}`——没有 `duedate`/`startdate`；`label` 随站点语言变（实测 `Opened:` / `Due:` / `Closed:` / `Closes:`）。**【修正·实测抓到的真 bug】** `dataid` 才是语义键（**字符串**：`timeclose` / `timeopen` / `duedate` / `allowsubmissionsfromdate` / `submissionstart|end` / `assessmentstart|end`），label 只供显示。原先「1 个日期 = 截止」的启发式在真实数据上把 **16 个模块**的**开放日当成了截止日**（K200DJ96 的 7 个作业 + K200DJ99 的 4 个 + CT10A9900 的 `AI Quiz` 等，`assign.duedate=0` 只有 `Opened:`）——后果不是文案错，而是 `applyActivityDatesToTasks` 把开放日写成 `dueAt`，连带「已逾期」分组、截止提醒、优先级、ICS 导出全错。修法：`dataid` 全部可识别时按语义分桶（开放类取 min=开始、截止类取 max=截止，**只有开放日期就只给 startAt**）；`dataid` 缺失/不认识时才退回旧启发式。同时把 `contents.ts` 里 `dataid?: number` 的错类型改成 `string | number`（真实响应是字符串）。
+  - `mod_assign_get_assignments` 的 assignment 键包含 `cmid`、`duedate`、`allowsubmissionsfromdate`、`cutoffdate`、`gradingduedate`、`grade`、`timemodified`、`nosubmissions`、`teamsubmission`…；**`0` 是"没有这个时间"而不是 epoch**（CT60A0250 的 participation points 全是 `duedate=0`）——解析成 `undefined`、UI 不渲染日期行，这是正确行为，别"修"成 1970。
+  - **联接键成立**：内容树 `module.id` == assign `cmid`（实测 2167582 / 2167583 / 2105714 / 2105716），同 cmid 的 contents.due 与 assign.duedate 差 **0 分钟**；`taskCmidOf` 从 `/mod/assign/view.php?id=<cmid>` 反解出同一个值。
+- **回放方法（可复用，已跑通）**：`core_webservice_get_site_info` → `core_enrol_get_users_courses` → 每门课 `core_course_get_contents` + 一次 `mod_assign_get_assignments`（**indexed 参数** `courseids[0]=…`），落盘原始响应后用 `npx vite-node` 跑 `.mts` 脚本导入项目的 `parseCourseContents` / `parseAssignments` / `parseModuleDates` / `mergeActivityDates` / `formatDateTime(Short)`，逐条打印 `raw → parsed → UI 文本`。三段对照同屏才是证据，只跑解析函数不算。
+- **UI 侧实证（打包产物 + CDP，不用预览）**：`npx electron-builder --dir --win` → `release-electron/win-unpacked/LUT Timetable.exe --user-data-dir=<temp> --remote-debugging-port=9224`，CDP 注入 `tt_grades_source_v1 = {token,userid}` + `tt_onboarding_done` 后 reload，应用**自己**同步出 25 条 Moodle 任务；`Moodle → 课程` 行的展开按钮 `title="展开/收起课程内容"`，树里日期短串是文本节点（`8/31 00:01 → 7/15 23:59`）、完整串在最近祖先的 `title`（`开放 8月31日周一 00:01 → 截止 7月15日周四 23:59`）。核对结果：BH60A7400 两条 `8/31 00:01 → 7/15 23:59`、CT60A0250 的 choice `10/26 23:59`、C1-Q1..Q5 `9/7 23:59 · 已逾期`、`duedate=0` 的 participation points **无日期行**——与回放表逐条一致。
+- **两条环境坑（这次真踩到）**：
+  1. **源码版 Electron 在本机验证不了**：`main.cjs` 的 `DEV_URL` 写死 `http://localhost:5210`，而 5210 落在这台 Windows 的排除端口段（`listen EACCES ::1:5210`）。要验桌面 UI 只能走 `electron-builder --dir` 的产物（打包后走 `file://`，不再依赖那个端口）。
+  2. **裸 Electron 窗口里 renderer `fetch` 打 Moodle → `TypeError: Failed to fetch`**：桌面端的 WS 由主进程 `lut-proxy-fetch` IPC 代理（绕 CORS），没有 preload 就没有代理。这条同时解释了"为什么必须用真壳"，也解释了"为什么自己写个 main 读 localStorage 会看到空缓存却以为是数据没了"。
+- **不要试图从 LevelDB 抠报文**：Electron 的 localStorage 值在 `.ldb` 里是**分块/压缩**存放的（按 latin1 读只能拿到前 ~296 字节，随后是二进制块），而且真实 profile 里的 Moodle 键早被应用清理过（当前只剩 24 个本地键，`tt_tasks_v1` 为空）。取数据要么用应用自己（CDP / 主进程 executeJavaScript），要么用回放脚本重新拉。
+- **本轮不是"只验证"**：回放抓到的 `dataid` 语义 bug 已修（`lib/activityDates.ts` 的 `parseModuleDates` 按 dataid 分桶 + `lib/contents.ts` 的 `dataid` 类型改成 `string | number`），新增 5 条解析用例（开放-only / 单个截止 / open+close / 四段窗口 / 无 dataid 回落）+ 1 条渲染用例（开放-only 不出现「截止」与「→」、不出现「已逾期」）。真数据复验：K200DJ96 的 7 个开放-only 模块从 `due=8/27` 变成 `start=8/27 · due=—`，CT60A0250 的 26 个 due-only（choice/quiz）不变。
+- 门禁（2026-10-20 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **124 文件 / 1010 通过**（1004 基线 + 6）/ 0；`npm run test:consistent` → `collected=1010 executed=1010` / 0；`npx oxlint` → **0 error、22 warning** / 0；`npm run build` → ✓ built / 0。临时脚本（抓取 / 回放 / dataid 统计 / CDP 驱动 / 探针）用完已删，`--user-data-dir` 的临时 profile、`dist/probe.html`、`release-electron/`（已在 .gitignore）之外无残留，无遗留监听端口。
+- **未覆盖**：修复后的 UI **没有**在打包产物上重新截图/重同步（只用组件测试锁了渲染契约）；Android 未跑；`cutoffdate` / `gradingduedate`（迟交窗口）仍未进模型。
+
+## 2026-10-20 · 按课表推导建议学习窗口（一键采纳为按日偏好）
+
+- **策略全体下沉到 `lib/studyWindowSuggestions.ts`**：`suggestStudyWindows(lessons, prefs)` 是唯一入口；窗口 = 该星期几在作息窗口内**最宽的可放学习块空档**。课表占用按星期几取并集（同一门课跨周只算一次），**课间缓冲也算占用**（否则建议窗口紧贴下课、排程器会把整段空档跳过），空档**向内取整**到整点（开始上取、结束下取），至少 `ceil((block+buffer)/60)` 小时——与 `fitWindow` 同一判据，别在组件里另算「够不够一块」。
+- **`studyDayWindow` 仍是日窗口的唯一合成入口**：推导只通过它拿每天的边界（已设单日覆盖时按覆盖来），`off` / 跳过周末的日子返回 `reason: 'off'`，不偷偷重开用户主动关掉的日子。`reason`（`ok | off | no-gap`）让 UI 能区分「课表塞满」与「你本来就不排」——两者都写 `off`，但文案不同，否则会把用户的意图报成课表的结论。
+- **等宽空档取更早的一段**（上午优先）；结果只依赖输入（不读 `Date.now()`），课表由调用方传入——App 传 `tt.visibleLessons`（用户看到的课表：含手动课/合并结果、排除隐藏），不是原始存储。
+- **采纳 = 整份替换**（`suggestionsToOverrides`）：与全局窗口一致的日子**不写覆盖**（继续继承，以后调全局窗口还能带上它），`no-gap` / `off` 写 `{off:true}`，`skipWeekends` 开着时周末**不写**条目（写成 `off` 会在用户关掉开关后残留一份看不见的「不安排」）。任何偏好改动都让预览作废，避免「看着 08:00–10:00 却采纳了旧值」。
+- **UI 只渲染模型**：`settings/StudySection.tsx` 一个按钮 → 7 行预览（星期 / 窗口或「没有可用空档」/ 占用段数）→「一键采纳」；没有课表时按钮禁用并提示先添加日历来源。新 prop `lessons?` 默认 `[]`，所以既有设置测试无需改动。
+- **测试**：`studyWindowSuggestions.test.ts` 14 条（最宽空档 / 缓冲 / 向内取整 / 跨周去重 / 满课 no-gap / 空档太小 / 单日覆盖边界 / off 与跳过周末 / 非法与跨午夜课程 / 采纳映射 4 条）；`studyBlockSettings.test.tsx` +4（预览→采纳只写改变的日子 / 满课日落 off / 无课表禁用 / 中英文案）。夹具日期从 `new Date()` 推导（当前周的某天），不写死字面量——否则几周后自己变红。
+- **真产物实测（`vite preview` 服务本地 `dist`，在真浏览器里点）**：种周一 10–12、周三 14–16 两节课 → 点「按课表推导」→ 预览 `周一 13:00–22:00 · 占用 1 段 / 周三 08:00–13:00 · 占用 1 段 / 其余 08:00–22:00`，此时 `tt_study_block_prefs_v1` 仍为 `null`（预览不落盘）；点「一键采纳」→ 落盘 `{"1":{"startHour":13,"endHour":22},"3":{"startHour":8,"endHour":13}}`、日按钮标题变 `周一 · 13:00–22:00`、出现「已按课表更新按日偏好。」；reload 后覆盖仍在，再点推导给出同一份结果（幂等）。截图 `timetable/screenshots/study-window-suggestions.png`（采纳后）与 `...-preview.png`（预览）。
+- 门禁（2026-10-20 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **125 文件 / 1028 通过**（1010 基线 + 新增 18）/ 0；`npm run test:consistent` → `collected=1028 executed=1028` / 0；`npx oxlint` → **0 error、22 warning**（与基线持平）/ 0；`npm run build` → ✓ built / 0。样例课表/偏好键已清，preview 进程（PID 树）已停，无遗留监听端口。
+- **未纳入**：按课程 / 按学段的作息、偏好跨设备同步；建议窗口不写回课表、不动已确认学习块（与上一批同一约束）。
+
+## 2026-10-20 · 真实 Moodle 数据：不走 CDP 的取数路径 + 全量核对（发现成绩权重缺陷）
+
+- **取数换了办法（本轮用户要求）**：不启动 Electron、不开 CDP、不碰模拟器——直接解析桌面客户端 `%APPDATA%\lut-timetable\Local Storage\leveldb`。Chromium 的 localStorage 键/值在这些 `.ldb` 里是**可读 ASCII**（`grep` 能直接找到 `tt_grades_source_v1`；早先「LevelDB 分块压缩读不出」只对大值/整库导出成立）。做法：扫二进制找键名 → 从其后第一个 `{` 做括号配对 → `JSON.parse` 得到 `{token, userid, lastSync}`。**token 只写临时文件、用完即删，全程未打印**；本次拿到的 token 实测有效（site info / 11 门课 / 全部 WS 调用通过）。
+- **直连 WS（Node `fetch`，不经应用网络层）**：`core_webservice_get_site_info` → `core_enrol_get_users_courses`（11 门）→ 11×`core_course_get_contents` + `mod_assign_get_assignments` + 每课 `gradereport_user_get_grade_items` + `mod_assign_get_submissions/get_grades`（indexed 参数）。解析全部用项目自己的函数（`parseCourseContents` / `parseModuleDates` / `parseAssignments` / `parseGradeItems` / `gradeStatusByCmid`），并与脚本里**独立实现的期望值**逐条比对（不拿被测函数给自己判卷）。
+- **通过项（真实数据，2026-10-20）**：
+  - 站点 `LUT-korkeakoulut Moodle` 4.5.15，userid 2291633，11 门课，内容树 134 节 / 745 模块。
+  - **内容树 73 个带日期模块**：开放-only 16（全部只有 `startAt`、`dueAt` 为空）、截止-only 38、两者都有 19、未知 `dataid` 0；`parseModuleDates` 与独立期望**零偏差**——上一轮 `dataid` 语义分桶的修复在真实数据上成立（历史 bug：16 个开放日被当截止）。
+  - 作业 **54** 条：`duedate=0` 38 条（`parseAssignments` 一条都没写出 `dueAt`）、有开放时间 21 条、cmid 54/54（`allowsubmissionsfromdate` 全部映射到 `startAt`）。
+  - 教师视角 API：`mod_assign_get_submissions` / `mod_assign_get_grades` 在 indexed 参数下**成功但 `assignments` 为空**（0 行）；`gradeStatusByCmid` 从成绩报告给出 52 个 cmid（9 submitted / 43 graded），其中 9 个对应真实作业 cmid——回退语义与实现一致。
+- **发现真缺陷（已于 2026-10-21 修复，见下节）**：成绩权重模型对**嵌套分类**不成立。`weightraw` 是**相对直接父分类**的权重，而 `spreadCategoryWeights` 只把分类权重摊给「自己没有 weightraw」的成员；**成员自带 weightraw 时被当成课程级百分比**。真实后果：
+  - CT60A4050：39 项权重合计 **843.6%**、`average` **564.027**（无官方总评 → `getFinalCourseGrade` 走 running，卡片直接显示 564）。
+  - KE00DA03：权重合计 **120%**、average 100。
+  - BM20A9200（扁平、每项 7.143%）99.4%、K200DJ96 99.9% 正常——缺陷只在「分类套分类 + 成员自带相对权重」时触发。
+  - **正确解法有现成数据**：`gradereport_user_get_grades_table` 的行带 `parentcategories`（分类链）与每行相对 `weight`（实测 HA1 项 100%、HA 分类 16.67%），可沿链相乘并在兄弟间归一化；代价是每课多一次报告请求 + HTML 解析（`data-categoryid` 是稳定钩子）。**不要**用「Σw>100 就归一化」糊过去：权重本身可能是局部/嵌套的，随意缩放只是换一个错误数字。
+- **复现方式**：临时脚本 `.freebuff-verify-real.mts`（`npx vite-node` 跑）已在收尾时删除；token/快照临时文件均在 `$TMP` 并已删，仓库无残留。
+
+## 2026-10-21 · 成绩权重按 parentcategories 分层合成（修掉 843.6%）
+
+- **上一轮记录的缺陷已修**：`gradereport_user_get_grade_items` 的 `weightraw` 是**同级相对权**（0.1 = 10%），不是课程占比；缺字段（报告里的 "-"）= 无权重、不参与，显式 0 也排除。旧 `spreadCategoryWeights` 只做「分类 → 直属成员」一层均摊，成员自带相对权重或分类嵌套时会把相对值当课程百分比。现在 `lib/grades.ts` 的 `composeHierarchicalWeights` 用 `gradereport_user_get_grades_table` 的 `parentcategories` 建树，在**每个兄弟池**按相对权归一，根池合计强制 100%。
+- **层级是可选增强，不是新依赖**：`fetchGrades` 先拉 11 门课的 `grade_items`，只对「分类行 weightraw/weight > 0」的课程额外调一次 table（本账号实测 2/11：30361、32632）；取不到表（站点关闭/权限）就退回旧 `spreadCategoryWeights`，成绩照常显示。table 解析只看 `itemname.content` 里的 `data-categoryid` 与 `parentcategories`（末项 = 直接父），脏表返回空 Map 而不是抛错。
+- **两个真坑（这次踩过，已写进测试）**：
+  1. **单位**：`weightraw` 是 ratio（0.1 = 10%），旧 `weight` 是百分数；内部统一用 ratio，写回 `GradeItem.weight` 时才 ×100 并取 2 位。别把显式 0.1 先当 10 个百分点、再给缺省项补一个 1（曾把 KE00DA03 baseline 算成 78.7%）。
+  2. **未设置 ≠ 0**：`weightraw: undefined` 且 `weightformatted: "-"` 是未设置（无权重，不参与）；显式 `weightraw: 0` 是老师主动排除；分类缺字段才是透明容器。三者不能混。
+- **合成规则**：无权重分类是透明容器（直接下钻）；显式 0 分类整棵跳过；池内有显式权重 → 只按 `w/Σw` 分给显式项（真实 CT60A4050 根分类的 7 个 pass/fail 项就是 "-"）；池内全无显式权且由父分类分配 → 平分（Exercise Attendance 10 项平分 10%）；根池全无显式权 → 保持 null（不造假 100/n）。逐项 2 位取整的尾差记到最大权重上，UI「权重共 {w}%」正好 100。
+- **真实数据（token 直连，`fetchGrades` 全链路而非手拼 parse）**：CT60A4050 权重合计 **843.6% → 100%**（39 项，`average` 564.03 → 64.71）；KE00DA03 **120% → 100%**（10 项，100 → 83.34）；扁平课不变（BM20A9200 99.4%、K200DJ96 99.9%，是既有 1 位取整，不走层级）。`all totals 100` 在 11 门课里只有 5 门带权重课——2 门走层级（CT60A4050、KE00DA03），其余 3 门是扁平/原生权重，后者不归一。
+- **测试**：`grades.test.ts` 31 → 33 条：`parseGradeCategoryParents` 2 条（末项为直接父/坏表容错）；分层合成 6 条（兄弟归一 100 / running 用新权重 / 旧法同树 >100 的反向锁 / 无权重不造假 / 显式 0 排除 / 课程隔离）；单位 2 条（同池缺省项不参与、单项 ≤100）。既有 25 条不变（不传层级 = 旧行为）。
+- 门禁（2026-10-21 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **125 文件 / 1038 通过** / 0；`npm run test:consistent` → `collected=1038 executed=1038` / 0；`npx oxlint` → **0 error、22 warning** / 0。临时脚本（`.freebuff-*` 回放/核对）用完即删，仓库无残留。
+- **未覆盖**：没有在打包产物/模拟器上重开 Moodle 成绩页截图（本轮改的是解析层，`GradeCourseCard` 渲染契约由既有测试覆盖）；扁平课的 99.4/99.9 未顺手归一（会把「部分权重」误报成 100，需先定义叠加语义）。
+
+## 2026-10-21 · 测验「关闭」vs 作业「截止」+ 迟交截止（cutoffdate）
+
+- **文案判定只有一个家**：`lib/tasks.ts` 的 `deadlineLabelKey(modtype)`（quiz → `taskCloses` 关闭/Closes，其余 → `taskDueShort` 截止/Due）。任务行、通知标题、日期渲染件都过它；不要在组件里再写 `modtype === 'quiz'`。通知另有 `dueNotifTitleQuiz`（测验「即将关闭」）。
+- **迟交截止是独立字段，绝不混进 due**：`Task.cutoffAt` / `ActivityDates.cutoffAt`。来源两条都保留：`mod_assign_get_assignments` 的 `cutoffdate`（parseAssignments）与内容树模块 `dates[].dataid === 'cutoffdate'`（parseModuleDates 已与 due 分桶）。`mergeActivityDates` / `applyActivityDatesToTasks` / `datesFromTasks` 逐字段透传；`dueAt === cutoffAt` 时不重复渲染。
+- **日期渲染只剩一个组件**：`components/ActivityDatesText.tsx`（开放 → 截止/关闭 · 迟交截止；窄行紧凑、title 完整）。内容树传 `kind={m.modname}`；成绩卡的 kind 来自 `useMoodleData().moduleKindByCmid`（内容树注册 sections 时顺带写入 `moduleTypesFromSections`，与日期同源、零额外请求）；任务行有 `task.modtype/url` 可直接判定。
+- **验证**：组件测试锁死两条语义（quiz title 含「关闭」且不含「截止」；assign title 含「迟交截止」+ 完整时间、行内含紧凑「迟交」）。真实产物（`vite preview` + 浏览器 279px 窄视口，种子两条任务）实测行文案：`关闭 10月21日周三 03:13` 与 `截止 10月21日周三 04:13` + `迟交截止 10月24日周六 01:13`。**未做**：模拟器/打包 APK 截图（本机无已启动 emulator）；只验证了 web 构建产物。
+- 门禁（实跑，退出码保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **125 文件 / 1046 通过** → 0；`npm run test:consistent` → `collected=1046 executed=1046` → 0；`npx oxlint` → **0 error、22 warning**（均既存）→ 0；`npm run build` → 0。
+
+## 2026-10-21 · 评分截止（gradingduedate）进入活动日期模型
+
+- **先纠正一个语义**：Moodle 的 `cutoffdate` 是学生迟交宽限终点，`gradingduedate` 是**教师批改期限**（不是迟交截止）。真实载荷（54 条作业）里 `duedate=16 / cutoffdate=3 / gradingduedate=3`，且**没有一条同时有 cutoff 与 grading**；有 grading 的样例比 due 晚 2 天。所以模型里是第三个独立字段 `gradingDueAt`，既不能并进 due（会放宽逾期/提醒），也不能并进 cutoff（会让人以为还能交）。
+- **数据入口只有 assign 元数据（截至目前）**：`mod_assign_get_assignments` 的 `gradingduedate` 已在 3 条真实作业上取到；抽查 6 门课的 `core_course_get_contents`，`dates[].dataid` 只有 timeopen/timeclose/duedate/allowsubmissionsfromdate/submissionstart/end/assessmentstart/end，**没有** cutoffdate/gradingduedate。因此内容树侧的分桶（`GRADING_DATE_IDS`）只是防御性支持，真正来源是 assignments。
+- **链路与 cutoff 完全同形**：`ActivityDates.gradingDueAt` / `Task.gradingDueAt` → `parseAssignments` → `datesByCmid` + `statusByCmid` → `mergeActivityDates` / `applyActivityDatesToTasks` / `datesFromTasks` 逐字段透传。新增字段/条件判断时三处 `if (startAt || dueAt || cutoffAt …)` 必须一起加，否则只有 grading 的活动会被静默丢掉。
+- **显示**：`ActivityDatesText` 在截止/关闭与迟交截止之后再加一段「评分截止」（紧凑「评分」）；`TaskRow` 单独一行；成绩卡自动跟随 `activityDates`。`gradingDueAt === dueAt/cutoffAt` 时不重复渲染。文案键 `taskGradingDue / taskGradingDueShort`（中文：评分截止/评分；英文：Grading deadline/Grading）。
+- **测试**：原来 activityDates 测试把 `gradingduedate` 当「不认识的 dataid → 退回启发式」并断言变成 due——**该断言已修正**，现在锁「单独的 grading 日期绝不写成 due」「due/cutoff/grading 三桶并存」「merge/套用/反推透传」；submissions 测试锁 parse + `datesByCmid`/`statusByCmid` 带 gradingDueAt；组件测试锁内容树 title 含「评分截止」且同时保留「迟交截止」，以及今日页任务行同时出现「迟交截止 / 评分截止」。
+- **验证**：构建产物上种一条 `dueAt+2h / cutoffAt+3d / gradingDueAt+5d` 的作业，真实 DOM 行文案为 `截止 …`、`迟交截止 …`、`评分截止 …`。**截图未取到**（preview webview 报 produced no frames，重开/重载均失败——按既有经验用 DOM 断言作实证）；模拟器未启动，故无装机截图。
+- 门禁（实跑，退出码保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **125 文件 / 1051 通过** → 0；`npm run test:consistent` → `collected=1051 executed=1051` → 0；`npx oxlint` → **0 error、22 warning**（均既存）→ 0；`npm run build` → 0。临时探针脚本（读 leveldb token 只打印聚合字段，不打印 token）用完即删，仓库无残留。
+
+## 2026-10-21 · 个人学习计划 → 毕业情景 / 学期时间地图 / 可选课程（真实 SISU 快照）
+
+- **个人计划是唯一数据源**：`lib/personalStudyPlan.ts`（67 行，来自 20.08.2026 计划 PDF）只存课程数据，**不要写姓名/学号**。`loadSisuStudyPlan()` 仅在键为 `null` 时落盘；已存在计划（含空计划）永不覆盖。`restorePersonalPlan()` 是唯一「恢复导入计划」入口。
+- **SISU 事实是生成快照**：`lib/sisuCourseFacts.ts` 由 `scripts/fetch-sisu-facts.mjs` 生成（开课学段/总学时/先修/评分/`offeringConfidence`），运行时零请求。换学年重跑脚本，不手改文件；公开目录没有总学时的小课会标 `ects-estimate`，别把它当 SISU 官方值。
+- **情景只读**：`lib/sisuScenario.ts` 的 `buildScenario()` 是唯一排程实现；压缩目标年限只移动**学年**，不移动 SISU 实际学段。先修课顺序、取消课程、开课模式、周负荷（`totalHours ÷ 学段周数`）、延期、每年学分、预计毕业全在纯函数里；`SisuStudyPlan` 只渲染，不重算。`lib/sisuScenarioPrefs.ts` 只存 `targetYears/cancelledCodes/reduceToMinimum`（键 `tt_sisu_scenario_v1`，自动进备份）。
+- **警告必须按严重度排序再截断**：实测 3 年情景里「开课学段差异」有 9 条，按原顺序 slice(12) 会把「先修冲突 / 周负荷过高」挤出屏幕。`WARNING_ORDER` 把 cancelled/prerequisite/delayed 放前、stale 放后，并显示「还有 N 条」。
+- **可选课程只推荐，不自动写入**：`lib/optionalCourses.ts` 的 `recommendOptionalCourses()` 吃个人计划 + 事实；先修等价表 `LIKELY_EQUIVALENT`（如 CT60A4002↔CT60A4050）与替换组合都在同一文件。替换组合会排除「会破坏剩余课程先修」的选修（`findSwapOptions` 读 facts），点击按钮才走 `createSisuPlanItem`。
+- **删除旧路线**：HDD 静态目录、`SisuCourseFocus` / `isSseRelevantCourse` / `rankPlannerCourses`、`lib/planAnalysis.ts` 与对应文案全部移除；现在只有一套 SISU 搜索（`sisuCourse.ts` GraphQL → `sisuCourseCatalog.ts` 合并计划/Moodle/课表/SISU → `sisuCourseSelection.ts` 选中与可见性）。不要再加第二套筛选或第二份计划分析。
+- **文案键与分类枚举对齐**：类别改名后必须同时查 `sisuCourseCategory_*`；`intermediate/elective` 曾缺键，页面直接把键名渲染出来。`i18nParity` 只查中英对齐，不查枚举覆盖，新增分类要手动 grep 一遍。
+- **计划页不再逐课打 SISU**：`catalogViewFor` 优先用 `COURSE_FACTS[code]`（含 `name` / `credits` / `sisuId`）核对与深链；只有快照里没有的手动代码才走 `lookupSisuCourseByCode`。实测计划页加载 `performance.getEntriesByType('resource')` 里 `sisu.lut.fi` 计数为 **0**。`lookupSisuCourseByCode` 只接受精确代码行，**不再回退首行**（旧行为会把 K200DJ99 错配成 CT60A2450 的 id）；公开目录没有的课（K200DJ96/99）用计划学分兜底，避免出现假 0 学分。
+- 门禁（本轮实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → 127 文件 / **1048 通过** / 0；`npm run test:consistent` → `collected=1048 executed=1048` / 0；`npx oxlint` → **0 error、24 warning**（均既存）/ 0；`npm run build` → ✓ / 0。
+- **UI 证据（如实记账：未装机，用本地构建产物 + preview 真浏览器）**：390px 与 1440px 各截图核对概览/情景/2×4 学期网格/警告/可选卡；真点击「2 年毕业」→ `tt_sisu_scenario_v1` 写入 `targetYears:2`、预计毕业从 2028 P4 变 2027 P4、每年学分重算；真点首个「加入计划」→ 计划 67→68、`timingSource:'scenario'`、提示「已加入 HDD7010」；控制台无报错。**未覆盖**：Android 装机、真机点击、离线。
+
+## 2026-10-21 · 毕业年限对比（情景的第二个只读投影）
+
+- **对比不是新排程，是同一函数的多次调用**：`lib/sisuScenario.ts` 的 `compareScenarios(input, targets = [2,3,4])` 对每个年限各跑一次 `buildScenario`，行里只放派生指标（毕业学期、每年学分、最忙学段周学时、超标学段、延期、缺先修课数、`fitsTarget`）。组件与 hook 都不重算任何排程量——「对比与页面上的情景吵架」这种漂移在结构上不可能发生。`earliestFeasibleYears(rows)` 只做「第一个 `fitsTarget`」。
+- **跨年限的绝对数不可比（第一版就错在这里）**：`overloadTerms` 在 2 年情景里是「7 / 8 个学段」、4 年里是「8 / 16」，只显示「超标 7」会让 2 年看着比 4 年更健康。行里必须同时给 `termCount`，文案写成「超标 7/8 学段」。同理 `creditsPerYear` 只摊**未完成**学分（已完成不是在读负荷），别用 `totalCredits`。
+- **「可行」= 无延期 且 无超标学段**。真实计划在 50h/学段上限下 2/3/4 年全部不达标（最忙 119.7 / 93.8 / 93.8h），所以摘要必须诚实写「2–4 年内都排不完」，**不要**挑一个「最不坏」的冒充推荐——那会让用户以为延长年限就解决了。
+- **夹具坑（不是实现坑）**：`planStartYear` 取计划内最早学年。只用 2027-28 / 2028-29 两门课做「两年压缩会把两年叠进同一学期」的测试时，起点会变成 2027，两门课恰好落在 year0/year1，永远叠不到一起 → 想测叠加必须先放一门已完成的 2026 课钉住起点。
+- **测试**：`sisuScenario.test.ts` +3（与 `buildScenario` 逐字段一致的 2/4 年对比、压到 2 年时同学段叠加 → `overloadTerms` 与 `termCount` 同时断言、缺先修按**课程**去重计数）；`components/sisuStudyPlan.test.tsx` +1（三行齐全、`li[aria-current="true"]` 只有当前年限一个、点「4 年毕业」后高亮迁移且 `tt_sisu_study_plan_v1` 逐字节不变）。当前年限用 `aria-current` 而不是文案匹配，是因为按钮「2 年毕业」与行标签「2 年」会撞名。
+- **真浏览器实证（本地构建 + 4173 preview，真实个人计划）**：三行 `毕业 2027 P4 / 2028 P4 / 2028 P4`、`98 / 65.3 / 49 学分/年`、`最忙 119.7 / 93.8 / 93.8h`、`超标 7/8、8/12、8/16 学段`；勾「只保留分类最低要求」→ 三行同时变 `76.5 / 51 / 38.3 学分/年`、`5/8、2/12、2/16`，取消勾选逐字节回到原值（证明 memo 依赖接对，不是只读了一次）；点「2 年毕业」→ 高亮迁移、`tt_sisu_scenario_v1` 变 `targetYears:2`、`tt_sisu_study_plan_v1` 不变；390px `docOverflow = 0`、每行单行 24px 高。截图 `timetable/screenshots/scenario-comparison.png`（390）与 `scenario-comparison-desktop.png`（1440）。
+- 门禁（2026-10-21 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **127 文件 / 1052 通过** / 0；`npm run test:consistent` → `collected=1052 executed=1052` / 0；`npx oxlint` → **0 error、24 warning**（与基线持平）/ 0；`npm run build` → ✓ / 0。
+- **未做（明说）**：对比行不可点击（切换仍走既有的 2/3/4 按钮，避免两套入口）；没有「按超标学段自动挪课」的优化器；Android/打包产物未重装。
+
+## 2026-10-21 · 计划页仪表盘化（容器查询而非视口断点）
+
+- **这一页有两种真实宽度**：连接 Moodle 后 `MoodleView` 的容器是 `xl:max-w-4xl`（896），未连接时计划页落在 `NotConnectedCard` 的 `max-w-xl` 里只有 **576**。同一个 `xl:` 视口断点在两种情况下都会命中（1440 视口），于是 576 时右栏只剩 184px——标签全部竖排折行。修法：`section` 加 `@container`，分栏用 `@2xl:grid-cols-3`（阈值 42rem=672）。实测同一 DOM 在 576 下是单列、在 896（运行时把外层 `maxWidth` 改成 896 模拟）下是 290×3 三栏。
+- **仪表盘结构**：`学业概览` 卡内三块 KPI（学分环 SVG `pathLength=100` + 分类进度条带 / 预计毕业 + 每年学分迷你柱 / 负荷与风险），`md:grid-cols-2 @2xl:grid-cols-[1.4fr_1fr_1fr]`；主区 `学期时间地图`（左 2 栏）+ `毕业情景 / 毕业年限对比 / 情景提醒`（右 1 栏）；`从 SISU 公开目录补充课程` 改成默认展开的 `<details>`（保留功能可见性，只是能整块收起）。
+- **风险小卡直接读 `scenarioComparison` 的当前年限行**：hook 现在传给 `compareScenarios` 的是 `[scenarioPrefs.targetYears, 2, 3, 4]`（lib 内部去重排序），所以「当前行一定存在」。不要在组件里再算一遍 `overloadTerms`/缺先修——那是第二份口径。
+- **信息不重复**：旧的 `planOverviewSource` 曾同时出现在卡片头与学分块里，组件测试立刻红（`getByText` 命中两个）。挪位置时把重复的那份删掉，正文只留一处、长文本用 `line-clamp-2` + `title`（不是 `truncate`，两行能放下的信息不该被截掉）。
+- **窄栏长串要能断**：右栏 290px 时先修提醒 `CT60A9602 <- BM20A8801, …` 是长串，`li` 加 `break-words` 后 `scrollWidth - clientWidth = 0`（DOM 实测）。
+- **反向验证**：把主区那层 `grid gap-3 @2xl:grid-cols-3` 临时换成 `space-y-3`，新增的结构测试立刻红（`closest('div.grid')` 为 null → `expected null to be truthy`），证明这条断言真的在锁嵌套布局。
+- **真浏览器实证（本地构建 + 4173 preview，真实个人计划）**：576 容器 → 学分块通栏、毕业与风险并排、分类 2 列；896 容器 → 三栏 352/251/251、主区 581+290；390 视口 → 单列、`docOverflow = 0`、对比行单行 24px。截图 `timetable/screenshots/plan-dashboard-576.png`、`plan-dashboard-896.png`、`plan-dashboard-390.png`、`plan-dashboard-mid-390.png`。
+- 门禁（2026-10-21 实跑，退出码逐条保留）：`npx tsc -b --pretty false` → 0；`npx vitest run` → **127 文件 / 1053 通过** / 0；`npm run test:consistent` → `collected=1053 executed=1053` / 0；`npx oxlint` → **0 error、24 warning**（持平）/ 0；`npm run build` → ✓ / 0。
+- **未做（明说）**：未在「真已连接」状态下截图（本机 preview 无 token，896 宽是用运行时改 `maxWidth` 模拟的，容器查询本身是实测）；Android/打包产物未重装；仪表盘的数字没有可点击下钻（点风险条滚到提醒这一步没做）。
+
+## 2026-10-21 · 毕业情景「自动削峰」（同年 P1–P4 重排，只读投影）
+
+- **优化器不自己算页面数字**：`lib/sisuRebalance.ts` 只产出 `periodOverrides`（itemId → 学段），交回 `buildScenario` 重算整份投影；学期格、风险卡、年限对比、警告全部读同一份 `scenario`，所以「峰值 93.8h → 68.2h」这行字和网格里每格的 h 不可能打架。别在优化器里另存一份 terms/峰值来渲染。
+- **目标函数次序是产品决策，不能写成「只看峰值」**：`(超标学段数, 峰值, 平方和)` 字典序。第一版用 `(总超额, 峰值)`，把 Y1 峰值从 93.8 压到 65.1，但超标学段 8 → 9（把负荷摊到刚刚越过 50h 的学段）——数字更漂亮、排课更差。平方和是第三键：没有它，贪心会把所有课堆进第一个空出来的学段（实测同一份计划峰值 68.2 时分布 65.1/49.7/68.2/63.1）。
+- **候选窗口两条腿**：① 开课学段内的连续 run（长度 ≥ 当前，允许拉长＝同一门课摊薄到更多学段）；② 等长平移（学段外，`withinOffering: false`，UI 标「需核对开课」）。只做①时真实计划只挪得动 1 门（开课学段外的课太多），所以②默认开、用 `strictOffering` 偏好关掉；**不要**为了「真实」把②删掉，削峰就没得做了，也不要默默做②而不标注。
+- **先修边同年两端锁死**：移动任一端口都可能把依赖课顶到下一年（`buildScenario` 的先修后移逻辑会照做），所以只要两门课在同一年且存在先修关系，两端都不动。这条比「移动后检查警告」便宜且确定。
+- **测试 fixture 的 yearIndex 由 `planStartYear` 决定**：计划里最小 studyYear 是 2027 时 `yearIndex` 是 0，不是 1——断言「不换学年」要比 rebuild 前后的 `yearIndex`，别硬编码。
+- **加偏好字段会打红既有 prefs 测试**：`sisuScenarioPrefs.test.ts` 用 `toEqual` 比全对象，新增 `autoBalance/strictOffering` 要同步；布尔只认 `=== true`（字符串 `'yes'` 不得打开）。
+- **实测**：真实个人计划 3 年目标 5 门 / 峰值 93.8→68.2 / 超标 8→8（其中 4 门需核对开课）；严格模式 1 门 / 93.8→90.4。耗时：3 年单次 9.7ms、四行年限对比 3.4ms（`rebalanceScenario` 每次最多 32 次 rebuild，量级可接受，不必上 worker）。
+- 门禁：`npx tsc -b --pretty false` / `npx vitest run`（129 文件 / **1066 通过**）/ `npm run test:consistent`（1066:1066）/ `npx oxlint`（0 error、24 warning 既存）/ `npm run build`。浏览器（4173 上的 dist）：勾选后 5 门挪课 + 红色「需核对开课」；严格模式收窄为 1 门；390 视口 `docOverflow=0`。
+
+## 2026-10-21 · 成绩权重改按 SISU 教师描述（evaluationCriteria）
+
+- **数据源是 `completionMethods.evaluationCriteria`，不是 `description`**：SISU GraphQL 的 `CompletionMethod` 同时有 `description`（课时描述）和 `evaluationCriteria`（"Exam 50 %, project 30 %, weekly tasks 20 %"）。抓取脚本 `scripts/fetch-sisu-facts.mjs` 已经补上 `evaluationCriteria{en fi}` → `CourseFact.assessmentCriteria`；**不要**从 description 里抠百分比（那是学时分解，"80 h" 之类会混进来）。重跑脚本一次即可：`node scripts/fetch-sisu-facts.mjs`（95 门，约 40s，输出仍是同一个生成文件）。
+- **文本形态极不统一，解析器只保四类分项**：`|` 分行、`(20%)` 括号、`0 - 5. ` 前缀、`Graded 0-5,`、`0-5 (report 70%`、`exam, 100 %`（标签被逗号切开）、`including …` 嵌套拆解。`lib/sisuGradeWeights.ts` 的 `parseSisuWeights()` 做法：先把 `|`→`,`、`–`→`-`、`,` 小数→`.`；逐子句取「% 前的文字」当标签（空前缀时用上一条短子句的标签兜底）；**阈值/区间直接丢**（`at least 50 %`、`80-100 %`）；`including` 之后若是嵌套拆解（合计 >105）就截断到 `including` 之前；合计 90–110 才接受，然后归一。分项按 exam/exercises/project/attendance 四类合并（"midterm 20 + final exam 40" 变 exam 60）。
+- **映射宁可拒绝也不猜**：每个分项必须找到 ≥1 个 Moodle 项目（按名称关键词归类；`Final Exam1/2/3` 这种带数字的要 `exam\d+` 才命中），否则整门课不接管、保留 Moodle 权重，并在诊断里列出未对上的分项。半套映射会把别人的 25% 悄悄挪走。分项权重在命中项目间**均分**，最后一个吸收舍入余数（3 个 exam 是 16.7/16.7/16.6，不是 16.7×3=50.1）。
+- **headline 不篡改官方总评**：`courseWithSisuWeights()` 只换权重并重算 `average`，而 `getFinalCourseGrade` 仍然「官方总评优先」——卡片上的 40% 还是 Moodle 的官方分，变化体现在每项权重/贡献列/what-if。想改排行榜口径得先改这条链，不要在两处各写一次。
+- **快照也要补权重**：旧快照（`tt_grades_cache_v1`）里的 items 是上次抓到的，启动时 `withSisuWeights()` 再投影一次，否则同一门课离线和在线显示不同权重。用户确认过的方案优先，快照补权重前要跳过。
+- **真实数据验证**（无需 token）：`.freebuff` 里的四份真实 grade dump + enrol dump 的 courseid→shortname 表足以离线跑映射。实测 30361=CT60A4050（criteria 25/25/50）→ 接管成功：Quiz+4×Home Assignment 各 5、2×Peer Review 各 12.5、Final Exam 16.7/16.7/16.6；CT10A9900「Pass / fail」、BM20A9200「Assignments and exam.」、KE00DA03 无 criteria → 全部保持 Moodle 权重（如实）。**不要**把测试 fixture 写成编造的课程名去「证明」映射，用这几份 dump 或真实 item 名。
+- **UI 证据**：种子快照（无权重）+ 假 token → 刷新后成绩卡出现蓝色 `SISU 权重` 角标，title 为「按 SISU 课程描述里的教师权重计算：weekly exercises 25% · project 25% · exam 50%」，展开后每项权重 12.5/12.5/25/50、贡献 10.0/7.5/22.5/25.0（合计 65）。preview 截图在本机仍可能 “produced no frames”，此时 DOM 断言是有效证据，别伪造截图。
+- 门禁：`npx tsc -b --pretty false` / `npx vitest run`（130 文件 / **1081 通过**）/ `npm run test:consistent`（1081:1081）/ `npx oxlint`（0 error、24 warning 既存）/ `npm run build`。
+
+## 2026-10-21 · 修正可选课程口径：只推荐计算机/软件工程（移除 HDD 中文块）
+
+- **事实修正**：上一版的 `OPTIONAL_COURSES` 把 HDD7010/7020/7030/7040（Basic / Intermediate Chinese）与 HDD4120（Overview of China）当作「HEBUT 双学位中文要求」推荐，优先级还给到 10/9 —— 这是错的。本人专业是软件工程（SSE），这些不是本专业的选修；相关 `why` 文案也已随条目删除，不要在别处再写「双学位中文要求」。`OptionalTag` 里的 `'china'` 一并删除。
+- **影响面**：`recommendOptionalCourses()` 的池子现在全是 CS/软件工程/AI/数学（13 门），前三是 CT30A1500（DevOps）、CT30A8912（架构）、BM20A6100（数据分析与 ML）。之前 HDD7010/7020 靠 priority 10/9 占掉 `limit=8` 的头两名，删掉后 CS 课才浮上来——**优先级字段是排序真相**，加条目时先看它会不会把别的课挤掉。
+- **锁定意图**：`optionalCourses.test.ts` 新增两条守卫：① 目录里 `categoryImpact` 必须全是 `elective`、标题不得出现 chinese/china、不得包含 HDD70xx；② 用真实 `COURSE_FACTS` + 个人计划跑推荐，首条必须带 `software` 标签，且结果里不得出现 `HDD7*`。以后谁把中文课加回来会直接红。
+- 验证：构建产物里「SISU 计划 → 可选课程建议」实测首三条 = CT30A1500 / CT30A8912 / BM20A6100，全文无 `Basic Chinese|中文要求|Chinese Economy|Intermediate Chinese`。
+- 门禁：`npx tsc -b --pretty false` / `npx vitest run`（130 文件 / **1083 通过**）/ `npm run test:consistent`（1083:1083）/ `npx oxlint`（0 error、24 warning 既存）/ `npm run build`。
+
+## 2026-10-21 · 界面层级重排（导轨 + 单区 + 一眼概览）
+
+- **问题不是「不好看」而是「同一屏堆了三种东西」**：设置 15 个小节一条长滚（分类索引只能滚动定位，用户仍要自己找）、Moodle 6 个 tab 每个内部又是长列表、SISU 计划把搜索框/复选框/情景开关和结果清单竖着摞在一起。重排的判断标准只有一条：**「这是信息、选择、还是设置？」**——三者不同屏。
+- **设置：左导轨 + 右单组**。`components/settings/tokens.ts` 现在同时拥有标题键、说明键（`GROUP_DESC_KEYS`）与图标（`GROUP_ICON`）；`Group` 多两个 prop（`description` / `active`），非当前组只加 **`hidden` 类、不卸载**——切分类不会丢正在输入的内容，真实浏览器里 `display:none` 也保证不可聚焦；测试环境没有样式表，所以旧测试仍能 `getByText` 找到非当前组（这是既有契约，不要改成条件渲染）。分类标题只能由 `Group` 渲染：外层再写一个同名 h2 会让 `getByRole('heading', { name })` 命中两个直接红。
+- **Moodle：导轨 + 概览**。分区清单在 `MoodleView` 内声明一次（order / labelKey / icon / badge），渲染成一列 `.app-rail` 按钮：手机上横滑 chip、`md:` 起变左侧竖排，**同一份 DOM**（复制两套按钮会撞 id 与 `aria-labelledby`）。顶部 `app-hero` 放 4 个 `stat-tile`（待办 / 逾期 / 未读 / 均分），点数字 `setSection` 直接跳分区。旧的左右翻页箭头删除（竖排导轨后第 6 个分区本来就可见）。
+- **SISU 计划：概览 / 计划 / 选课与学习 三个子页**。`tabCls()` 只切 `hidden`，不是条件渲染——计划清单、搜索词、勾选状态在切页后保留。注意「选课与学习」的内容在源码里被计划卡分隔成两段，所以有两个 wrapper，但**只有第一个带 `id="sisu-panel-tools"` / `role=tabpanel`**（重复 id 是 a11y bug）。三份面板各自 `aria-labelledby="sisu-tab-*"`。
+- **今日页：一条英雄卡替代「标题行 + 独立横幅」**。日期、当前/下一节、倒计时、今日课程/今日截止/已逾期三个数字都在 `.app-hero` 里；`今日截止`/`已逾期` 只在 >0 时渲染——一直渲染 0 会让「没有逾期」的旧断言（`queryByText(/已逾期/)` 为 null）变红，也确实是噪音。空课表的「添加课表源」按钮跟着英雄卡走，不要漏接。
+- **`useMemo` 必须在 `if (!md.connected) return` 之前**：这次给 Moodle 概览加 `useMemo(timelineBuckets)` 时写在提前返回之后，`oxlint react-hooks(rules-of-hooks)` 直接报「called conditionally」——tsc 看不出来，只有 lint 会拦。
+- **接线守卫匹配源码字面量会被格式化打断**：`pendingNotificationsPanel.test.tsx` 原本 `indexOf('Group id="logs"')`，改成多行 props 后永远 -1。守卫要用跨行正则（`/<Group[\s\S]{0,200}?id="logs"/`），但别宽到能匹配到下一个分组。
+- **视觉层只新增 5 个类**：`.app-hero`（双色极淡径向）、`.stat-tile[data-tone]`（语义色只染数字与左上渐变）、`.app-rail` / `.app-rail-item`（横滑 ↔ 竖排同一类）、`.panel-head`、`.animate-stagger`（最多 12 项错峰）。全部在 `@layer components` 内，`prefers-reduced-motion` 段补上了 transition/animation: none。不要再给每个页面写自定义渐变——语义色一多就回到「霓虹贴纸」。
+- **实测（4173 上的 dist，非 preview dev server）**：1440 → 设置 896×703、导轨 `flex-direction: column`、可见 pane 只有 `settings-data`（点「数据与工具」后 `aria-current` 跟手）；周视图工具条 `10 节课 / 20 h`；今日英雄卡 184px（390 视口）且 `scrollWidth === clientWidth`；390 → 设置导轨 `row` + `overflow-x: auto`（scrollWidth 525 > 357），页面无横向溢出；SISU 三页切换后 `overview/plan/tools` 的 `display` 互斥。截图：`shots/after-today.png`。
+- 门禁：`npx tsc -b --pretty false`（0）/ `npx vitest run`（131 文件 / **1089 通过**）/ `npm run test:consistent`（1089:1089）/ `npx oxlint`（0 error、24 warning 既存）/ `npm run build`（0）。
+
+## 2026-10-21 · 校准 SISU 学时 → 周学时（「42 学分 = 93.8 h/周」的三个成因）
+
+- **同一屏上两个数各自错了，所以互相「印证」**：旧学期格显示 P1 = **42 cr · 93.8 h/周**。42 是跨学段课程在两个学段各算一遍整学分（真实份额 27.8）；93.8 是 59.8 的实际负荷 + 5 门自定进度 MOOC 凭空加的 34 h。用户一除（42×27÷8 = 141，或者凭 93.8 记住）就会觉得模型不可信。校准后同一格是 **27.8 cr · 59.8 h/周**（`sisuScenario` 的 P1，3 年目标）。
+- **唯一换算器在 `lib/sisuWorkload.ts`**：27 h/学分（SISU `totalHours` 含自学；缺字段才估算）× 按学段数均摊 ÷ 8 周/学段；**自定进度（`selfPaced`，20 门 MOOC）与 0 学分行不产生周负荷**；学分用 `termCreditShare` 按同一分母摊。新增 `teachingPeriods()` 做合法化 + 去重（存储里的 `[1,1]` 曾把一周课按 16 周摊、负荷砍半让告警消失）。
+- **三个消费方全部改走它，抓出两处漂移**：`sisuScenario` 早就在用；`sisuRebalance.hoursIn()` 还手写 `fact.totalHours / (window.length * 8)`（自定进度课会被当成有负荷、0 学分课会凭空占位），`optionalCourses` 的 `weeklyDelta` 也手写 `totalHours / (periods * 8)`（推荐卡的小时数与情景页不同源）。两处都改成 `courseWeeklyHours`；推荐单门课的上限用 `ABSOLUTE_MAX_WEEKLY_HOURS`（80）而不是复用 60 的学段告警阈值——概念不同。
+- **SISU 总学时本身也会错**：93 门事实里 92 门正好 26–28 h/学分，只有 `CT10A5000`（12 cr 论文课）描述只合计 **162 h**（13.5 h/cr）。旧的异常阈值是 `<10 或 >40`，正好漏掉它，导致最重的一门课负荷被腰斩。`scripts/fetch-sisu-facts.mjs` 改为 **`<20 h/学分`** 即按 27 h/cr 估算并打 `workloadAnomaly`（UI 显示「SISU 学时与学分不匹配，请核对：CT10A5000」）。重跑生成器后快照 diff 只有 8 行（timestamp + 该课的 totalHours/hoursSource/workloadAnomaly），说明校准没有偷改别的数据。
+- **学分与小时故意不等**：学期格的 cr 含自定进度课程（照常计学分），h 不含（无固定课表）。不要用 `cr × 27 ÷ 8` 去「校验」h；文案（`termGridHint` / `termCreditsHint`）已写明，改文案前先想清楚这一点。
+- **阈值文案不再手抄数字**：`planOverloadCount` / `termGridOverloadHint` 从硬编码「50 小时」改成 `{max}` 并由 `DEFAULT_MAX_WEEKLY_HOURS`（60）注入；峰值与学期格统一 `h/周`（`termCellLoad`）。改阈值只改 `sisuWorkload`，别再出现第二份 50/60。
+- **「自动削峰」改名为「自动均衡负荷」并说清交易**：目标仍是先压低最忙学段（`betterScore` / `better` 都以 peak 为先，候选排序与验收必须同序，否则会选出被验收直接拒掉的候选），批级守卫允许「超标学段减少但峰值上升」。真实个人计划 3 年目标就是这种：`BM20A8801` 从 P4 挪到 P1 解除了 `CT60A9602` 的延期，后者回到 Y2P4 → `峰值 64.1 → 69.2、超标 3 → 1`。摘要必须同时报两个数（测试锁 `/超标学段 \d+ → \d+/`），不要只报峰值或只报超标数；叫「削峰」而峰值上升就是自毁信誉。
+- **验证（dist + 预览 4173，DOM 读数而非截图猜测）**：学期格 `27.8 cr · 59.8 h/周`、`最忙学段 64.1 h/周`、提示语 `超过 60 h/周`、tooltip `3 个学段周负荷超过 60 小时`、情景提醒里 `CT10A5000` 的核对项；打开自动均衡后摘要 `挪了 3 门 · 峰值 64.1h → 69.2h · 超标学段 3 → 1`、三个 move 的 `P → P` 窗口与算出的 Y2P4 69.2 一致。
+- 门禁：`npx tsc -b --pretty false`（0）/ `npx vitest run`（132 文件 / **1100 通过**）/ `npm run test:consistent`（1100:1100）/ `npx oxlint`（0 error、24 warning 既存）/ `npm run build`（0）。
+- **未验证（明说）**：没有重打 Android/Electron 产物——本批只动纯函数 + web 文案，装机路径未被触碰；也没有拿另一份「用户真实计划」验证，只有仓库内默认个人计划 + 合成 fixture。
+
+## 2026-10-21 · 仪表盘骨架复用到成绩页 / 作业页（KPI + 两栏 + 可折叠工具）
+
+- **骨架抽成 `components/Dashboard.tsx`**：`DashboardHero`（标题 + 右侧动作 + `.app-hero` 里的 KPI 格）、`StatTile`（可点/可选中，`data-tone` + `aria-pressed`）、`DashboardSplit`（主区 2/3 + 侧栏 1/3，窄屏单列，`asideFirstOnMobile` 让筛选在手机上排到列表前）。折叠工具继续用 `CollapsiblePanel`，只补了 `defaultOpen`（用户点过之后以存储为准）。三个页面（SISU 计划 / 成绩 / 作业）现在同一套结构；**不要在页面里再手写 hero/grid**。
+- **`DashboardSplit` 自己带 `@container`**：SISU 页原先靠根节点上的 `@container` 才能让 `@2xl:` 生效；成绩段挂在 MoodleView 里、作业段挂在 TimelineSection 里，都没有容器上下文。把 `@container` 放进 split 后，`@2xl` 才会按「可用宽度」分栏（1600 CSS 宽下实测 972 的内容区正常两栏；390 下 `grid-template-columns: 383px` 单列）。
+- **「作业页」不是独立视图**：`#/view/assign` 在 `lib/navigation.ts` 里映射到 `view: 'moodle'` + `clearsAssignPreset`，AssignmentsView 内嵌在 `TimelineSection`（四桶卡片下方）。验证时改 hash 到 `#/view/assign` 只会回到 Moodle，必须 `tt_moodle_section = 'timeline'` + reload。别去 App 里找 assign 分支。
+- **KPI 口径复用 lib，不在组件重算**：成绩页均分 = 有 `average` 的课程等权平均（与 Moodle 顶栏同一个公式），未评项用 `ungradedTotal` 求和（含未计权重的条目），匹配数用 `matched`；作业页四个数直接按 `isOverdue` / 7 天窗口从全量任务算（chips 的计数跟随搜索，两者职责不同）。KPI 格子点击分别驱动排序/筛选（`tt_grades_sort` 落盘）与分组（已完成格子会同时打开「显示已完成」）。
+- **折叠状态逐页独立**：`tt_grades_tools_open` / `tt_assign_tools_open`（`KEYS.gradesToolsOpen` / `assignToolsOpen`）。不要复用 `tt_assign_impact` 或侧栏/抽屉的 key——同一个 key 会让「默认展开」在两个入口互相打架。
+- **测试真的被抓了两次，记下来**：① `timelineSection.test.tsx` 的 helper 用 `button[aria-pressed]` 当「四桶卡片」的选择器，KPI 格子也带 `aria-pressed` → 4 变 8；给桶网格加 `data-timeline-buckets`，helper 在其中查。② AssignmentsView 的测试用「最后一个 checkbox」找任务行，工具面板移到列表之后（DOM 顺序）后最后一个变成「按影响排序」→ 必须从任务行 `li` 里 `querySelector`。凡是「按全文档位置取第 N 个」的选择器，在这次布局改动里都不可靠。
+- **预览实证（seeded data，不用真 token）**：`tt_grades_cache_v1`（3 门课，含未评项与未匹配课）+ `tt_grades_source_v1` 假 token + `tt_tasks_v1`（逾期/7 天/更晚/已完成各一）。**改 hash 不是 reload**：种子写完必须 `location.reload()`，否则 `useState(loadGradesSource)` 还是旧值（表现为「接入 Moodle」空态）。成绩页实测 KPI `77% / 2 / 2/3 / 3`，点「未评项」写 `tt_grades_sort=ungraded`，点「已匹配」列表 3→2；作业页 KPI `3 / 1 / 1 / 1`，点「已完成」显示已完成行且「显示已完成」勾上；两页折叠键分别写自己的 key。
+- **截图不可靠时用 DOM 尺寸**：本机预览视口的 `devicePixelRatio≈0.9`，`preview_screenshot` 产物是 2520×1750（CSS 1600 的 1.575×），聊天里右侧看起来被裁掉；判断溢出要看 `document.documentElement.scrollWidth === clientWidth`（本次两页均 1600=1600、390 档 433=433）与 `#moodle-panel.scrollWidth`，不要凭截图目测。
+- 门禁：`npx tsc -b --pretty false`（0）/ `npx vitest run`（132 文件 / **1104 通过**，比上批 +4）/ `npm run test:consistent`（1104:1104）/ `npx oxlint`（0 error、24 warning 既存）/ `npm run build`（0）。
+- **未验证（明说）**：没有重打 Android/Electron 产物（只动 web 布局与纯展示逻辑），也没在真机上点过；手机档只量了 390 级别的 grid/order，没有截图。

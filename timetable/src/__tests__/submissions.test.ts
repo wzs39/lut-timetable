@@ -21,7 +21,7 @@ function assignmentsResponse() {
         shortname: 'CT60A0250',
         fullname: 'Fundamentals of Programming',
         assignments: [
-          { id: 11, cmid: 111, name: 'Exercise 1', duedate: 1759000000 },
+          { id: 11, cmid: 111, name: 'Exercise 1', duedate: 1759000000, cutoffdate: 1760100000, gradingduedate: 1761000000 },
           { id: 12, cmid: 112, name: 'Exercise 2', duedate: 1760000000 },
         ],
       },
@@ -86,7 +86,11 @@ describe('parseAssignments', () => {
     expect(out).toHaveLength(3)
     expect(out[0]).toMatchObject({ id: 11, name: 'Exercise 1', course: 'CT60A0250' })
     expect(out[0].dueAt).toBe(new Date(1759000000 * 1000).toISOString())
+    expect(out[0].cutoffAt).toBe(new Date(1760100000 * 1000).toISOString())
+    expect(out[0].gradingDueAt).toBe(new Date(1761000000 * 1000).toISOString())
     expect(out[2].dueAt).toBeUndefined()
+    expect(out[2].cutoffAt).toBeUndefined()
+    expect(out[2].gradingDueAt).toBeUndefined()
   })
 
   it('returns [] for malformed responses', () => {
@@ -366,6 +370,14 @@ describe('fetchSubmissionStatus — student-token fallback', () => {
     const k2 = taskMatchKey({ title: 'Exercise 2', course: 'CT60A0250', dueAt: new Date(1760000000 * 1000).toISOString() })
     expect(r.status.get(k1)).toMatchObject({ state: 'submitted' })
     expect(r.status.get(k1)?.dueAt).toBe(new Date(1759000000 * 1000).toISOString())
+    expect(r.status.get(k1)?.cutoffAt).toBe(new Date(1760100000 * 1000).toISOString())
+    expect(r.status.get(k1)?.gradingDueAt).toBe(new Date(1761000000 * 1000).toISOString())
+    expect(r.datesByCmid.get(111)).toMatchObject({
+      dueAt: new Date(1759000000 * 1000).toISOString(),
+      cutoffAt: new Date(1760100000 * 1000).toISOString(),
+      gradingDueAt: new Date(1761000000 * 1000).toISOString(),
+    })
+    expect(r.statusByCmid.get(111)?.gradingDueAt).toBe(new Date(1761000000 * 1000).toISOString())
     expect(r.status.get(k2)).toMatchObject({ state: 'graded', grade: '9/10' })
     // cmid 副本同步填充，深链照常
     expect(r.statusByCmid.get(111)).toMatchObject({ state: 'submitted' })

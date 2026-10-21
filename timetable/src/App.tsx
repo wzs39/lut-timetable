@@ -8,9 +8,13 @@ import { useSubscriptions } from './hooks/useSubscriptions'
 import { useDiagnostics } from './hooks/useDiagnostics'
 import { useShareLinks } from './hooks/useShareLinks'
 import { useWidgetTaskBridge } from './hooks/useWidgetTaskBridge'
+import AppHeader from './components/AppHeader'
+import BottomNav from './components/BottomNav'
+import UpdateToast, { type UpdateToastState } from './components/UpdateToast'
 import WeekGrid from './components/WeekGrid'
 import TodayView from './components/TodayView'
 import LessonDetail from './components/LessonDetail'
+import PrintWeek from './components/PrintWeek'
 import DuplicateResolver from './components/DuplicateResolver'
 import BatchFilter from './components/BatchFilter'
 import ConflictCheck from './components/ConflictCheck'
@@ -24,7 +28,7 @@ import {
 } from './lib/translator'
 import Sidebar from './components/Sidebar'
 import MoreSheet from './components/MoreSheet'
-import type { SheetAction } from './lib/sheetActions'
+import { buildAppCommands, toSheetActions } from './lib/commands'
 import CommandPalette from './components/CommandPalette'
 import Onboarding from './components/Onboarding'
 import { useI18n } from './i18n'
@@ -32,13 +36,26 @@ import { KEYS as STORE_KEYS, readString as readStored, writeString as writeStore
 import { sourceFromUrl } from './lib/store'
 import { exportBackup } from './lib/backup'
 import { exportTimetableIcs } from './lib/exportIcs'
+import { canPrintSchedule } from './lib/print'
 import { parseShareHash } from './lib/shareLink'
 import { isSubscribed } from './lib/subscriptions'
 import { useStudyBlocks } from './hooks/useStudyBlocks'
+import { useOverlays } from './hooks/useOverlays'
 import { loadStudyBlockPrefs } from './lib/studyBlockPrefs'
 import ShareImportDialog from './components/ShareImportDialog'
 import ShareQrDialog from './components/ShareQrDialog'
 import { buildPalette, type PaletteAction } from './lib/palette'
+import {
+  WEEK_NAV,
+  viewDeclForKey,
+  viewDeclForRoute,
+  viewDeclFromHash,
+  weekNavForKey,
+  weekStartAfter,
+  type AppView,
+  type ViewDecl,
+  type WeekNavId,
+} from './lib/navigation'
 import {
   applyA11y,
   SIDEBAR_DEFAULT_PX,
@@ -54,7 +71,6 @@ import { addTask, loadTasks, pendingTasks, saveTasks, updateTask, type Task } fr
 import { installWidgetNavBridge, pushTasksData } from './lib/widgetData'
 import { useDelayedUnmount } from './lib/useExitAnimation'
 import { checkApkUpdate } from './lib/apkUpdate'
-import { maybeCleanOldApks } from './lib/apkUpdate'
 import Icon from './components/Icon'
 import { findDuplicateGroups, removableCount } from './lib/dedupe'
 import {
@@ -77,17 +93,6 @@ import {
   type NotesMap,
 } from './lib/notes'
 
-/** Belum-dibaca Moodle → badge di tab navigasi (nol bila tak ada). */
-function MoodleUnreadBadge() {
-  const { unread } = useMoodleData()
-  if (unread <= 0) return null
-  return (
-    /* .app-badge 携带自己的 bg/fg 对，选中/未选中两态都可读（同作业徽章）。
-       不另引入 info 色：未读语义由「出现在 Moodle tab 上」本身传达。 */
-    <span className="app-badge ml-1 font-semibold tabular-nums">{unread > 9 ? '9+' : unread}</span>
-  )
-}
-
 function AppInner({
   tasks,
   setTasks,
@@ -103,13 +108,9 @@ function AppInner({
   // 小组件后台回调（勾选回灌 + 任务变化时重抓后台种子）全在 useWidgetTaskBridge。
   useWidgetTaskBridge({ tasks, setTasks, pushTaskCompletion: md.pushTaskCompletion })
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
-  const [view, setView] = useState<'today' | 'week' | 'moodle'>(() => {
-    // Windows 跳转列表 / 深链入口：#/view/today|week|moodle
-    // 【2026-09-26】作业模块并入 Moodle 时间线：#/view/assign 兼容映射到 moodle。
-    const m = /^#\/view\/(today|week|assign|moodle)$/.exec(location.hash)
-    const v = m?.[1] === 'assign' ? 'moodle' : (m?.[1] as 'today' | 'week' | 'moodle')
-    return v || 'today'
-  })
+  // 深链/Windows 跳转列表入口：#/view/<route> 的词表在 lib/navigation；
+  // 认不出的 hash 落回今日（不猜一个视图）。
+  const [view, setView] = useState<AppView>(() => viewDeclFromHash(location.hash)?.view ?? 'today')
   /** 作业模块（Moodle 时间线内嵌）的预置筛选/搜索词。null filter = 无预置。
    *  跳转点：成绩卡未评项、今日页横幅、课程详情、命令面板任务项。 */
   const [assignFilter, setAssignFilter] = useState<'overdue' | 'due7' | 'later' | null>(null)
@@ -129,6 +130,14 @@ function AppInner({
     setAssignFilter(null)
     setAssignQuery(undefined)
   }, [])
+  /** 切换视图的唯一出口：声明说要清预置（`assign` 入口）就先清，再切页。 */
+  const openView = useCallback(
+    (decl: ViewDecl) => {
+      if (decl.clearsAssignPreset) clearAssignPreset()
+      setView(decl.view)
+    },
+    [clearAssignPreset],
+  )
   /** 已确认的学习时段（周视图/今日页只读呈现）：变更即重算，见 useStudyBlocks。 */
   const studyBlocks = useStudyBlocks()
 
@@ -143,7 +152,25 @@ function AppInner({
         : null,
     [assignFilter, assignQuery],
   )
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  /**
+   * 弹层唯一所有者（lib/overlays 登记表）：新增弹层 = 表里加一行 + 下面
+   * 渲染一行，不再新开 useState；「哪些弹层要拦快捷键」也从表推导。
+   * 首次启动引导：仅「无来源 + 无课程 + 未看过」时作为初始栈打开。
+   */
+  const overlays = useOverlays(
+    !readStored(STORE_KEYS.onboardingDone) &&
+      tt.sources.length === 0 &&
+      tt.lessons.length === 0
+      ? ['onboarding']
+      : [],
+  )
+  const sheetMounted = useDelayedUnmount(overlays.isOpen('sheet'))
+  /** 课程详情：栈里携带的 lesson id（「打开哪节」与「是否打开」只有一份真相） */
+  const selectedId = overlays.value('lesson')
+  const setSelectedId = useCallback(
+    (id: string | null) => (id ? overlays.open('lesson', id) : overlays.close('lesson')),
+    [overlays],
+  )
   // 分享 / 导入、诊断、订阅各是一个关注点——状态都在自己的 hook 里，App 只接线。
   const share = useShareLinks({
     lessons: tt.visibleLessons,
@@ -159,10 +186,6 @@ function AppInner({
     taskCount: tasks.length,
   })
   const { subscriptions, watchCourse, watchRoom, markFiredAt, toggle, remove } = useSubscriptions()
-  const [showDupResolver, setShowDupResolver] = useState(false)
-  const [showBatchFilter, setShowBatchFilter] = useState(false)
-  const [showConflicts, setShowConflicts] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
   // 设置里的学习偏好/目标改动后递增，让计划页重新读取存储。
   const [sisuPrefsRevision, setSisuPrefsRevision] = useState(0)
   /**
@@ -173,22 +196,11 @@ function AppInner({
   const [studyBlockRemindEnabled, setStudyBlockRemindEnabled] = useState(
     () => loadStudyBlockPrefs().remindEnabled,
   )
-  const [showMoreActions, setShowMoreActions] = useState(false)
-  /** 移动端「更多」抽屉（<md 才渲染）：低频入口全部收进去，主界面只留信息 */
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const sheetMounted = useDelayedUnmount(sheetOpen)
   const [notes, setNotes] = useState<NotesMap>(() => loadNotes())
-  const [updateState, setUpdateState] = useState<{
-    version: string
-    kind: 'ready' | 'downloading' | 'available' | 'latest' | 'error'
-    percent?: number
-    /** Android: direct APK asset URL to download */
-    apkUrl?: string
-  } | null>(null)
+  const [updateState, setUpdateState] = useState<UpdateToastState | null>(null)
   const [updateChecking, setUpdateChecking] = useState(false)
   const [translatorUrl, setTranslatorUrl] = useState(() => loadTranslatorUrl())
   const [translatorMsg, setTranslatorMsg] = useState<string | null>(null)
-  const [paletteOpen, setPaletteOpen] = useState(false)
   // 布局偏好（周视图密度 / 侧栏宽度）——单一存储键，改动即持久化。
   const [uiPrefs, setUiPrefs] = useState(() => loadUiPrefs())
   useEffect(() => saveUiPrefs(uiPrefs), [uiPrefs])
@@ -213,13 +225,6 @@ function AppInner({
       window.addEventListener('pointerup', onUp)
     },
     [uiPrefs.sidebarWidth],
-  )
-  // 首次启动引导：仅「无来源 + 无课程 + 未看过」时自动弹出；可从菜单/命令面板重开。
-  const [showOnboarding, setShowOnboarding] = useState(
-    () =>
-      !readStored(STORE_KEYS.onboardingDone) &&
-      tt.sources.length === 0 &&
-      tt.lessons.length === 0,
   )
   // 撤销条：一条消息 + 一个复原动作，6 秒后自动消失（新操作顶掉旧的）。
   const [undoNotice, setUndoNotice] = useState<{ message: string } | null>(null)
@@ -263,11 +268,11 @@ function AppInner({
   useEffect(() => {
     installWidgetNavBridge()
     const onHash = () => {
-      const m = /^#\/view\/(today|week|assign|moodle)$/.exec(location.hash)
-      if (m) {
-        if (m[1] === 'assign') { setAssignFilter(null); setAssignQuery(undefined) } // 普通深链不带筛选
-        // assign 视图已并入 Moodle 时间线：hash 兼容映射。
-        setView(m[1] === 'assign' ? 'moodle' : (m[1] as 'today' | 'week' | 'moodle'))
+      const decl = viewDeclFromHash(location.hash)
+      if (decl) {
+        // assign 视图已并入 Moodle 时间线：声明里标了 clearsAssignPreset。
+        if (decl.clearsAssignPreset) { setAssignFilter(null); setAssignQuery(undefined) }
+        setView(decl.view)
       }
       // 分享链接：#/import/<payload> — 挂载时和运行中改 hash 都要处理
       const payload = parseShareHash(location.hash)
@@ -284,8 +289,8 @@ function AppInner({
    */
   const openSettings = useCallback(() => {
     reloadErrorCount()
-    setShowSettings(true)
-  }, [reloadErrorCount])
+    overlays.open('settings')
+  }, [overlays, reloadErrorCount])
 
   // Manual one-click link: only touches Lecture Translator when the user
   // presses the sidebar button — never automatic, never in the background.
@@ -380,60 +385,50 @@ function AppInner({
   const dupCount = removableCount(dupGroups)
 
   /**
-   * 移动端抽屉动作：桌面 ⋯ 菜单 + 语言开关的等价集合。
-   * 这里只声明「有没有待处理事项」（pending 数量 / attention）与优先权重，
-   * 排前/置底由 `orderSheetActions` 决定（见 lib/sheetActions.ts）。
+   * 应用动作的唯一清单（lib/commands）：命令面板、桌面 ⋯ 菜单、移动端
+   * 「更多」抽屉三处都从这里派生。新增动作只改 buildAppCommands 一处。
    */
-  const sheetActions = useMemo<SheetAction[]>(() => {
-    // 后台已经拿到新版本（ready）/ 正在下载 / 已发现可下载 APK：都算「有事要做」
-    const updatePending =
-      !!updateState &&
-      (updateState.kind === 'available' ||
-        updateState.kind === 'ready' ||
-        updateState.kind === 'downloading')
-    return [
-      {
-        key: 'update',
-        icon: 'sync',
-        label: updatePending
-          ? t(updateState?.kind === 'ready' ? 'updateTileReady' : 'updateTileAvailable', {
-              v: updateState?.version ?? '',
-            })
-          : updateChecking
-            ? t('updateChecking')
-            : t('updateCheck'),
-        onRun: () => void checkForUpdate(),
-        attention: updatePending,
-        priority: 4,
-      },
-      {
-        key: 'dups',
-        icon: 'puzzle',
-        label: t('dupsTile'),
-        onRun: () => setShowDupResolver(true),
-        pending: dupCount,
-        priority: 3,
-      },
-      {
-        key: 'unhide',
-        icon: 'eye-off',
-        label: t('unhideTile'),
-        onRun: () => tt.unhideAll(),
-        pending: tt.hiddenKeys.size,
-        priority: 2,
-      },
-      { key: 'settings', icon: 'settings', label: t('settingsTitle'), onRun: openSettings },
-      { key: 'batch', icon: 'search', label: t('batchButton'), onRun: () => setShowBatchFilter(true) },
-      { key: 'conflicts', icon: 'warn', label: t('conflictsButton'), onRun: () => setShowConflicts(true) },
-      {
-        key: 'lang',
-        icon: 'globe',
-        label: `${t('langTitle')} · ${lang === 'zh' ? 'EN' : '中文'}`,
-        onRun: () => setLang(lang === 'zh' ? 'en' : 'zh'),
-      },
-      { key: 'onboarding', icon: 'compass', label: t('obReplay'), onRun: () => setShowOnboarding(true) },
-    ]
-  }, [checkForUpdate, dupCount, lang, openSettings, setLang, t, tt, updateChecking, updateState])
+  const shareWeek = share.shareWeek
+  const commands = useMemo(
+    () =>
+      buildAppCommands({
+        t,
+        lang,
+        onToggleLang: () => setLang(lang === 'zh' ? 'en' : 'zh'),
+        openSettings,
+        openBatch: () => overlays.open('batch'),
+        openConflicts: () => overlays.open('conflicts'),
+        openDupResolver: () => overlays.open('dupes'),
+        unhideAll: tt.unhideAll,
+        hiddenCount: tt.hiddenKeys.size,
+        syncAll: () => void tt.syncAll(),
+        exportBackup: () => void exportBackup(),
+        exportIcs: () => void exportTimetableIcs(tt.visibleLessons),
+        printWeek: () => window.print(),
+        shareWeek: () => void shareWeek(),
+        checkUpdate: () => void checkForUpdate(),
+        openOnboarding: () => overlays.open('onboarding'),
+        dupCount,
+        update: updateState,
+        updateChecking,
+        canPrint: canPrintSchedule(),
+      }),
+    [
+      t,
+      lang,
+      setLang,
+      openSettings,
+      overlays,
+      tt,
+      dupCount,
+      updateState,
+      updateChecking,
+      checkForUpdate,
+      shareWeek,
+    ],
+  )
+  const sheetActions = useMemo(() => toSheetActions(commands), [commands])
+  const menuCommands = useMemo(() => commands.filter((c) => c.showInMenu), [commands])
   const pendingTaskCount = pendingTasks(tasks).length
   /** 课程详情里的「上一节/下一节」：同一天内的队列位置 */
   const lessonQueue = useMemo(
@@ -449,12 +444,18 @@ function AppInner({
     setWeekStart(startOfWeek(new Date(target.start)))
     setView('week')
     setSelectedId(target.id)
-  }, [])
+  }, [setSelectedId])
 
   const jumpToCourse = useCallback(
     (code: string) => jumpToLesson(findCourseTarget(tt.visibleLessons, code)),
     [jumpToLesson, tt.visibleLessons],
   )
+
+  /** 学期全景带点某一周：只切周起点与视图，不选中任何课 */
+  const openWeek = useCallback((weekStartOfDay: Date) => {
+    setWeekStart(startOfWeek(weekStartOfDay))
+    setView('week')
+  }, [])
 
   /** 删除 / 隐藏课程的唯一入口：把 useTimetable 的快照挂到撤销条上 */
   const removeLessonsUndoable = useCallback(
@@ -496,29 +497,40 @@ function AppInner({
     [setTasks, showUndo, t, tasks],
   )
 
+  const paletteOpen = overlays.isOpen('palette')
   const paletteItems = useMemo(
-    () => (paletteOpen ? buildPalette({ t, locale, lessons: tt.lessons, tasks, dupCount }) : []),
-    [paletteOpen, t, locale, tt.lessons, tasks, dupCount],
+    () =>
+      paletteOpen
+        ? buildPalette({
+            t,
+            locale,
+            lessons: tt.lessons,
+            tasks,
+            commands: commands
+              .filter((c) => c.showInPalette)
+              .map((c) => ({ id: c.id, label: c.label, icon: c.icon })),
+          })
+        : [],
+    [paletteOpen, t, locale, tt.lessons, tasks, commands],
   )
 
   /** 命令面板动作的唯一派发点 */
   const runPaletteAction = useCallback(
     (action: PaletteAction) => {
-      setPaletteOpen(false)
+      overlays.close('palette')
       switch (action.kind) {
-        case 'view':
-          if (action.view === 'assign') {
-            // assign 视图已并入 Moodle 时间线：命令面板的「作业」落到 moodle。
-            openAssignments(null)
-          } else {
-            setView(action.view)
-          }
+        case 'view': {
+          const decl = viewDeclForRoute(action.view)
+          if (decl) openView(decl)
           break
-        case 'week':
-          if (action.delta === 0) setWeekStart(startOfWeek(new Date()))
-          else setWeekStart(addDays(weekStart, action.delta * 7))
-          if (action.delta !== 0) setView('week')
+        }
+        case 'week': {
+          const nav = Object.values(WEEK_NAV).find((entry) => entry.delta === action.delta)
+          if (!nav) break
+          setWeekStart((ws) => weekStartAfter(ws, nav))
+          if (nav.delta !== 0) setView('week')
           break
+        }
         case 'course':
           // 有代码走代码前缀；无代码的手动课回退到标题匹配
           jumpToLesson(
@@ -532,30 +544,9 @@ function AppInner({
           openAssignments(null, task?.title)
           break
         }
-        case 'settings':
-          openSettings()
-          break
-        case 'sync':
-          void tt.syncAll()
-          break
-        case 'batch':
-          setShowBatchFilter(true)
-          break
-        case 'conflicts':
-          setShowConflicts(true)
-          break
-        case 'dupes':
-          setShowDupResolver(true)
-          break
-        case 'exportBackup':
-          void exportBackup()
-          break
-        case 'exportIcs':
-          // 导出的是用户实际看到的课表（含手动课，已去掉隐藏项）
-          void exportTimetableIcs(tt.visibleLessons)
-          break
-        case 'shareWeek':
-          void share.shareWeek()
+        case 'command':
+          // 动作由注册表执行（App 不再为每个动作写一条分支）
+          commands.find((c) => c.id === action.id)?.run()
           break
         case 'quickAddTask': {
           // 命令面板一行话直接落库：新增任务 + 跳到作业模块看到它
@@ -565,15 +556,9 @@ function AppInner({
           openAssignments(null)
           break
         }
-        case 'checkUpdate':
-          void checkForUpdate()
-          break
-        case 'onboarding':
-          setShowOnboarding(true)
-          break
       }
     },
-    [applyTasks, checkForUpdate, jumpToLesson, openAssignments, openSettings, share.shareWeek, tasks, tt, weekStart],
+    [applyTasks, commands, jumpToLesson, openAssignments, openView, overlays, tasks],
   )
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
@@ -587,9 +572,10 @@ function AppInner({
     () => lessonsInRange(tt.visibleLessons, weekStart, weekEnd),
     [tt.visibleLessons, weekStart, weekEnd],
   )
-  const onPrevWeek = useCallback(() => setWeekStart(addDays(weekStart, -7)), [weekStart])
-  const onNextWeek = useCallback(() => setWeekStart(addDays(weekStart, 7)), [weekStart])
-  const onThisWeek = useCallback(() => setWeekStart(startOfWeek(new Date())), [])
+  /** 周导航的唯一出口（头部 / 周视图 / 面板 / 快捷键共用同一份声明）。 */
+  const onWeekNav = useCallback((id: WeekNavId) => {
+    setWeekStart((ws) => weekStartAfter(ws, WEEK_NAV[id]))
+  }, [])
 
   /** 添加来源 = 立刻拉一次；不让用户加完再自己找「同步」按钮 */
   const addSourceNow = useCallback(
@@ -611,6 +597,10 @@ function AppInner({
     [addSourceNow],
   )
 
+  /** 分享 / 导入弹层的状态在 useShareLinks 里，但同样要拦快捷键：这里派生出
+   *  一个布尔，快捷键闸门就不再只盯着弹层栈。 */
+  const shareDialogOpen = !!share.shareQr || !!share.shareImport
+
   // 键盘快捷键：Ctrl/Cmd+K 面板 · 1-4 切视图 · ←/→ 切周 · T 回到本周。
   // 输入框内、带修饰键的组合、弹层打开时一律让路（不抢键）。
   useEffect(() => {
@@ -621,55 +611,31 @@ function AppInner({
       const mod = e.ctrlKey || e.metaKey
       if (mod && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault()
-        setPaletteOpen((open) => !open)
+        overlays.toggle('palette')
         return
       }
-      if (typing || mod || e.altKey || paletteOpen) return
+      // 弹层闸门：登记表里 blocking 的（设置/各种弹窗/分享/面板）一律接管，
+      // 不再手写布尔枚举——新加弹层时忘了枚举也不会再有“按键穿透到后台”。
+      if (typing || mod || e.altKey || overlays.blocking || shareDialogOpen) return
       if (e.key === 'Escape') {
-        setShowMoreActions(false)
-        setSheetOpen(false)
+        overlays.closeTopLightweight()
         return
       }
-      const overlayOpen =
-        showSettings ||
-        showDupResolver ||
-        showBatchFilter ||
-        showConflicts ||
-        showOnboarding ||
-        !!selectedId
-      if (overlayOpen) return
-      if (e.key === '1') setView('today')
-      else if (e.key === '2') setView('week')
-      else if (e.key === '3') {
-        // 「3」= 作业模块（并入 Moodle 时间线）：与命令面板同语义
-        openAssignments(null)
-      } else if (e.key === '4') setView('moodle')
-      else if (e.key === 'ArrowLeft') {
+      // 视图与周导航的键位都来自 lib/navigation，这里不再写 1/2/3/4/←/→/T。
+      const target = viewDeclForKey(e.key)
+      if (target) {
+        openView(target)
+        return
+      }
+      const weekNav = weekNavForKey(e.key)
+      if (weekNav) {
         setView('week')
-        onPrevWeek()
-      } else if (e.key === 'ArrowRight') {
-        setView('week')
-        onNextWeek()
-      } else if (e.key === 't' || e.key === 'T') {
-        setView('week')
-        onThisWeek()
+        setWeekStart((ws) => weekStartAfter(ws, weekNav))
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [
-    onNextWeek,
-    onPrevWeek,
-    onThisWeek,
-    openAssignments,
-    paletteOpen,
-    selectedId,
-    showBatchFilter,
-    showConflicts,
-    showDupResolver,
-    showOnboarding,
-    showSettings,
-  ])
+  }, [openView, overlays, shareDialogOpen])
 
   // Catatan kursus: kunci = kode kursus ternormalisasi + jenis sesi.
   const saveNoteForLesson = useCallback((lesson: Lesson, text: string) => {
@@ -678,137 +644,22 @@ function AppInner({
 
   return (
     <div className="app-shell h-screen flex flex-col">
-      <header className="app-header safe-top flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-2.5 border-b border-[var(--line)]">
-        <div className="flex items-center gap-3">
-          {/* 移动端不再放汉堡按钮：主导航已下到底部标签栏（拇指可达） */}
-          <h1 className="text-sm font-semibold">{t('appName')}</h1>
-          <span className="hidden sm:inline text-[11px] text-[var(--text-3)]">
-            {t('lessonsSources', { n: tt.lessons.length, m: tt.sources.length })}
-          </span>
-        </div>
-        <div className="app-actions flex flex-wrap items-center justify-end gap-1.5 text-xs ml-auto">
-          {/* 视图切换：桌面/平板保留在头部（移动端交给底部标签栏） */}
-          <div className="app-seg hidden md:flex">
-            <button onClick={() => setView('today')} aria-pressed={view === 'today'}>
-              {t('viewToday')}
-            </button>
-            <button onClick={() => setView('week')} aria-pressed={view === 'week'}>
-              {t('viewWeek')}
-            </button>
-            {/* 作业模块已并入 Moodle 时间线：导航三项，任务数徽标挂在 Moodle 上 */}
-            <button
-              onClick={() => setView('moodle')}
-              aria-pressed={view === 'moodle'}
-              title={t('moodleNav')}
-            >
-              <span className="inline-flex items-center gap-2"><Icon name="book" size={15} /><span className="hidden sm:inline"> {t('moodleNav')}</span></span>
-              {pendingTaskCount > 0 && (
-                <span className="app-badge ml-1 font-semibold tabular-nums">{pendingTaskCount}</span>
-              )}
-              <MoodleUnreadBadge />
-            </button>
-          </div>
-          {view === 'week' && (
-            <div className="hidden md:flex items-center gap-1.5">
-              <button
-                onClick={onPrevWeek}
-                className="app-btn px-2.5 min-h-9"
-                aria-label={t('prevWeek')}
-              >
-                <Icon name="chevron-left" size={15} />
-              </button>
-              <span
-                className="inline-block max-w-[24vw] truncate align-middle rounded-md border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1.5 text-[11px] sm:max-w-none sm:text-xs tabular-nums text-[var(--text-2)]"
-                title={t('weekRange', { w: weekNum, range: weekRangeText })}
-              >
-                {t('weekRange', { w: weekNum, range: weekRangeText })}
-              </span>
-              <button
-                onClick={onNextWeek}
-                className="app-btn px-2.5 min-h-9"
-                aria-label={t('nextWeek')}
-              >
-                <Icon name="chevron-right" size={15} />
-              </button>
-              {!isCurrentWeek && (
-                <button onClick={onThisWeek} className="app-btn-primary px-2.5 min-h-9">
-                  {t('thisWeek')}
-                </button>
-              )}
-            </div>
-          )}
-          <button
-            onClick={() => setPaletteOpen(true)}
-            className="app-btn inline-flex items-center gap-1.5 px-2 sm:px-2.5 min-h-9"
-            title={t('paletteShortcuts')}
-          >
-            <Icon name="search" size={14} />
-            <span className="hidden sm:inline text-[10px] text-[var(--text-3)]">Ctrl K</span>
-          </button>
-          <div className="relative max-md:hidden">
-            <button
-              onClick={() => setShowMoreActions((open) => !open)}
-              className="app-btn px-2 sm:px-2.5 min-h-9"
-              title={t('moreActions')}
-              aria-expanded={showMoreActions}
-            >
-              <span aria-hidden="true" className="inline-flex items-center"><Icon name="more" size={16} /></span><span className="hidden sm:inline"> {t('moreActions')}</span>
-            </button>
-            {showMoreActions && (
-              <div className="animate-pop-in absolute right-0 top-full z-30 mt-2 w-56 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-1.5 shadow-2xl shadow-black/50">
-                <button
-                  onClick={() => { openSettings(); setShowMoreActions(false) }}
-                  className="app-menu-item"
-                >
-                  <span className="inline-flex items-center gap-2"><Icon name="settings" /> {t('settingsTitle')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
-                </button>
-                <button
-                  onClick={() => { setShowOnboarding(true); setShowMoreActions(false) }}
-                  className="app-menu-item"
-                >
-                  <span className="inline-flex items-center gap-2"><Icon name="compass" /> {t('obReplay')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
-                </button>
-                <button
-                  onClick={() => { setShowBatchFilter(true); setShowMoreActions(false) }}
-                  className="app-menu-item"
-                >
-                  <span className="inline-flex items-center gap-2"><Icon name="search" /> {t('batchButton')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
-                </button>
-                <button
-                  onClick={() => { setShowConflicts(true); setShowMoreActions(false) }}
-                  className="app-menu-item"
-                >
-                  <span className="inline-flex items-center gap-2"><Icon name="warn" /> {t('conflictsButton')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
-                </button>
-                {dupCount > 0 && (
-                  <button
-                    onClick={() => { setShowDupResolver(true); setShowMoreActions(false) }}
-                    className="app-menu-item text-[var(--due)]"
-                  >
-                    <span className="inline-flex items-center gap-2"><Icon name="puzzle" /> {t('dupButton', { n: dupCount })}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
-                  </button>
-                )}
-                {tt.hiddenKeys.size > 0 && (
-                  <button
-                    onClick={() => { tt.unhideAll(); setShowMoreActions(false) }}
-                    className="app-menu-item text-[var(--text-2)]"
-                  >
-                    <span className="inline-flex items-center gap-2"><Icon name="eye-off" /> {t('hiddenN', { n: tt.hiddenKeys.size })}</span><span className="text-[var(--text-3)]"><Icon name="restore" size={12} /></span>
-                  </button>
-                )}
-                <div className="my-1 border-t border-[var(--line)]/60" />
-                <button
-                  onClick={() => { void checkForUpdate(); setShowMoreActions(false) }}
-                  disabled={updateChecking}
-                  className="app-menu-item"
-                >
-                  <span className="inline-flex items-center gap-2"><Icon name="sync" /> {updateChecking ? t('updateChecking') : t('updateCheck')}</span><span className="text-[var(--text-3)]"><Icon name="chevron-right" size={12} /></span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        view={view}
+        onView={setView}
+        lessonCount={tt.lessons.length}
+        sourceCount={tt.sources.length}
+        pendingTaskCount={pendingTaskCount}
+        weekNum={weekNum}
+        weekRangeText={weekRangeText}
+        isCurrentWeek={isCurrentWeek}
+        onWeekNav={onWeekNav}
+        onOpenPalette={() => overlays.open('palette')}
+        menuOpen={overlays.isOpen('actionSheet')}
+        onToggleMenu={() => overlays.toggle('actionSheet')}
+        onCloseMenu={() => overlays.close('actionSheet')}
+        menuCommands={menuCommands}
+      />
       {/* 底部标签栏占位：移动端内容不被导航盖住（桌面无此栏） */}
       <div className="flex flex-1 min-h-0 pb-[calc(3.4rem+env(safe-area-inset-bottom,0px))] md:pb-0">
         {/* 桌面端：固定侧栏（宽度可拖拽，偏好持久化） */}
@@ -854,6 +705,7 @@ function AppInner({
               subscriptions={subscriptions}
               onWatchRoom={watchRoom}
               studyBlocks={studyBlocks}
+              onOpenWeek={openWeek}
             />
           )}
           {view === 'week' && (
@@ -862,8 +714,7 @@ function AppInner({
               weekStart={weekStart}
               onSelect={setSelectedId}
               notes={notes}
-              onShiftWeek={(delta) => setWeekStart((w) => addDays(w, delta * 7))}
-              onThisWeek={onThisWeek}
+              onWeekNav={onWeekNav}
               density={uiPrefs.density}
               onDensity={(d: WeekDensity) => setUiPrefs((prev) => ({ ...prev, density: d }))}
               studyBlocks={studyBlocks}
@@ -886,55 +737,18 @@ function AppInner({
         </main>
       </div>
       {/* 移动端主导航：底部标签栏（拇指可达、始终可见；桌面端由侧栏 + 头部承担） */}
-      <nav
-        className="md:hidden fixed inset-x-0 bottom-0 z-40 flex border-t border-[var(--line)] bg-[var(--surface-1)]"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-      >
-        {(
-          [
-            { key: 'today', icon: 'live', label: t('viewToday'), badge: 0 },
-            { key: 'week', icon: 'clock', label: t('viewWeek'), badge: 0 },
-            // 作业模块已并入 Moodle 时间线：底部标签三项 + 更多抽屉
-            { key: 'moodle', icon: 'book', label: t('moodleNav'), badge: md.unread + pendingTaskCount },
-          ] as const
-        ).map((item) => (
-          <button
-            key={item.key}
-            onClick={() => {
-              clearAssignPreset() // 底部导航 = 无预置筛选（同侧栏）
-              setView(item.key)
-            }}
-            aria-pressed={view === item.key}
-            className="app-nav-item relative flex flex-1 flex-col items-center gap-0.5 rounded-lg py-2 text-[10px]"
-          >
-            <span
-              aria-hidden="true"
-              className={
-                'absolute top-0 h-0.5 w-8 rounded-full bg-[var(--accent)] transition-all duration-150 ' +
-                (view === item.key ? 'scale-x-100 opacity-100' : 'scale-x-50 opacity-0')
-              }
-            />
-            <Icon name={item.icon} size={17} />
-            <span className="max-w-full truncate">{item.label}</span>
-            {item.badge > 0 && (
-              <span className="app-badge absolute right-[16%] top-2.5 px-1 text-[9px] font-semibold tabular-nums">
-                {item.badge > 9 ? '9+' : item.badge}
-              </span>
-            )}
-          </button>
-        ))}
-        <button
-          onClick={() => setSheetOpen(true)}
-          className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] text-[var(--text-3)]"
-          title={t('moreActions')}
-        >
-          <Icon name="menu" size={17} />
-          <span className="max-w-full truncate">{t('moreActions')}</span>
-        </button>
-      </nav>
+      <BottomNav
+        view={view}
+        pendingTaskCount={pendingTaskCount}
+        onView={(v) => {
+          clearAssignPreset() // 底部导航 = 无预置筛选（同侧栏）
+          setView(v)
+        }}
+        onOpenSheet={() => overlays.open('sheet')}
+      />
       {sheetMounted && (
         <MoreSheet
-          open={sheetOpen}
+          open={overlays.isOpen('sheet')}
           actions={sheetActions}
           sources={tt.sources}
           syncing={tt.syncing}
@@ -942,7 +756,7 @@ function AppInner({
           onSync={tt.sync}
           onAddManual={tt.addManualLesson}
           onOpenSettings={openSettings}
-          onClose={() => setSheetOpen(false)}
+          onClose={() => overlays.close('sheet')}
         />
       )}
       {selectedLesson && (
@@ -989,6 +803,7 @@ function AppInner({
           onSaveNote={(text) => saveNoteForLesson(selectedLesson, text)}
           onRemoveNote={() => removeNoteUndoable(noteKeyOf(selectedLesson))}
           assignments={tasks}
+          allLessons={tt.visibleLessons}
           onOpenAssignments={() => {
             setSelectedId(null)
             openAssignments(null) // 课程详情跳转：无预置筛选，作业模块在 Moodle 时间线里
@@ -1012,22 +827,22 @@ function AppInner({
           onClose={share.closeShareImport}
         />
       )}
-      {showDupResolver && (
+      {overlays.isOpen('dupes') && (
         <DuplicateResolver
           groups={dupGroups}
           onRemoveMany={(ids) => removeLessonsUndoable(ids, 'delete')}
-          onClose={() => setShowDupResolver(false)}
+          onClose={() => overlays.close('dupes')}
         />
       )}
-      {showBatchFilter && (
+      {overlays.isOpen('batch') && (
         <BatchFilter
           lessons={tt.lessons}
           onRemoveMany={(ids) => removeLessonsUndoable(ids, 'delete')}
           onHideMany={(ids) => removeLessonsUndoable(ids, 'hide')}
-          onClose={() => setShowBatchFilter(false)}
+          onClose={() => overlays.close('batch')}
         />
       )}
-      {showSettings && (
+      {overlays.isOpen('settings') && (
         <Settings
           sources={tt.sources}
           syncing={tt.syncing}
@@ -1062,35 +877,36 @@ function AppInner({
           errorCount={errorCount}
           onExportDiagnostics={exportDiagnostics}
           onClearErrors={clearErrorLog}
+          lessons={tt.visibleLessons}
           audits={tt.audits}
           onClearAudits={tt.clearAudits}
           desktop={desktop}
           onDesktopPrefs={applyDesktopPrefs}
           onSisuPrefsChanged={() => setSisuPrefsRevision((r) => r + 1)}
           onStudyBlockPrefsChanged={(prefs) => setStudyBlockRemindEnabled(prefs.remindEnabled)}
-          onClose={() => setShowSettings(false)}
+          onClose={() => overlays.close('settings')}
         />
       )}
       {paletteOpen && (
         <CommandPalette
           items={paletteItems}
           onRun={runPaletteAction}
-          onClose={() => setPaletteOpen(false)}
+          onClose={() => overlays.close('palette')}
         />
       )}
-      {showOnboarding && (
+      {overlays.isOpen('onboarding') && (
         <Onboarding
           onAddSource={addSourceFromUrl}
           ssoAvailable={md.ssoAvailable}
           onLoginMoodle={() => md.loginWithSso((url) => openExternal(url))}
           onFinish={() => {
             writeStored(STORE_KEYS.onboardingDone, '1')
-            setShowOnboarding(false)
+            overlays.close('onboarding')
           }}
           onOpenSettings={openSettings}
         />
       )}
-      {showConflicts && (
+      {overlays.isOpen('conflicts') && (
         <ConflictCheck
           lessons={tt.lessons}
           onOpenLesson={(id) => {
@@ -1101,9 +917,12 @@ function AppInner({
             }
             setSelectedId(id)
           }}
-          onClose={() => setShowConflicts(false)}
+          onClose={() => overlays.close('conflicts')}
         />
       )}
+
+      {/* 打印用：屏幕上隐藏，@media print 才显示；始终反映当前周 */}
+      <PrintWeek lessons={weekVisibleLessons} weekStart={weekStart} />
 
       <NotificationManager
         enabled={tt.notifEnabled}
@@ -1133,71 +952,12 @@ function AppInner({
         </div>
       )}
       {updateState && (
-        <div
-          className={
-            'fixed inset-x-0 z-50 flex justify-center px-4 animate-modal-in ' +
-            (undoNotice ? 'bottom-20' : 'bottom-4')
-          }
-        >
-          <div
-            className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg text-sm px-4 py-3 shadow-lg max-w-full ${
-              updateState.kind === 'error'
-                ? 'bg-[var(--btn-danger)] text-white'
-                : updateState.kind === 'ready'
-                  ? 'bg-[var(--btn-ok)] text-white'
-                  : 'bg-[var(--surface-2)] text-[var(--text-1)] border border-[var(--line)]'
-            }`}
-          >
-            <span>
-              {updateState.kind === 'ready' && (
-                <span className="inline-flex items-center gap-2"><Icon name="sync" /> {t('updateReady', { v: updateState.version })}</span>
-              )}
-              {updateState.kind === 'downloading' &&
-                t('updateDownloading', { p: updateState.percent ?? 0 })}
-              {updateState.kind === 'available' &&
-                (updateState.apkUrl
-                  ? t('updateApkAvailable', { v: updateState.version })
-                  : t('updateAvailable', { v: updateState.version }))}
-              {updateState.kind === 'latest' &&
-                t('updateUpToDate', { v: updateState.version })}
-              {updateState.kind === 'error' && t('updateCheckFail')}
-            </span>
-            {updateState.kind === 'ready' && (
-              <button
-                className="rounded bg-white text-[var(--ok)] px-3 min-h-9 font-medium"
-                onClick={() =>
-                  (window as unknown as { lutUpdate?: any }).lutUpdate?.install()
-                }
-              >
-                {t('updateInstallNow')}
-              </button>
-            )}
-            {updateState.kind === 'available' && updateState.apkUrl && (
-              <a
-                href={updateState.apkUrl}
-                download="app-release.apk"
-                onClick={() => {
-                  // Unduhan lama di Download/ (APK versi sebelumnya) dibuang:
-                  // installed APK tidak terpakai lagi & memakan storage.
-                  try {
-                    const cds = (window as unknown as { caches?: CacheStorage }).caches
-                    void cds?.keys?.()
-                  } catch { /* noop */ }
-                  void maybeCleanOldApks()
-                }}
-                className="inline-flex items-center gap-1.5 rounded bg-white text-[var(--text-3)] px-3 min-h-9 font-medium"
-              >
-                <Icon name="external" size={13} /> {t('updateGetApk')}
-              </a>
-            )}
-            <button
-              className="opacity-80 transition hover:opacity-100"
-              onClick={() => setUpdateState(null)}
-            >
-              {t('updateLater')}
-            </button>
-          </div>
-        </div>
+        <UpdateToast
+          state={updateState}
+          raised={!!undoNotice}
+          onInstall={() => (window as unknown as { lutUpdate?: any }).lutUpdate?.install()}
+          onDismiss={() => setUpdateState(null)}
+        />
       )}
     </div>
   )

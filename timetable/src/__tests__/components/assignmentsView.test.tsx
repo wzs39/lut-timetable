@@ -171,19 +171,56 @@ describe('AssignmentsView — rendering contracts', () => {
       task({ id: 'moodle-act:42', title: 'Synced task', url: 'https://moodle.lut.fi/mod/assign/view.php?id=777', dueAt: new Date(2026, 9, 20).toISOString() }),
     ]
     renderView(tasks)
-    // 第一个 checkbox 是「显示已完成」开关，任务行内的是第二个
-    const cbs = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
-    const cb = cbs[cbs.length - 1]
+    // 工具面板也带动能 checkbox（显示已完成 / 影响排序）——必须从任务行里取，
+    // 不能用「最后一个 checkbox」（DOM 顺序会随布局改）。
+    const row = screen.getByText('Synced task').closest('li')!
+    const cb = row.querySelector<HTMLInputElement>('input[type="checkbox"]')!
     expect(cb.checked).toBe(false)
     fireEvent.click(cb)
     expect(mockMd.pushTaskCompletion).toHaveBeenCalledWith(777, true)
   })
 
+  it('summarises pending, overdue, due-this-week and done in the KPI hero', () => {
+    const tasks = [
+      task({ id: 'a', title: 'Overdue one', dueAt: new Date(2026, 8, 10).toISOString() }),
+      task({ id: 'b', title: 'Due soon', dueAt: new Date(2026, 8, 17).toISOString() }),
+      task({ id: 'c', title: 'Done task', completed: true, dueAt: new Date(2026, 8, 16).toISOString() }),
+    ]
+    renderView(tasks)
+
+    const hero = document.querySelector('[data-dashboard="hero"]') as HTMLElement
+    expect(hero.querySelectorAll('.stat-tile')).toHaveLength(4)
+    const tile = (label: string) => [...hero.querySelectorAll('button')].find((b) => b.textContent?.includes(label))!
+    expect(tile('待办作业').textContent).toContain('2')
+    expect(tile('已逾期').textContent).toContain('1')
+    expect(tile('七天内截止').textContent).toContain('1')
+    expect(tile('已完成').textContent).toContain('1')
+
+    // 已完成格子同时打开「显示已完成」并切到 done 分组。
+    fireEvent.click(tile('已完成'))
+    expect(screen.getByText('Done task')).toBeTruthy()
+    const tools = [...document.querySelectorAll('button')].find((b) => /工具与快捷入口/.test(b.textContent || ''))!
+    expect(tools.getAttribute('aria-expanded')).toBe('true')
+    const showCompleted = [...document.querySelectorAll('label')]
+      .find((l) => /显示已完成/.test(l.textContent || ''))!
+      .querySelector('input')!
+    expect(showCompleted.checked).toBe(true)
+  })
+
+  it('remembers the tools panel state in its own key', () => {
+    renderView([task({ id: 'a', title: 'One task' })])
+    const tools = [...document.querySelectorAll('button')].find((b) => /工具与快捷入口/.test(b.textContent || ''))!
+    expect(tools.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(tools)
+    expect(tools.getAttribute('aria-expanded')).toBe('false')
+    expect(localStorage.getItem('tt_assign_tools_open')).toBe('0')
+  })
+
   it('never fires pushTaskCompletion for manual tasks without a mod activity URL', () => {
     const tasks = [task({ id: 'manual-1', title: 'Manual task' })]
     renderView(tasks)
-    const cbs = [...document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
-    fireEvent.click(cbs[cbs.length - 1])
+    const row = screen.getByText('Manual task').closest('li')!
+    fireEvent.click(row.querySelector<HTMLInputElement>('input[type="checkbox"]')!)
     expect(mockMd.pushTaskCompletion).not.toHaveBeenCalled()
   })
 })

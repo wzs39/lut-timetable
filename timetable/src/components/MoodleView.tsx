@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Lesson } from '../types'
-import type { Task } from '../lib/tasks'
+import { timelineBuckets, type Task } from '../lib/tasks'
 import { useI18n } from '../i18n'
 import { useMoodleData } from '../hooks/useMoodleData'
 import { fetchEnrolledCourses, loadEnrolledCourses, type EnrolledCourse } from '../lib/courses'
 import { readString, writeString, KEYS } from '../lib/storage'
-import Icon from './Icon'
+import Icon, { type IconName } from './Icon'
 import SisuStudyPlan from './SisuStudyPlan'
 import CourseResourcesSection from './moodle/CourseResourcesSection'
 import HebutCard from './moodle/HebutCard'
@@ -27,7 +27,6 @@ import {
  * 跳转点（成绩卡未评项/今日页横幅/课程详情）带预置筛选导航到这里。
  */
 type Section = 'timeline' | 'grades' | 'courses' | 'resources' | 'studyplan' | 'notif'
-const SECTION_ORDER: Section[] = ['timeline', 'grades', 'courses', 'resources', 'studyplan', 'notif']
 const SECTION_KEY = KEYS.moodleSection
 
 /** Baca section tersimpan; nilai tak dikenal → 'timeline'. */
@@ -75,11 +74,6 @@ export default function MoodleView({
     setSectionState(s)
     writeString(SECTION_KEY, s)
   }
-  const goSection = (delta: number) => {
-    const index = SECTION_ORDER.indexOf(section)
-    const next = SECTION_ORDER[(index + delta + SECTION_ORDER.length) % SECTION_ORDER.length]
-    setSection(next)
-  }
   // 跳转点带预置进入时强制切到时间线（成绩卡未评项、命令面板任务项等）。
   // assignPreset 由 App 按值 memo（空 = null），只在真实跳转时变引用——
   // 不能收内联对象，否则每次 App 重渲染这里都会把用户拽回时间线。
@@ -100,45 +94,112 @@ export default function MoodleView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, enrolled, md.token, lessons])
 
+  // Hook 必须在提前返回之前：未连接时也要走同一条 hook 序列。
+  // 「一眼概览」的四个数字只依赖已加载数据，与连接状态无关。
+  const buckets = useMemo(() => timelineBuckets(tasks, Date.now()), [tasks])
+
   if (!md.connected) {
     return <NotConnectedCard onOpenSettings={onOpenSettings} lessons={lessons} enrolled={enrolled ?? []} sisuPrefsRevision={sisuPrefsRevision} />
   }
 
+  // ---- 一眼概览：四个数字回答「现在该看什么」，点一下就到对应分区 ----
+  const pendingCount = tasks.filter((task) => !task.completed).length
+  const unreadCount = md.unread
+  const gradedCourses = md.grades?.filter((c) => c.average != null) ?? []
+  const averageOfAverages = gradedCourses.length > 0
+    ? Math.round(gradedCourses.reduce((sum, c) => sum + (c.average ?? 0), 0) / gradedCourses.length)
+    : null
+  const glance: Array<{
+    key: Section
+    label: string
+    value: string
+    tone: 'info' | 'due' | 'danger' | 'ok'
+    hint: string
+  }> = [
+    { key: 'timeline', label: t('moodleGlancePending'), value: String(pendingCount), tone: 'info', hint: t('moodleSectionTimeline') },
+    { key: 'timeline', label: t('moodleGlanceOverdue'), value: String(buckets.overdue), tone: buckets.overdue > 0 ? 'danger' : 'ok', hint: t('assignOverdue') },
+    { key: 'notif', label: t('moodleGlanceUnread'), value: String(unreadCount), tone: unreadCount > 0 ? 'due' : 'ok', hint: t('notifSection') },
+    { key: 'grades', label: t('moodleGlanceAverage'), value: averageOfAverages != null ? `${averageOfAverages}%` : t('moodleGlanceNone'), tone: 'ok', hint: t('moodleSectionGrades') },
+  ]
+  // 分区导轨的单一声明（顺序 / 图标 / 可选计数）：手机横滑与桌面竖排共用。
+  const sections: Array<{ key: Section; labelKey: string; icon: IconName; badge?: number }> = [
+    { key: 'timeline', labelKey: 'moodleSectionTimeline', icon: 'clock' },
+    { key: 'grades', labelKey: 'moodleSectionGrades', icon: 'graduation', badge: md.grades?.length },
+    { key: 'courses', labelKey: 'moodleSectionCourses', icon: 'book' },
+    { key: 'resources', labelKey: 'courseResourcesTitle', icon: 'note' },
+    { key: 'studyplan', labelKey: 'sisuPlanShortTitle', icon: 'compass' },
+    { key: 'notif', labelKey: 'notifSection', icon: 'megaphone', badge: unreadCount || undefined },
+  ]
+  const currentSectionLabel = t(
+    sections.find((entry) => entry.key === section)?.labelKey ?? 'moodleSectionTimeline',
+  )
+
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
-      <div className="mx-auto max-w-xl space-y-3">
-        {/* Compact, scrollable section switch: six tools remain reachable on mobile. */}
-        <div className="section-nav flex items-center gap-1" role="tablist" aria-label={t('moodleNav')}>
-          <button className="section-arrow app-btn-ghost hidden shrink-0 p-1.5 sm:inline-flex" onClick={() => goSection(-1)} aria-label={t('prevSection')} title={t('prevSection')}><Icon name="chevron-left" size={12} /></button>
-          <div className="app-seg min-w-0 flex-1 overflow-x-auto" role="presentation">
-            <button id="moodle-tab-timeline" className="section-tab shrink-0 px-2" role="tab" aria-controls="moodle-panel" aria-selected={section === 'timeline'} onClick={() => setSection('timeline')}>
-              {t('moodleSectionTimeline')}
-            </button>
-            <button id="moodle-tab-grades" className="section-tab shrink-0 px-2" role="tab" aria-controls="moodle-panel" aria-selected={section === 'grades'} onClick={() => setSection('grades')}>
+      <div className="mx-auto max-w-xl space-y-3 md:max-w-3xl xl:max-w-6xl">
+        <section className="app-hero p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="app-card-label inline-flex items-center gap-1.5">
+                <Icon name="graduation" size={13} /> {t('moodleGlanceTitle')}
+              </h2>
+              <p className="mt-1 text-[11px] text-[var(--text-3)]">
+                {t('moodleNav')} · {currentSectionLabel}
+              </p>
+            </div>
+            <button
+              onClick={() => void md.syncNow()}
+              disabled={md.busy !== 'idle' || !md.token}
+              className="app-btn shrink-0 px-2 py-1 text-[11px] disabled:opacity-50"
+              title={t('syncNow')}
+            >
               <span className="inline-flex items-center gap-1.5">
-              <Icon name="graduation" size={14} /> {t('moodleSectionGrades')}
-              {(md.grades?.length ?? 0) > 0 && (
-                <span className="app-badge px-1.5 py-0.5 text-[10px] tabular-nums">{md.grades!.length}</span>
-              )}
+                <Icon name="sync" size={11} className={md.busy !== 'idle' ? 'animate-spin' : ''} />
+                {t('syncNow')}
               </span>
             </button>
-            <button id="moodle-tab-courses" className="section-tab shrink-0 px-2" role="tab" aria-controls="moodle-panel" aria-selected={section === 'courses'} onClick={() => setSection('courses')}>
-              {t('moodleSectionCourses')}
-            </button>
-            <button id="moodle-tab-resources" className="section-tab shrink-0 px-2" role="tab" aria-controls="moodle-panel" aria-selected={section === 'resources'} onClick={() => setSection('resources')}>
-              {t('courseResourcesTitle')}
-            </button>
-            <button id="moodle-tab-studyplan" className="section-tab shrink-0 px-2" role="tab" aria-controls="moodle-panel" aria-selected={section === 'studyplan'} onClick={() => setSection('studyplan')}>
-              {t('sisuPlanShortTitle')}
-            </button>
-            <button id="moodle-tab-notif" className="section-tab shrink-0 px-2" role="tab" aria-controls="moodle-panel" aria-selected={section === 'notif'} onClick={() => setSection('notif')}>
-              {t('notifSection')}
-            </button>
           </div>
-          <button className="section-arrow app-btn-ghost hidden shrink-0 p-1.5 sm:inline-flex" onClick={() => goSection(1)} aria-label={t('nextSection')} title={t('nextSection')}><Icon name="chevron-right" size={12} /></button>
+          <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+            {glance.map((item, index) => (
+              <button
+                key={`${item.key}-${index}`}
+                onClick={() => setSection(item.key)}
+                data-tone={item.tone}
+                data-interactive="true"
+                title={item.hint}
+                className="stat-tile px-2.5 py-2 text-left"
+              >
+                <div className="stat-value text-lg font-semibold leading-tight tabular-nums">{item.value}</div>
+                <div className="mt-0.5 text-[10px] text-[var(--text-3)]">{item.label}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* 分区导轨：手机横滑 chip，≥768px 变左侧竖排（同一份按钮，不复制 DOM）。 */}
+        <div className="grid gap-3 md:grid-cols-[168px_minmax(0,1fr)] md:items-start">
+        <div role="tablist" aria-label={t('moodleNav')} className="app-rail md:sticky md:top-0">
+          {sections.map((entry) => (
+            <button
+              key={entry.key}
+              id={`moodle-tab-${entry.key}`}
+              role="tab"
+              aria-controls="moodle-panel"
+              aria-selected={section === entry.key}
+              onClick={() => setSection(entry.key)}
+              className="app-rail-item"
+              title={t(entry.labelKey)}
+            >
+              <Icon name={entry.icon} size={13} />
+              <span className="min-w-0 flex-1 truncate">{t(entry.labelKey)}</span>
+              {entry.badge ? (
+                <span className="app-badge px-1.5 py-0 text-[9px] tabular-nums">{entry.badge}</span>
+              ) : null}
+            </button>
+          ))}
         </div>
 
-        <div id="moodle-panel" key={section} className="section-panel animate-view-in space-y-3" role="tabpanel" aria-labelledby={`moodle-tab-${section}`}>
+        <div id="moodle-panel" key={section} className="section-panel animate-view-in min-w-0 space-y-3" role="tabpanel" aria-labelledby={`moodle-tab-${section}`}>
           {section === 'timeline' && (
             <TimelineSection
               tasks={tasks}
@@ -167,6 +228,7 @@ export default function MoodleView({
           {section === 'studyplan' && <SisuStudyPlan key={sisuPrefsRevision} lessons={lessons} enrolled={enrolled ?? []} onOpenSettings={onOpenSettings} />}
           {section === 'notif' && <NotificationsSection />}
           {(section === 'courses' || section === 'resources') && <HebutCard />}
+        </div>
         </div>
       </div>
     </div>

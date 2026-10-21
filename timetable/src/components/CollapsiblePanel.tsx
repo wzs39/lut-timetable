@@ -10,6 +10,8 @@ interface Props {
   label: ReactNode
   /** Node opsional di ujung header (badge / tombol aksi). */
   right?: ReactNode
+  /** 首次使用（该 key 还没写过）时的展开状态；用户点过之后以存储为准。 */
+  defaultOpen?: boolean
   children: ReactNode
 }
 
@@ -21,9 +23,9 @@ interface Props {
  * kosong atau navigasi gedung tidak lagi memakan ruang begitu selesai
  * dipakai.
  */
-export default function CollapsiblePanel({ storageKey, label, right, children }: Props) {
+export default function CollapsiblePanel({ storageKey, label, right, defaultOpen = true, children }: Props) {
   const { t } = useI18n()
-  const [open, toggle] = useCollapse(storageKey)
+  const [open, toggle] = useCollapse(storageKey, defaultOpen)
 
   return (
     <section className="app-card">

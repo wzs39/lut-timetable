@@ -37,7 +37,7 @@ import { dueSubscriptions, type Subscription } from '../lib/subscriptions'
 import { loadAudits, CHANGE_KIND_KEY } from '../lib/syncAudit'
 import { freeRoomsNow } from '../lib/freeRooms'
 import { notifyNow } from '../lib/notifications'
-import type { Task } from '../lib/tasks'
+import { moduleTypeOf, type Task } from '../lib/tasks'
 
 interface Props {
   enabled: boolean
@@ -90,10 +90,16 @@ export default function NotificationManager({
         }),
     }
     const dueTexts = {
-      title: t('dueNotifTitle'),
+      // 测验是「关闭」，作业是「截止」——同一批提醒里两种文案不能混用。
+      title: (task: Task) =>
+        t(moduleTypeOf(task) === 'quiz' ? 'dueNotifTitleQuiz' : 'dueNotifTitle'),
       // beforeH: 24 = 提前一天, 1 = 提前 1 小时
       body: (task: Task, dueText: string, beforeH: number) =>
-        t('dueNotifBody', { title: task.title, due: dueText, h: beforeH }),
+        t(moduleTypeOf(task) === 'quiz' ? 'dueNotifBodyQuiz' : 'dueNotifBody', {
+          title: task.title,
+          due: dueText,
+          h: beforeH,
+        }),
     }
     const examTexts = {
       title: t('examRemindTitle'),

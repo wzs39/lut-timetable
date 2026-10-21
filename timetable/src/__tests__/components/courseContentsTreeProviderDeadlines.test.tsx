@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { I18nProvider } from '../../i18n'
 import { MoodleProvider } from '../../hooks/useMoodleData'
-import { formatDateTime } from '../../lib/date'
+import { formatDateTime, formatDateTimeShort } from '../../lib/date'
 import type { Task } from '../../lib/tasks'
 import type { CourseSection } from '../../lib/contents'
 import CourseContentsTree from '../../components/moodle/CourseContentsTree'
@@ -46,7 +46,9 @@ describe('CourseContentsTree with MoodleProvider', () => {
         </MoodleProvider>
       </I18nProvider>,
     )
-    expect(screen.getByText(formatDateTime(dueAt, document.documentElement.lang || undefined))).toBeTruthy()
+    const locale = document.documentElement.lang || undefined
+    const due = screen.getByText(formatDateTimeShort(dueAt, locale))
+    expect(due.closest('[title]')?.getAttribute('title')).toContain(formatDateTime(dueAt, locale))
     expect(screen.getByText('Synthetic quiz')).toBeTruthy()
     expect(screen.queryByText(/已提交|已评分/)).toBeNull()
   })

@@ -160,7 +160,9 @@ export async function lookupSisuCourseByCode(code: string, signal?: AbortSignal)
   const parsed = (rows as Array<Record<string, unknown>>)
     .map(parseCatalogRow)
     .filter((row): row is SisuPublicCourse => row !== null)
-  const match = parsed.find((row) => row.code && normalizeSisuCode(row.code) === clean) ?? parsed[0]
+  // Exact code only: fuzzy search can return a different course, and a wrong
+  // SISU id would produce a wrong deep link and a false credit match.
+  const match = parsed.find((row) => row.code && normalizeSisuCode(row.code) === clean)
   if (!match) return null
 
   const cache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})

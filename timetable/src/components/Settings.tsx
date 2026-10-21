@@ -1,34 +1,28 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useI18n } from '../i18n'
 import Icon from './Icon'
-import { formatTime } from '../lib/date'
-import { sourceFromUrl } from '../lib/store'
-import { clearEnrolledCoursesCache } from '../lib/courses'
-import { exportBackup, importBackupDetail } from '../lib/backup'
-import SyncAuditPanel from './SyncAuditPanel'
-import type { SyncAudit } from '../lib/syncAudit'
-import { TYPE_META } from '../lib/lessonTypes'
-import { parseNoteKey, scopeText, type NotesMap } from '../lib/notes'
-import { useTheme } from '../theme'
-import { THEME_PRESETS, type Preset } from '../lib/theme'
-import type { Contrast, TextScale } from '../lib/uiPrefs'
-import { acceleratorLabel, type DesktopPrefs, type DesktopState } from '../lib/desktop'
-import type { Subscription } from '../lib/subscriptions'
 import { useExitAnimation } from '../lib/useExitAnimation'
-import { useMoodleData } from '../hooks/useMoodleData'
-import { openExternal } from '../lib/openExternal'
-import SyncProtection from './SyncProtection'
-import IdentityDiagnostics from './IdentityDiagnostics'
-import PendingNotificationsPanel from './PendingNotificationsPanel'
-import type { SyncSource } from '../types'
-import { loadSisuCoursePreferences, saveSisuCoursePreferences, type SisuCourseFocus } from '../lib/sisuCourseCatalog'
-import { loadSisuStudyPlan, saveSisuStudyPlan } from '../lib/sisuStudyPlan'
+import type { Lesson, SyncSource } from '../types'
+import type { NotesMap } from '../lib/notes'
+import type { Contrast, TextScale } from '../lib/uiPrefs'
+import type { DesktopPrefs, DesktopState } from '../lib/desktop'
+import type { Subscription } from '../lib/subscriptions'
+import type { SyncAudit } from '../lib/syncAudit'
+import type { StudyBlockPrefs } from '../lib/studyBlockPrefs'
+import { Group } from './settings/shared'
 import {
-  STUDY_BLOCK_LIMITS,
-  loadStudyBlockPrefs,
-  saveStudyBlockPrefs,
-  type StudyBlockPrefs,
-} from '../lib/studyBlockPrefs'
+  DEFAULT_SETTINGS_GROUP,
+  GROUP_DESC_KEYS,
+  GROUP_ICON,
+  GROUP_LABEL_KEYS,
+  SETTINGS_GROUP_IDS,
+  type SettingsGroupId,
+} from './settings/tokens'
+import AppearanceSection from './settings/AppearanceSection'
+import SyncSection from './settings/SyncSection'
+import StudySection from './settings/StudySection'
+import DataSection from './settings/DataSection'
+import LogsSection from './settings/LogsSection'
 
 interface Props {
   sources: SyncSource[]
@@ -67,6 +61,8 @@ interface Props {
   /** 导出诊断文本（返回给用户看的提示语） */
   onExportDiagnostics: () => Promise<string>
   onClearErrors: () => void
+  /** 已同步的可见课表：设置里的「按课表推导」学习窗口用它（不写回课表） */
+  lessons?: Lesson[]
   /** 同步变更审计（lib/syncAudit） */
   audits: SyncAudit[]
   onClearAudits: () => void
@@ -80,62 +76,13 @@ interface Props {
   onClose: () => void
 }
 
-const SISU_FOCUSES: SisuCourseFocus[] = ['software', 'ai', 'systems', 'international']
-const SETTINGS_GROUP_IDS = ['appearance', 'sync', 'study', 'data', 'logs'] as const
-const GROUP_LABEL_KEYS: Record<(typeof SETTINGS_GROUP_IDS)[number], string> = {
-  appearance: 'settingsGroupAppearance',
-  sync: 'settingsGroupSync',
-  study: 'settingsGroupStudy',
-  data: 'settingsGroupData',
-  logs: 'settingsGroupLogs',
-}
-
 /**
- * 滑杆行：可见标签 + `aria-label`（与标签同文，供 role=slider 定位）+ 右侧现值。
- * 学习时段偏好统一用它，免得五个旋钮各写一遍排版。
+ * 设置弹层 = 外框 + 分类索引 + 五个分区。
+ *
+ * 加一个设置项时改的是 `components/settings/<分区>.tsx`；加一个新分类才动
+ * 这个文件（登记两个标题键 + 一行 `<Group>`）。分区的本地状态跟着分区走，
+ * 不在这里堆成第二个大组件。
  */
-function PrefSlider({ label, value, min, max, step, display, onChange }: {
-  label: string
-  value: number
-  min: number
-  max: number
-  step: number
-  display: string
-  onChange: (value: number) => void
-}) {
-  return (
-    <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
-      <span className="w-16 shrink-0">{label}</span>
-      <input
-        type="range"
-        aria-label={label}
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="min-w-0 flex-1 accent-[var(--accent)]"
-      />
-      <span className="w-16 shrink-0 text-right text-[10px] text-[var(--text-3)]" title={display}>{display}</span>
-    </label>
-  )
-}
-
-/** 整点显示：8 → 08:00（与今日页 / 周视图的时钟口径一致）。 */
-function hourLabel(hour: number): string {
-  return `${String(hour).padStart(2, '0')}:00`
-}
-
-/** 设置分区：分类标题 + 若干小节；id 供顶部分类索引滚动定位。 */
-function Group({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  return (
-    <section id={`settings-${id}`} className="scroll-mt-14">
-      <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--accent)]">{title}</h3>
-      <div className="space-y-6">{children}</div>
-    </section>
-  )
-}
-
 export default function Settings({
   sources,
   syncing,
@@ -167,6 +114,7 @@ export default function Settings({
   errorCount,
   onExportDiagnostics,
   onClearErrors,
+  lessons = [],
   audits,
   onClearAudits,
   desktop,
@@ -175,69 +123,13 @@ export default function Settings({
   onStudyBlockPrefsChanged,
   onClose,
 }: Props) {
-  const { t, lang, setLang } = useI18n()
-  const { theme, setTheme, preset, setPreset } = useTheme()
-  const md = useMoodleData()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [importError, setImportError] = useState<string | null>(null)
-  const [icsDone, setIcsDone] = useState<string | null>(null)
-  const [shareMsg, setShareMsg] = useState<string | null>(null)
-  const [diagMsg, setDiagMsg] = useState<string | null>(null)
-  // SISU 学习偏好与目标：跨界面生效，唯一编辑入口在这里。
-  const [sisuPrefs, setSisuPrefs] = useState(loadSisuCoursePreferences)
-  const [sisuPlan, setSisuPlan] = useState(loadSisuStudyPlan)
-  const changeSisuFocus = (focus: SisuCourseFocus) => {
-    setSisuPrefs(saveSisuCoursePreferences({ ...sisuPrefs, focus }))
-    onSisuPrefsChanged?.()
-  }
-  /** 空串/0（用户清空输入框）不写回：saveSisuStudyPlan 会把 <=0 夹回默认值，
-   *  否则一按退格就被弹回 180，没法全选删空再输新值。blur 时再兜底夹一次。 */
-  // 学习时段偏好：与 SISU 偏好一样，唯一编辑入口在这里；保存即通知 App 重挂载计划页。
-  const [studyPrefs, setStudyPrefs] = useState(loadStudyBlockPrefs)
-  const changeStudyPrefs = (patch: Partial<StudyBlockPrefs>) => {
-    const next = saveStudyBlockPrefs(patch)
-    setStudyPrefs(next)
-    onSisuPrefsChanged?.()
-    onStudyBlockPrefsChanged?.(next)
-  }
-  const minutesLabel = (n: number) => `${n} ${t('studyBlockPrefUnitMinutes')}`
-  const changeSisuGoal = (raw: string) => {
-    const next = Number(raw)
-    if (!Number.isFinite(next) || next <= 0) return
-    setSisuPlan(saveSisuStudyPlan({ ...sisuPlan, goalCredits: next }))
-    onSisuPrefsChanged?.()
-  }
+  const { t } = useI18n()
 
   // Semua jalur tutup (✕ / ESC / klik luar) lewat satu frame keluar.
   const [closing, requestClose] = useExitAnimation(onClose)
-
-  const [sourceUrl, setSourceUrl] = useState('')
-  const [sourceError, setSourceError] = useState<string | null>(null)
-  const [tokenInput, setTokenInput] = useState('')
-  const [moodleIcsInput, setMoodleIcsInput] = useState('')
-
-  const exportIcs = () => {
-    onExportIcs()
-    setIcsDone(t('exportIcsDone'))
-  }
-
-  // URL → 来源的唯一解析器在 lib/store（首次引导共用同一份）；
-  // 添加成功后由 App 立即同步一次，这里只收集输入 + 报错。
-  const addSource = () => {
-    const src = sourceFromUrl(sourceUrl)
-    if (!src) {
-      setSourceError(t('badUrl'))
-      return
-    }
-    setSourceError(null)
-    onAddSource(src)
-    setSourceUrl('')
-  }
-
-  const entries = Object.entries(notes).sort((a, b) => a[0].localeCompare(b[0]))
-
-  const inputCls =
-    'w-full rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1.5 text-xs focus:outline-none focus:border-[var(--info)]'
+  // 一次只显示一组：导轨切分类而不是在同一条长滚里找位置。
+  // 初始停在外观（最常改的开关）；不持久化——每次打开都从同一处开始。
+  const [active, setActive] = useState<SettingsGroupId>(DEFAULT_SETTINGS_GROUP)
 
   return (
     <div
@@ -252,663 +144,141 @@ export default function Settings({
       <div
         className={
           (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
-          'w-full max-w-md max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl'
+          'flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] shadow-2xl md:max-w-4xl md:flex-row'
         }
       >
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="inline-flex items-center gap-2 text-sm font-semibold"><Icon name="settings" size={15} /> {t('settingsTitle')}</h3>
-          <button
-            onClick={requestClose}
-            className="text-[var(--text-3)] hover:text-[var(--text-1)]"
-            title={t('closeHint')}
+        <aside className="flex shrink-0 flex-col border-b border-[var(--line)] bg-gradient-to-b from-[var(--surface-1)] to-[var(--surface-0)] md:w-56 md:border-b-0 md:border-r">
+          <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-4 md:pb-3">
+            <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
+              <Icon name="settings" size={15} /> {t('settingsTitle')}
+            </h3>
+            <button
+              onClick={requestClose}
+              className="text-[var(--text-3)] hover:text-[var(--text-1)]"
+              title={t('closeHint')}
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+
+          <nav
+            className="app-rail px-3 pb-3 md:px-2"
+            role="navigation"
+            aria-label={t('settingsNav')}
           >
-            <Icon name="close" size={13} />
-          </button>
-        </div>
-
-        <div
-          className="sticky -top-px z-10 -mx-4 mb-4 flex gap-1 overflow-x-auto border-b border-[var(--line)] bg-[var(--surface-1)] px-4 py-2"
-          role="navigation"
-          aria-label={t('settingsNav')}
-        >
-          {SETTINGS_GROUP_IDS.map((id) => (
-            <button
-              key={id}
-              onClick={() => document.getElementById(`settings-${id}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })}
-              className="shrink-0 rounded-full border border-[var(--line)] px-2.5 py-1 text-[10px] text-[var(--text-2)] hover:bg-[var(--hover-1)]"
-            >
-              {t(GROUP_LABEL_KEYS[id])}
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-6 text-xs">
-          <Group id="appearance" title={t('settingsGroupAppearance')}>
-          {/* 外观：跟随系统 / 深色 / 浅色 */}
-          <section>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              {t('themeTitle')}
-            </h4>
-            <div className="app-seg w-full">
-              {(['system', 'dark', 'light'] as const).map((v) => (
+            {SETTINGS_GROUP_IDS.map((id) => {
+              const current = active === id
+              return (
                 <button
-                  key={v}
-                  aria-pressed={theme === v}
-                  onClick={() => setTheme(v)}
-                  className="flex-1"
+                  key={id}
+                  onClick={() => setActive(id)}
+                  aria-current={current ? 'page' : undefined}
+                  title={t(GROUP_LABEL_KEYS[id])}
+                  className="app-rail-item"
                 >
-                  {t(v === 'system' ? 'themeSystem' : v === 'dark' ? 'themeDark' : 'themeLight')}
+                  <Icon name={GROUP_ICON[id]} size={13} />
+                  <span className="min-w-0 truncate">{t(GROUP_LABEL_KEYS[id])}</span>
                 </button>
-              ))}
-            </div>
-          </section>
+              )
+            })}
+          </nav>
+          <p className="hidden px-4 pb-3 text-[10px] leading-relaxed text-[var(--text-3)] md:block">
+            {t('settingsPaneHint')}
+          </p>
+        </aside>
 
-          {/* 预设配色：Nord / Catppuccin / …，与深浅模式正交，全模块即时生效 */}
-          <section>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              {t('presetTitle')}
-            </h4>
-            <div className="grid grid-cols-3 gap-2">
-              {THEME_PRESETS.map((p) => (
-                <button
-                  key={p.id}
-                  aria-pressed={preset === p.id}
-                  onClick={() => setPreset(p.id as Preset)}
-                  className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2 transition-colors ${
-                    preset === p.id
-                      ? 'border-[var(--info)] bg-[var(--tint-info)]'
-                      : 'border-[var(--line)] hover:bg-[var(--hover-1)]'
-                  }`}
-                  title={t('presetHint')}
-                >
-                  <span className="flex">
-                    {p.swatch.map((c) => (
-                      <span
-                        key={c}
-                        className="h-4 w-4 first:rounded-l-full last:rounded-r-full"
-                        style={{ background: c }}
-                      />
-                    ))}
-                  </span>
-                  <span className="text-[10px] leading-none text-[var(--text-2)]">
-                    {p.id === 'default' ? t('presetDefault') : p.name}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* 无障碍：字号与对比度（存 uiPrefs，写在 <html> 上由 CSS 消费） */}
-          <section>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              {t('a11yTitle')}
-            </h4>
-            <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-              <input
-                type="checkbox"
-                checked={textScale === 'large'}
-                onChange={(e) => onTextScale(e.target.checked ? 'large' : 'normal')}
-                className="accent-sky-500"
-              />
-              {t('a11yLargeText')}
-            </label>
-            <label className="mt-1 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-              <input
-                type="checkbox"
-                checked={contrast === 'high'}
-                onChange={(e) => onContrast(e.target.checked ? 'high' : 'normal')}
-                className="accent-sky-500"
-              />
-              {t('a11yHighContrast')}
-            </label>
-          </section>
-
-          {/* 语言 */}
-          <section>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              {t('langTitle')}
-            </h4>
-            <div className="app-seg w-full">
-              {(['zh', 'en'] as const).map((v) => (
-                <button
-                  key={v}
-                  aria-pressed={lang === v}
-                  onClick={() => setLang(v)}
-                  className="flex-1"
-                >
-                  {v === 'zh' ? '中文' : 'English'}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          </Group>
-
-          <Group id="sync" title={t('settingsGroupSync')}>
-          {/* 课程同步：源管理 + 开关 */}
-          <section>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              {t('syncCalendar')}
-            </h4>
-            <textarea
-              value={sourceUrl}
-              onChange={(e) => setSourceUrl(e.target.value)}
-              placeholder={t('pasteUrl')}
-              rows={2}
-              className={inputCls + ' resize-none'}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="space-y-8 text-xs">
+          <Group
+            id="appearance"
+            title={t('settingsGroupAppearance')}
+            description={t(GROUP_DESC_KEYS.appearance)}
+            active={active === 'appearance'}
+          >
+            <AppearanceSection
+              textScale={textScale}
+              contrast={contrast}
+              onTextScale={onTextScale}
+              onContrast={onContrast}
             />
-            {sourceError && <p className="mt-1 text-[11px] text-[var(--danger)]">{sourceError}</p>}
-            <button onClick={addSource} className="mt-2 w-full rounded-md app-btn-primary px-2 py-1.5 text-xs font-medium">
-              {t('addSource')}
-            </button>
-            <div className="mt-2 space-y-1.5">
-              {sources.map((s) => (
-                <div key={s.id} className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 truncate font-medium" title={`${s.type === 'sisu' ? 'SISU' : 'TimeEdit'} · ${s.label}`}>
-                      <span className={'mr-1 inline-block h-2 w-2 rounded-full align-middle ' + (s.type === 'sisu' ? 'bg-[var(--info)]' : 'bg-[var(--violet)]')} />
-                      {s.type === 'sisu' ? 'SISU' : 'TimeEdit'} · <span className="text-[10px] font-normal text-[var(--text-3)]">{s.label}</span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1">
-                      <button onClick={() => onSync(s)} disabled={syncing} className="rounded bg-[var(--surface-1)] px-2 py-0.5 text-[10px] hover:bg-[var(--hover-1)] disabled:opacity-50">
-                        {t('syncNow')}
-                      </button>
-                      <button onClick={() => onRemoveSource(s.id)} className="text-[var(--text-3)] hover:text-[var(--danger)]" title={t('delete')}>
-                        <Icon name="close" size={12} />
-                      </button>
-                    </span>
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-[var(--text-3)]">
-                    {t('lessonsN', { n: s.count })}{s.lastSync ? ` · ${formatTime(s.lastSync)}` : ''}
-                  </div>
-                </div>
-              ))}
-              {sources.length === 0 && <p className="text-[11px] text-[var(--text-3)]">{t('sourceEmpty')}</p>}
-              {syncMessage && <p className="text-[11px] text-[var(--text-2)]">{syncMessage}</p>}
-            </div>
-            <div className="mt-2 space-y-1">
-              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input type="checkbox" checked={autoSync} onChange={(e) => onToggleAutoSync(e.target.checked)} className="accent-sky-500" />
-                {t('autoSyncHint')}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input type="checkbox" checked={notifEnabled} onChange={(e) => onToggleNotif(e.target.checked)} className="accent-sky-500" />
-                {t('notifHint')}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input type="checkbox" checked={digestEnabled} onChange={(e) => onToggleDigest(e.target.checked)} className="accent-sky-500" />
-                {t('digestToggle')}
-              </label>
-            </div>
-          </section>
-
-          {/* Moodle 连接：密钥 + ICS 兜底 */}
-          <section>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              <span className="inline-flex items-center gap-1.5"><Icon name="assignment" size={12} /> {t('moodleTitle')}</span>
-            </h4>
-            <div className="space-y-2">
-              {md.token ? (
-                <div className="rounded-md border border-[var(--line-ok)] bg-[var(--tint-ok)] p-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-[var(--ok)]">✓ {t('gradesConnected')}</span>
-                    <button onClick={md.disconnectToken} className="text-[10px] text-[var(--text-3)] hover:text-[var(--danger)]">
-                      {t('moodleRemove')}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] leading-relaxed text-[var(--text-3)]">{t('gradesHint')}</p>
-                  {/* Browser SSO only works where a native/Electron return bridge is available. */}
-                  {md.ssoAvailable && <button
-                    onClick={() =>
-                      md.loginWithSso((url) => {
-                        // Android: openExternal 导航主帧被原生层拦截 → 系统浏览器；
-                        // web/Electron: 打开新标签（Electron 由 external-links 转系统浏览器）。
-                        openExternal(url)
-                      })
-                    }
-                    disabled={md.ssoState === 'pending'}
-                    className="app-btn-primary w-full px-3 py-1.5 text-xs disabled:opacity-50"
-                  >
-                    {md.ssoState === 'pending' ? t('ssoWaiting') : t('ssoLoginBtn')}
-                  </button>}
-                  {(md.ssoMessage || md.message) && (
-                    <p className="text-[10px] leading-relaxed text-[var(--text-2)]">{md.ssoMessage ?? md.message}</p>
-                  )}
-                  <input
-                    value={tokenInput}
-                    onChange={(e) => setTokenInput(e.target.value)}
-                    placeholder={t('gradesTokenPh')}
-                    className={inputCls}
-                    autoComplete="off"
-                  />
-                  <button
-                    onClick={() => void md.connectToken(tokenInput)}
-                    disabled={md.busy !== 'idle' || !tokenInput.trim()}
-                    className="w-full rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs hover:bg-[var(--hover-1)]"
-                  >
-                    {md.busy === 'grades' ? t('gradesFetching') : t('gradesConnect')}
-                  </button>
-                </div>
-              )}
-
-              {md.ics ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2">
-                  <span className="min-w-0 truncate text-[10px] text-[var(--text-3)]" title={md.ics.url}>{md.ics.url}</span>
-                  <button onClick={md.disconnectIcs} className="shrink-0 text-[10px] text-[var(--text-3)] hover:text-[var(--danger)]">
-                    {t('moodleRemove')}
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <p className="text-[10px] text-[var(--text-3)]">{t('moodleIcsLabel')}</p>
-                  <input
-                    value={moodleIcsInput}
-                    onChange={(e) => setMoodleIcsInput(e.target.value)}
-                    placeholder={t('moodleUrlPh')}
-                    className={inputCls}
-                  />
-                  <button
-                    onClick={() => { if (md.setIcsUrl(moodleIcsInput)) setMoodleIcsInput('') }}
-                    className="w-full rounded-md bg-[var(--surface-2)] px-3 py-1.5 text-xs hover:bg-[var(--hover-1)]"
-                  >
-                    {t('moodleConnect')}
-                  </button>
-                </div>
-              )}
-
-              <button onClick={() => void md.syncNow()} disabled={md.busy !== 'idle' || !md.connected} className="app-btn-primary w-full px-3 py-1.5 text-xs disabled:opacity-50">
-                {md.busy === 'sync' ? t('moodleSyncing') : t('moodleSyncNow')}
-              </button>
-              {md.message && <p className="text-[11px] text-[var(--text-2)]">{md.message}</p>}
-            </div>
-          </section>
-
           </Group>
 
-          <Group id="study" title={t('settingsGroupStudy')}>
-            <section>
-              <p className="text-[10px] leading-relaxed text-[var(--text-3)]">{t('sisuPrefsHint')}</p>
-              <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
-                {t('sisuCourseFocus')}
-                <select
-                  value={sisuPrefs.focus}
-                  onChange={(e) => changeSisuFocus(e.target.value as SisuCourseFocus)}
-                  className="app-input min-w-0 flex-1 text-xs"
-                >
-                  {SISU_FOCUSES.map((focus) => (
-                    <option key={focus} value={focus}>{t(`sisuCourseFocus_${focus}`)}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
-                {t('sisuPlanGoal')}
-                <input
-                  type="number"
-                  min="1"
-                  value={sisuPlan.goalCredits}
-                  onChange={(e) => changeSisuGoal(e.target.value)}
-                  onBlur={(e) => changeSisuGoal(e.target.value)}
-                  className="app-input w-20 px-1 py-0.5 text-right text-xs"
-                />
-              </label>
-            </section>
-
-            {/* 学习时段偏好：只影响「生成学习时段建议」，不动已确认的时段 */}
-            <section>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-                {t('studyBlockPrefsTitle')}
-              </h4>
-              <p className="mt-1 text-[10px] leading-relaxed text-[var(--text-3)]">{t('studyBlockPrefsHint')}</p>
-              <PrefSlider
-                label={t('studyBlockPrefStart')}
-                value={studyPrefs.dayStartHour}
-                min={STUDY_BLOCK_LIMITS.dayStartHour.min}
-                max={STUDY_BLOCK_LIMITS.dayStartHour.max}
-                step={1}
-                display={hourLabel(studyPrefs.dayStartHour)}
-                onChange={(dayStartHour) => changeStudyPrefs({ dayStartHour })}
-              />
-              <PrefSlider
-                label={t('studyBlockPrefEnd')}
-                value={studyPrefs.dayEndHour}
-                min={STUDY_BLOCK_LIMITS.dayEndHour.min}
-                max={STUDY_BLOCK_LIMITS.dayEndHour.max}
-                step={1}
-                display={hourLabel(studyPrefs.dayEndHour)}
-                onChange={(dayEndHour) => changeStudyPrefs({ dayEndHour })}
-              />
-              <PrefSlider
-                label={t('studyBlockPrefLength')}
-                value={studyPrefs.blockMinutes}
-                min={STUDY_BLOCK_LIMITS.blockMinutes.min}
-                max={STUDY_BLOCK_LIMITS.blockMinutes.max}
-                step={STUDY_BLOCK_LIMITS.blockMinutes.step}
-                display={minutesLabel(studyPrefs.blockMinutes)}
-                onChange={(blockMinutes) => changeStudyPrefs({ blockMinutes })}
-              />
-              <PrefSlider
-                label={t('studyBlockPrefBuffer')}
-                value={studyPrefs.bufferMinutes}
-                min={STUDY_BLOCK_LIMITS.bufferMinutes.min}
-                max={STUDY_BLOCK_LIMITS.bufferMinutes.max}
-                step={STUDY_BLOCK_LIMITS.bufferMinutes.step}
-                display={minutesLabel(studyPrefs.bufferMinutes)}
-                onChange={(bufferMinutes) => changeStudyPrefs({ bufferMinutes })}
-              />
-              <PrefSlider
-                label={t('studyBlockPrefHorizon')}
-                value={studyPrefs.horizonDays}
-                min={STUDY_BLOCK_LIMITS.horizonDays.min}
-                max={STUDY_BLOCK_LIMITS.horizonDays.max}
-                step={1}
-                display={`${studyPrefs.horizonDays} ${t('studyBlockPrefUnitDays')}`}
-                onChange={(horizonDays) => changeStudyPrefs({ horizonDays })}
-              />
-              <label className="mt-2 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input
-                  type="checkbox"
-                  aria-label={t('studyBlockPrefSkipWeekends')}
-                  checked={studyPrefs.skipWeekends}
-                  onChange={(e) => changeStudyPrefs({ skipWeekends: e.target.checked })}
-                  className="accent-[var(--accent)]"
-                />
-                {t('studyBlockPrefSkipWeekends')}
-              </label>
-              <label className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input
-                  type="checkbox"
-                  aria-label={t('studyBlockPrefRemind')}
-                  checked={studyPrefs.remindEnabled}
-                  onChange={(e) => changeStudyPrefs({ remindEnabled: e.target.checked })}
-                  className="accent-[var(--accent)]"
-                />
-                {t('studyBlockPrefRemind')}
-              </label>
-            </section>
-          </Group>
-
-          <Group id="data" title={t('settingsGroupData')}>
-          {/* 桌面端：托盘与全局快捷键（只有 Electron 里有 lutDesktop 桥） */}
-          {desktop && (
-            <section>
-              <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-                {t('desktopTitle')}
-              </h4>
-              <label className="flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input
-                  type="checkbox"
-                  checked={desktop.closeToTray}
-                  onChange={(e) => onDesktopPrefs({ closeToTray: e.target.checked })}
-                  className="accent-sky-500"
-                />
-                {t('desktopCloseToTray')}
-              </label>
-              <label className="mt-1 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--text-2)]">
-                <input
-                  type="checkbox"
-                  checked={desktop.shortcutEnabled}
-                  onChange={(e) => onDesktopPrefs({ shortcutEnabled: e.target.checked })}
-                  className="accent-sky-500"
-                />
-                <span>
-                  {t('desktopShortcut', {
-                    acc: acceleratorLabel(desktop.accelerator, desktop.platform === 'darwin'),
-                  })}
-                  {desktop.shortcutEnabled && !desktop.shortcutActive && (
-                    <span className="ml-1 text-[var(--due)]">{t('desktopShortcutBusy')}</span>
-                  )}
-                </span>
-              </label>
-            </section>
-          )}
-
-          {/* 数据备份 */}
-          <section>
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
-              {t('dataTitle')}
-            </h4>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => void exportBackup()}
-                className="flex-1 rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs"
-              >
-                {t('exportData')}
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="flex-1 rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs"
-              >
-                {t('importData')}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0]
-                  if (!file) return
-                  try {
-                    const { written, skipped } = importBackupDetail(await file.text())
-                    if (skipped.length > 0) {
-                      // Tulis sebagian: jangan reload (biar pengguna lihat
-                      // pesannya), tampilkan key yang gagal.
-                      setImportError(t('importPartial', { keys: skipped.join(', ') }))
-                    } else {
-                      setImportError(t('importDone', { n: written }))
-                      // Beri React satu frame untuk melukis pesan sebelum
-                      // reload — di WebView native reload instan bisa
-                      // memotong paint dan tampak seperti aplikasi mati.
-                      setTimeout(() => location.reload(), 350)
-                    }
-                  } catch {
-                    setImportError(t('importFail'))
-                  }
-                  e.target.value = ''
-                }}
-              />
-            </div>
-            {importError && <p className="mt-1 text-[11px] text-[var(--danger)]">{importError}</p>}
-            <button
-              onClick={exportIcs}
-              className="mt-2 w-full rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs"
-            >
-              {t('exportIcs')}
-            </button>
-            {icsDone && <p className="mt-1 text-[11px] text-[var(--ok)]">{icsDone}</p>}
-            <button
-              onClick={async () => {
-                setShareMsg(null)
-                setShareMsg(await onShareWeek())
-              }}
-              className="mt-2 w-full rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs"
-              title={t('shareWeekHint')}
-            >
-              {t('shareWeek')}
-            </button>
-            {shareMsg && <p className="mt-1 text-[11px] text-[var(--text-2)]">{shareMsg}</p>}
-            <p className="mt-1 text-[10px] text-[var(--text-3)]">{t('dataHint')}</p>
-          </section>
-
-          {/* 同步变更记录：每次同步到底改了什么 */}
-          <section>
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
-              {t('syncAuditTitle')}
-            </h4>
-            <SyncAuditPanel audits={audits} onClear={onClearAudits} />
-          </section>
-
-          {/* Lecture Translator */}
-          <section>
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
-              {t('translatorTitle')}
-            </h4>
-            <input
-              defaultValue={translatorUrl}
-              placeholder="http://localhost:8000"
-              onBlur={(e) => {
-                const u = e.target.value.trim().replace(/\/+$/, '')
-                if (u && u !== translatorUrl) onTranslatorUrl(u)
-              }}
-              className="w-full rounded bg-[var(--surface-2)] border border-[var(--line)] px-2 py-1 text-[11px]"
+          <Group
+            id="sync"
+            title={t('settingsGroupSync')}
+            description={t(GROUP_DESC_KEYS.sync)}
+            active={active === 'sync'}
+          >
+            <SyncSection
+              sources={sources}
+              syncing={syncing}
+              syncMessage={syncMessage}
+              autoSync={autoSync}
+              onToggleAutoSync={onToggleAutoSync}
+              notifEnabled={notifEnabled}
+              onToggleNotif={onToggleNotif}
+              digestEnabled={digestEnabled}
+              onToggleDigest={onToggleDigest}
+              onAddSource={onAddSource}
+              onRemoveSource={onRemoveSource}
+              onSync={onSync}
             />
-            <button
-              onClick={onLinkTranslator}
-              className="app-fill-ok mt-1.5 w-full rounded px-2 py-1 text-[11px]"
-            >
-              {t('translatorLinkNow')}
-            </button>
-            {translatorMsg && (
-              <p className="mt-1 text-[11px] text-[var(--text-2)]">{translatorMsg}</p>
-            )}
-          </section>
-
-          {/* 同步保护：tombstone / override 管理 */}
-          <SyncProtection revision={syncMessage ?? ''} />
-
-          {/* 身份数据诊断：各源课程数 / 覆盖率 / 最近同步。
-              revision 组合两路信号：日历同步走 syncing/syncMessage（App），
-              Moodle 域同步走 md.busy（useMoodleData 内部）——二者都会改身份
-              表，任一变化都触发诊断重算。onResync 清 enrol 缓存后强制重取。 */}
-          <IdentityDiagnostics
-            sources={sources}
-            revision={`${md.busy}|${syncing}|${syncMessage ?? ''}`}
-            onResync={async () => {
-              if (!md.token) return false
-              clearEnrolledCoursesCache()
-              await md.refreshGrades()
-              return true
-            }}
-          />
-
           </Group>
 
-          <Group id="logs" title={t('settingsGroupLogs')}>
-          {/* 订阅式提醒：本机判断、本机推送，这里只管列出与开关 */}
-          <section>
-            <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
-              <span className="inline-flex items-center gap-1.5"><Icon name="warn" size={12} /> {t('subsTitle')} ({subscriptions.length})</span>
-            </h4>
-            {subscriptions.length === 0 ? (
-              <p className="text-[11px] text-[var(--text-3)]">{t('subsEmpty')}</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {subscriptions.map((s) => (
-                  <li
-                    key={s.id}
-                    className="flex items-center gap-2 rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1.5 text-[11px]"
-                  >
-                    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5">
-                      <input
-                        type="checkbox"
-                        checked={s.enabled}
-                        onChange={() => onToggleSubscription(s.id)}
-                        className="accent-sky-500"
-                      />
-                      <span className="min-w-0 truncate text-[var(--text-1)]" title={s.label}>
-                        {s.label}
-                      </span>
-                      <span className="shrink-0 text-[10px] text-[var(--text-3)]">
-                        {t(s.kind === 'course-change' ? 'subKindCourse' : 'subKindRoom')}
-                      </span>
-                    </label>
-                    <button
-                      onClick={() => onRemoveSubscription(s.id)}
-                      className="shrink-0 text-[var(--text-3)] hover:text-[var(--danger)]"
-                      title={t('subsRemove')}
-                      aria-label={t('subsRemove')}
-                    >
-                      <Icon name="trash" size={12} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {/* 错误日志：本机最近几次异常 + 导出诊断（不能自动上报，用户手动发） */}
-          <section>
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
-              <span className="inline-flex items-center gap-1.5"><Icon name="warn" size={12} /> {t('errorsTitle')} ({errorCount})</span>
-            </h4>
-            <p className="text-[11px] text-[var(--text-3)]">{t('errorsHint')}</p>
-            <div className="mt-2 flex gap-2">
-              <button
-                onClick={async () => {
-                  setDiagMsg(null)
-                  setDiagMsg(await onExportDiagnostics())
-                }}
-                className="flex-1 rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs"
-              >
-                {t('errorsExport')}
-              </button>
-              {errorCount > 0 && (
-                <button
-                  onClick={() => {
-                    onClearErrors()
-                    setDiagMsg(t('errorsCleared'))
-                  }}
-                  className="shrink-0 rounded-md bg-[var(--surface-2)] hover:bg-[var(--hover-1)] px-2 py-1.5 text-xs text-[var(--text-2)]"
-                >
-                  {t('errorsClear')}
-                </button>
-              )}
-            </div>
-            {diagMsg && <p className="mt-1 text-[11px] text-[var(--text-2)]">{diagMsg}</p>}
-          </section>
-
-          {/* 已排期通知：从系统队列读回来的“真正排上的提醒”（只读诊断） */}
-          <PendingNotificationsPanel />
-
-          {/* 课程备注 */}
-          <section>
-            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-3)] mb-2">
-              <span className="inline-flex items-center gap-1.5"><Icon name="note" size={12} /> {t('notesTitle')} ({entries.length})</span>
-            </h4>
-            {entries.length === 0 ? (
-              <p className="text-[11px] text-[var(--text-3)]">{t('notesEmpty')}</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {entries.map(([key, n]) => {
-                  const parts = parseNoteKey(key)
-                  const typeLabel =
-                    parts.type && TYPE_META[parts.type]
-                      ? t(TYPE_META[parts.type].key)
-                      : t('noteScopeAny')
-                  return (
-                    <li
-                      key={key}
-                      className="flex items-start gap-2 rounded-md border border-[var(--line-due)] bg-[var(--tint-due)] px-2 py-1.5"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[11px] font-medium text-[var(--due)]" title={scopeText(parts.code, typeLabel)}>
-                          {scopeText(parts.code, typeLabel)}
-                        </div>
-                        <div
-                          className="mt-0.5 line-clamp-2 text-[11px] text-[var(--due)]"
-                          title={n.note}
-                        >
-                          {n.note}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => onRemoveNote(key)}
-                        className="shrink-0 text-[var(--text-3)] hover:text-[var(--danger)]"
-                        title={t('noteRemove')}
-                      >
-                        <Icon name="close" size={13} />
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-            <p className="mt-1.5 text-[10px] text-[var(--text-3)]">{t('notesHint')}</p>
-          </section>
+          <Group
+            id="study"
+            title={t('settingsGroupStudy')}
+            description={t(GROUP_DESC_KEYS.study)}
+            active={active === 'study'}
+          >
+            <StudySection
+              lessons={lessons}
+              onSisuPrefsChanged={onSisuPrefsChanged}
+              onStudyBlockPrefsChanged={onStudyBlockPrefsChanged}
+            />
           </Group>
+
+          <Group
+            id="data"
+            title={t('settingsGroupData')}
+            description={t(GROUP_DESC_KEYS.data)}
+            active={active === 'data'}
+          >
+            <DataSection
+              sources={sources}
+              syncing={syncing}
+              syncMessage={syncMessage}
+              translatorUrl={translatorUrl}
+              onTranslatorUrl={onTranslatorUrl}
+              onLinkTranslator={onLinkTranslator}
+              translatorMsg={translatorMsg}
+              onExportIcs={onExportIcs}
+              onShareWeek={onShareWeek}
+              audits={audits}
+              onClearAudits={onClearAudits}
+              desktop={desktop}
+              onDesktopPrefs={onDesktopPrefs}
+            />
+          </Group>
+
+          <Group
+            id="logs"
+            title={t('settingsGroupLogs')}
+            description={t(GROUP_DESC_KEYS.logs)}
+            active={active === 'logs'}
+          >
+            <LogsSection
+              subscriptions={subscriptions}
+              onToggleSubscription={onToggleSubscription}
+              onRemoveSubscription={onRemoveSubscription}
+              errorCount={errorCount}
+              onExportDiagnostics={onExportDiagnostics}
+              onClearErrors={onClearErrors}
+              notes={notes}
+              onRemoveNote={onRemoveNote}
+            />
+          </Group>
+        </div>
         </div>
       </div>
     </div>

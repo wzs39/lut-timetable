@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from 'vitest'
-import { updateCachedCompletion } from '../lib/contents'
+import { moduleTypesFromSections, updateCachedCompletion } from '../lib/contents'
 import { writeCache, domainCacheKey, type CacheEnvelope } from '../lib/moodleSync'
 import type { CourseSection } from '../lib/contents'
 
@@ -12,6 +12,14 @@ const mkSections = (cmid: number, completion?: number): CourseSection[] => [
     { id: cmid, name: 'Assignment 2: Persona', modname: 'assign', visible: true, completion, url: `https://moodle.lut.fi/mod/assign/view.php?id=${cmid}` },
   ] },
 ]
+
+describe('moduleTypesFromSections', () => {
+  it('maps cmid → modname for every module (date label owner)', () => {
+    const map = moduleTypesFromSections(mkSections(2179011))
+    expect(map.get(2179011)).toBe('assign')
+    expect(map.get(42)).toBe('page')
+  })
+})
 
 describe('updateCachedCompletion (任务→树 缓存同步)', () => {
   beforeEach(() => localStorage.clear())
