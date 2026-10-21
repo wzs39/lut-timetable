@@ -79,32 +79,35 @@ describe('settings categories', () => {
     expect(screen.getByRole('heading', { name: '日志与订阅' })).toBeTruthy()
   })
 
-  it('offers a category index that jumps without throwing when scrollIntoView is absent', () => {
+  it('offers a category rail and shows exactly one group at a time', () => {
     renderSettings()
 
     const nav = screen.getByRole('navigation', { name: '设置分类' })
-    const buttons = [...nav.querySelectorAll('button')].map((b) => b.textContent)
-    expect(buttons).toEqual(['外观与无障碍', '同步与连接', '学习偏好', '数据与工具', '日志与订阅'])
+    const buttons = [...nav.querySelectorAll('button')]
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      '外观与无障碍',
+      '同步与连接',
+      '学习偏好',
+      '数据与工具',
+      '日志与订阅',
+    ])
+    // 导轨而不是滚动定位：初始只露「外观」，这一组有 aria-current 且不带 hidden
+    expect(buttons[0].getAttribute('aria-current')).toBe('page')
+    const pane = (id: string) => document.getElementById(`settings-${id}`)!
+    expect(pane('appearance').className).not.toContain('hidden')
+    for (const id of ['sync', 'study', 'data', 'logs']) {
+      expect(pane(id).className).toContain('hidden')
+    }
 
-    // jsdom 没有 Element.scrollIntoView：索引按钮必须容错而不是整个组件崩掉
-    expect(() => fireEvent.click(nav.querySelectorAll('button')[3])).not.toThrow()
-    expect(document.getElementById('settings-data')).toBeTruthy()
+    fireEvent.click(buttons[3])
+    expect(buttons[3].getAttribute('aria-current')).toBe('page')
+    expect(buttons[0].getAttribute('aria-current')).toBeNull()
+    expect(pane('data').className).not.toContain('hidden')
+    expect(pane('appearance').className).toContain('hidden')
   })
 })
 
 describe('settings → study preferences', () => {
-  it('owns the SISU study focus and persists it to the shared preference key', () => {
-    const onSisuPrefsChanged = renderSettings()
-
-    const focus = screen.getByRole('combobox')
-    expect((focus as HTMLSelectElement).value).toBe('software')
-
-    fireEvent.change(focus, { target: { value: 'systems' } })
-
-    expect(JSON.parse(localStorage.getItem(KEYS.sisuCoursePreferences) ?? '{}').focus).toBe('systems')
-    expect(onSisuPrefsChanged).toHaveBeenCalledTimes(1)
-  })
-
   it('owns the credit goal and persists it without touching plan items', () => {
     localStorage.setItem(KEYS.sisuStudyPlan, JSON.stringify({
       goalCredits: 180,

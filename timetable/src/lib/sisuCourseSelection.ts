@@ -1,10 +1,7 @@
-import {
-  isSseRelevantCourse,
-  rankPlannerCourses,
-  type PlannerCourse,
-  type SisuCourseFocus,
-  type SisuCoursePreferences,
-  type PublicPlannerCourse,
+import type {
+  PlannerCourse,
+  PublicPlannerCourse,
+  SisuCoursePreferences,
 } from './sisuCourseCatalog'
 import { normalizeCourseCode } from './ics'
 
@@ -72,27 +69,28 @@ export function selectedPlannerCourseCredits(courses: readonly PlannerCourse[]):
   }
 }
 
+/**
+ * Candidates shown in the SISU search box: the current query's public hits, plus
+ * every persisted selection (so a selection survives the next search). Local
+ * timetable/Moodle records only appear when the query actually matches them.
+ */
 export function visiblePlannerCourses(input: {
   courses: readonly PlannerCourse[]
-  focus: SisuCourseFocus
   query: string
   currentResultQuery?: string
   currentResultIdentities?: readonly string[]
   selectedKeys: readonly string[]
-  plannedIdentities: ReadonlySet<string>
-  onlySseRelevant: boolean
 }): PlannerCourse[] {
   const query = input.query.trim().toLocaleLowerCase()
   const currentResults = new Set(input.currentResultIdentities ?? [])
-  return rankPlannerCourses(input.courses, input.focus).filter((item) => {
+  const currentQuery = input.currentResultQuery?.toLocaleLowerCase() === query
+  return input.courses.filter((item) => {
     const selected = isPlannerCourseSelected(item, input.selectedKeys)
-    const planned = input.plannedIdentities.has(coursePlanIdentity(item))
-    if (input.onlySseRelevant && item.sources.includes('sisu') && !selected && !isSseRelevantCourse(item)) return false
-    if (item.sources.includes('sisu')) {
-      const current = input.currentResultQuery?.toLocaleLowerCase() === query &&
-        currentResults.has(plannerCourseIdentity(item))
-      return current || selected || planned
+    if (selected) return true
+    if (item.sources.includes('sisu') || item.sources.includes('plan')) {
+      return currentQuery && currentResults.has(plannerCourseIdentity(item))
     }
-    return !query || `${item.code ?? ''} ${item.name} ${item.relevanceText ?? ''}`.toLocaleLowerCase().includes(query)
+    if (!query) return false
+    return `${item.code ?? ''} ${item.name}`.toLocaleLowerCase().includes(query)
   })
 }

@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../i18n'
 import { useMoodleData } from '../../hooks/useMoodleData'
 import type { CourseModule, CourseSection } from '../../lib/contents'
 import { markActivityCompletion } from '../../lib/contents'
-import { formatDateTime } from '../../lib/date'
 import { useNowDate } from '../../lib/useNow'
 import type { IconName } from '../Icon'
+import ActivityDatesText from '../ActivityDatesText'
 import ExternalLink from '../ExternalLink'
 import Icon from '../Icon'
 import SubmissionBadge from './SubmissionBadge'
@@ -51,10 +51,23 @@ export default function CourseContentsTree({
   busy: boolean
   onToggleComplete?: () => void
 }) {
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const now = useNowDate()
-  const { subByCmid, activityDeadlinesByCmid, applyCompletion } = useMoodleData()
+  const {
+    subByCmid,
+    activityDeadlinesByCmid,
+    activityDatesByCmid,
+    registerContentsDates,
+    applyCompletion,
+  } = useMoodleData()
   const [pendingCmid, setPendingCmid] = useState<number | null>(null)
+  // 模块自带的活动日期回灌 provider（零网络）：任务行/成绩卡跟着一起变准。
+  const registeredSections = useRef<CourseSection[] | null>(null)
+  useEffect(() => {
+    if (!sections || registeredSections.current === sections) return
+    registeredSections.current = sections
+    registerContentsDates(sections)
+  }, [sections, registerContentsDates])
 
   const toggle = async (m: CourseModule) => {
     if (!m.url || pendingCmid != null) return
@@ -94,7 +107,14 @@ export default function CourseContentsTree({
                 // 不按 modname 过滤：map 里有的 cmid 就显示。
                 const cmid = m.url ? Number(new URL(m.url, 'https://moodle.lut.fi').searchParams.get('id')) : NaN
                 const sub = Number.isFinite(cmid) ? subByCmid.get(cmid) : undefined
-                const dueAt = sub?.dueAt ?? (Number.isFinite(cmid) ? activityDeadlinesByCmid.get(cmid) : undefined)
+                const actDates = Number.isFinite(cmid) ? activityDatesByCmid.get(cmid) : undefined
+                const dueAt =
+                  actDates?.dueAt ??
+                  sub?.dueAt ??
+                  (Number.isFinite(cmid) ? activityDeadlinesByCmid.get(cmid) : undefined)
+                const cutoffAt = actDates?.cutoffAt ?? sub?.cutoffAt
+                const gradingDueAt = actDates?.gradingDueAt ?? sub?.gradingDueAt
+                const startAt = actDates?.startAt
                 const hasSubBadge = sub?.state === 'submitted' || sub?.state === 'graded'
                 const overdue = !!dueAt && new Date(dueAt).getTime() < now.getTime()
                 // 有提交/评分徽标时复选框仍然显示（与任务卡信息量一致：
@@ -111,15 +131,15 @@ export default function CourseContentsTree({
                       <span className="min-w-0 flex-1 truncate" title={m.description || m.name}>{m.name}</span>
                     )}
                     {/* Deadline by cmid: assignment metadata or synced action task; submission state is independent. */}
-                    {dueAt && (
-                      <span
-                        className={'inline-flex shrink-0 items-center gap-0.5 text-[10px] tabular-nums ' + (overdue ? 'text-[var(--danger)]' : 'text-[var(--text-3)]')}
-                      >
-                        <Icon name="clock" size={10} />
-                        {formatDateTime(dueAt, locale)}
-                        {overdue && ` · ${t('taskOverdue')}`}
-                      </span>
-                    )}
+                    <ActivityDatesText
+                      startAt={startAt}
+                      dueAt={dueAt}
+                      cutoffAt={cutoffAt}
+                      gradingDueAt={gradingDueAt}
+                      kind={m.modname}
+                      overdue={overdue}
+                      className="text-[10px] text-[var(--text-3)]"
+                    />
                     {hasSubBadge && sub && <SubmissionBadge st={sub} />}
                     {canToggle ? (
                       <button

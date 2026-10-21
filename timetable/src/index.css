@@ -227,9 +227,25 @@ body {
   background: var(--surface-1);
 }
 
+/* 语义字号阶：微标签 / 次要信息 / 正文。
+   现有界面大量使用 text-[10px]/[11px]，10px 的中文笔画会糊；
+   新代码优先用这三个类，旧类按屏逐步迁移。 */
+.text-micro {
+  font-size: 11px;
+  line-height: 1.35;
+}
+.text-meta {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.text-body {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 /* Panel header label (uppercased micro-label inside cards) */
 .app-card-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -746,6 +762,179 @@ body {
   transform: rotate(0deg);
 }
 
+/* ============================================================
+   2026-10 · 层级 / 语义色 / 导轨
+
+   一个页面只有三种表面：页面底（surface-0）→ 分区卡（surface-1）→
+   内嵌控件（surface-2）。卡片的「抬起感」只用顶部一像素高光 + 极淡阴影，
+   不加边框厚度（粗边框会让一屏十几张卡变成表格）。
+   语义色只出现在需要被一眼找到的东西上：状态统计、警告、当前分区。
+   ============================================================ */
+
+.app-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 14px 30px -28px rgba(0, 0, 0, 0.9);
+}
+
+:root[data-theme='light'] .app-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 12px 26px -26px rgba(24, 24, 27, 0.28);
+}
+
+/* 首屏英雄卡：极淡的双色径向，只在暗色底上可感，不抢正文。 */
+.app-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 0.9rem;
+  background-color: var(--surface-1);
+  background-image:
+    radial-gradient(120% 150% at 100% 0%, var(--tint-info), transparent 58%),
+    radial-gradient(110% 140% at 0% 110%, var(--tint-violet), transparent 62%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 22px 44px -38px rgba(0, 0, 0, 0.95);
+}
+
+/* 统计小块：一个数字 + 一行标签，语义色只染渐变与数字。 */
+.stat-tile {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--surface-2);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) ease;
+}
+.stat-tile::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 120% at 0% 0%, var(--tone-tint, transparent), transparent 68%);
+  pointer-events: none;
+}
+.stat-tile[data-tone='ok'] { --tone-tint: var(--tint-ok); --tone-line: var(--line-ok); --tone-text: var(--ok); }
+.stat-tile[data-tone='due'] { --tone-tint: var(--tint-due); --tone-line: var(--line-due); --tone-text: var(--due); }
+.stat-tile[data-tone='danger'] { --tone-tint: var(--tint-danger); --tone-line: var(--danger); --tone-text: var(--danger); }
+.stat-tile[data-tone='info'] { --tone-tint: var(--tint-info); --tone-line: var(--line-info); --tone-text: var(--info); }
+.stat-tile[data-tone='violet'] { --tone-tint: var(--tint-violet); --tone-line: var(--line-violet); --tone-text: var(--violet); }
+.stat-tile[data-interactive='true']:hover {
+  transform: translateY(-1px);
+  border-color: var(--tone-line, var(--hover-line));
+}
+.stat-tile[data-interactive='true']:active {
+  transform: translateY(0) scale(0.985);
+}
+.stat-tile .stat-value {
+  color: var(--tone-text, var(--text-1));
+}
+
+/* 分区导轨：手机是横滑 chip，≥768px 变成左侧竖排（同一份 DOM，不复制按钮）。 */
+.app-rail {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding: 2px;
+}
+.app-rail::-webkit-scrollbar {
+  display: none;
+}
+.app-rail-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2rem;
+  white-space: nowrap;
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.72rem;
+  color: var(--text-2);
+  transition:
+    background-color var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-fast) var(--ease-out);
+}
+.app-rail-item:hover:not([aria-selected='true']) {
+  background: var(--hover-1);
+  color: var(--text-1);
+}
+.app-rail-item[aria-selected='true'] {
+  background: linear-gradient(90deg, var(--tint-info), transparent 92%);
+  color: var(--text-1);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--info);
+}
+.app-rail-item:active {
+  transform: scale(0.98);
+}
+.app-rail-item:focus-visible {
+  outline: 2px solid var(--focus-line);
+  outline-offset: -2px;
+}
+
+@media (min-width: 768px) {
+  .app-rail {
+    flex-direction: column;
+    overflow: visible;
+    border: 1px solid var(--line);
+    border-radius: 0.85rem;
+    background: linear-gradient(180deg, var(--surface-1), var(--surface-0));
+    padding: 0.35rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+  .app-rail-item {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .app-rail-item[aria-selected='true'] {
+    background: linear-gradient(90deg, var(--tint-info), transparent 88%);
+  }
+}
+
+/* 面板头：图标 + 标题 + 右侧操作。操作永远在同一行最右，不跟正文抢宽度。 */
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.panel-head-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+/* 列表错峰进场：最多 12 项，超过 12 的保持无延迟（长列表不在尾部继续等）。 */
+.animate-stagger > * {
+  animation: list-item-in var(--dur-med) var(--ease-out) both;
+}
+.animate-stagger > *:nth-child(2) { animation-delay: 25ms; }
+.animate-stagger > *:nth-child(3) { animation-delay: 50ms; }
+.animate-stagger > *:nth-child(4) { animation-delay: 75ms; }
+.animate-stagger > *:nth-child(5) { animation-delay: 100ms; }
+.animate-stagger > *:nth-child(6) { animation-delay: 115ms; }
+.animate-stagger > *:nth-child(7) { animation-delay: 130ms; }
+.animate-stagger > *:nth-child(8) { animation-delay: 145ms; }
+.animate-stagger > *:nth-child(9) { animation-delay: 160ms; }
+.animate-stagger > *:nth-child(10) { animation-delay: 175ms; }
+.animate-stagger > *:nth-child(11) { animation-delay: 190ms; }
+.animate-stagger > *:nth-child(12) { animation-delay: 205ms; }
+
 @media (prefers-reduced-motion: reduce) {
   .app-header-btn,
   .app-menu-item,
@@ -774,8 +963,13 @@ body {
   .app-btn-ghost,
   .app-seg > button,
   .app-nav-item,
+  .stat-tile,
+  .app-rail-item,
   .sisu-progress > span {
     transition: none;
+  }
+  .animate-stagger > * {
+    animation: none;
   }
 }
 
@@ -787,3 +981,103 @@ body {
 }
 
 } /* @layer components */
+
+/* ============================================================
+   打印：只输出当前周课表（PrintWeek）
+   屏幕上一律隐藏；打印时把 app-shell 的其余子节点全部收掉。
+   单页 A4 横向，信息只留代码/名称/时间/教室。
+   ============================================================ */
+.print-sheet {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  html,
+  body,
+  #root,
+  .app-shell {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .app-shell > :not(.print-sheet) {
+    display: none !important;
+  }
+  .print-sheet {
+    display: block !important;
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      sans-serif;
+    color: #000;
+  }
+  .print-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8mm;
+    margin-bottom: 4mm;
+    border-bottom: 0.6mm solid #000;
+    padding-bottom: 2mm;
+  }
+  .print-header h1 {
+    font-size: 16pt;
+    font-weight: 700;
+    margin: 0;
+  }
+  .print-header p {
+    font-size: 10pt;
+    margin: 0;
+  }
+  .print-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 3mm;
+  }
+  .print-day {
+    min-width: 0;
+  }
+  .print-day h2 {
+    font-size: 9pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 0.3mm solid #999;
+    padding-bottom: 1mm;
+    margin: 0 0 2mm;
+  }
+  .print-lesson {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    break-inside: avoid;
+    border: 0.3mm solid #999;
+    border-radius: 1.2mm;
+    padding: 1.2mm;
+    margin-bottom: 1.5mm;
+    font-size: 8pt;
+    line-height: 1.25;
+  }
+  .print-time {
+    font-variant-numeric: tabular-nums;
+    color: #333;
+  }
+  .print-title {
+    font-weight: 600;
+  }
+  .print-room {
+    color: #333;
+  }
+  .print-empty {
+    font-size: 8pt;
+    color: #777;
+    margin: 0;
+  }
+}

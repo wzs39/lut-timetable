@@ -1,6 +1,7 @@
 import type { IconName } from '../components/Icon'
 import type { Lesson } from '../types'
 import { formatDateTime } from './date'
+import { VIEWS, WEEK_NAV, WEEK_NAV_ORDER, type ViewRoute } from './navigation'
 import { pendingTasks, type Task } from './tasks'
 
 /**
@@ -11,8 +12,8 @@ import { pendingTasks, type Task } from './tasks'
  * 副作用留在 App：这样排序与筛选可以单测，App 只做 dispatch。
  */
 
-export type ViewName = 'today' | 'week' | 'assign' | 'moodle'
-// 'assign' 保留为合法命令：App 派发时映射到 moodle（作业模块并入时间线）
+// 视图名的唯一来源是 lib/navigation（'assign' 仍合法：派发时映射到 moodle）
+export type ViewName = ViewRoute
 
 export type PaletteAction =
   | { kind: 'view'; view: ViewName }
@@ -20,18 +21,10 @@ export type PaletteAction =
   /** code 为空 = 无代码的手动课，App 回退到按 title 跳转 */
   | { kind: 'course'; code: string; title: string }
   | { kind: 'task'; taskId: string }
-  | { kind: 'settings' }
-  | { kind: 'sync' }
-  | { kind: 'batch' }
-  | { kind: 'conflicts' }
-  | { kind: 'dupes' }
-  | { kind: 'exportBackup' }
-  | { kind: 'exportIcs' }
-  | { kind: 'shareWeek' }
+  /** 应用动作：真正做什么由 lib/commands 的注册表决定，App 只查 id */
+  | { kind: 'command'; id: string }
   /** 命令面板自然语言录入的作业（由 CommandPalette 解析后交给 App 落库） */
   | { kind: 'quickAddTask'; title: string; dueAt?: string }
-  | { kind: 'checkUpdate' }
-  | { kind: 'onboarding' }
 
 /** 分组顺序 = 面板展示顺序（无查询时按此浏览） */
 export type PaletteGroup = 'views' | 'actions' | 'courses' | 'tasks'
@@ -56,50 +49,57 @@ export const PALETTE_BROWSE_LIMIT = 6
 /** 有查询时的结果上限 */
 export const PALETTE_RESULT_LIMIT = 24
 
+/** 由 lib/commands 的注册表映射出的动作条目（label 已本地化） */
+export interface PaletteCommand {
+  id: string
+  label: string
+  icon?: IconName
+  keywords?: string
+}
+
 export interface PaletteInput {
   t: (key: string, params?: Record<string, string | number>) => string
   locale: string
   lessons: Lesson[]
   tasks: Task[]
-  /** 可移除的重复课程数（0 时不出现该动作） */
-  dupCount: number
+  /** 应用动作（顺序即面板里的动作顺序） */
+  commands: PaletteCommand[]
 }
 
 /** 视图 / 操作 / 课程 / 作业 → 面板清单（顺序即默认展示顺序） */
-export function buildPalette({ t, locale, lessons, tasks, dupCount }: PaletteInput): PaletteItem[] {
+export function buildPalette({ t, locale, lessons, tasks, commands }: PaletteInput): PaletteItem[] {
+  // 视图与周导航都来自 lib/navigation：面板只是把同一份声明本地化，
+  // 不再维护第二份按钮清单（那是「新视图在面板里搜不到」的来源）。
   const views: PaletteItem[] = [
-    { id: 'view:today', group: 'views', label: t('viewToday'), icon: 'live', action: { kind: 'view', view: 'today' } },
-    { id: 'view:week', group: 'views', label: t('viewWeek'), icon: 'clock', action: { kind: 'view', view: 'week' } },
-    { id: 'view:assign', group: 'views', label: t('assignNav'), icon: 'graduation', action: { kind: 'view', view: 'assign' } },
-    { id: 'view:moodle', group: 'views', label: t('moodleNav'), icon: 'book', action: { kind: 'view', view: 'moodle' } },
-    { id: 'week:this', group: 'views', label: t('thisWeek'), icon: 'restore', action: { kind: 'week', delta: 0 } },
-    { id: 'week:prev', group: 'views', label: t('prevWeek'), icon: 'chevron-left', action: { kind: 'week', delta: -1 } },
-    { id: 'week:next', group: 'views', label: t('nextWeek'), icon: 'chevron-right', action: { kind: 'week', delta: 1 } },
+    ...VIEWS.map((decl): PaletteItem => ({
+      id: `view:${decl.route}`,
+      group: 'views',
+      label: t(decl.labelKey),
+      icon: decl.icon,
+      action: { kind: 'view', view: decl.route },
+    })),
+    ...WEEK_NAV_ORDER.map((id): PaletteItem => {
+      const nav = WEEK_NAV[id]
+      return {
+        id: `week:${nav.id}`,
+        group: 'views',
+        label: t(nav.labelKey),
+        icon: nav.icon,
+        action: { kind: 'week', delta: nav.delta },
+      }
+    }),
   ]
 
-  const actions: PaletteItem[] = [
-    { id: 'act:settings', group: 'actions', label: t('settingsTitle'), icon: 'settings', action: { kind: 'settings' } },
-    { id: 'act:sync', group: 'actions', label: t('paletteSyncAll'), icon: 'sync', action: { kind: 'sync' } },
-    { id: 'act:batch', group: 'actions', label: t('batchButton'), icon: 'search', action: { kind: 'batch' } },
-    { id: 'act:conflicts', group: 'actions', label: t('conflictsButton'), icon: 'warn', action: { kind: 'conflicts' } },
-    { id: 'act:exportBackup', group: 'actions', label: t('exportData'), icon: 'link', action: { kind: 'exportBackup' } },
-    // 导出 .ics：以前只有 Settings 里能点到（命令面板虽声明了 action 却没条目）
-    { id: 'act:exportIcs', group: 'actions', label: t('exportIcs'), icon: 'link', action: { kind: 'exportIcs' } },
-    { id: 'act:shareWeek', group: 'actions', label: t('shareWeek'), icon: 'link', action: { kind: 'shareWeek' } },
-    { id: 'act:update', group: 'actions', label: t('updateCheck'), icon: 'sync', action: { kind: 'checkUpdate' } },
-    { id: 'act:onboarding', group: 'actions', label: t('obReplay'), icon: 'compass', action: { kind: 'onboarding' } },
-  ]
-  if (dupCount > 0) {
-    // 插在导出之前（不要用魔法下标：上面动一动就会串位）
-    const at = actions.findIndex((a) => a.id === 'act:exportBackup')
-    actions.splice(at < 0 ? actions.length : at, 0, {
-      id: 'act:dupes',
-      group: 'actions',
-      label: t('dupButton', { n: dupCount }),
-      icon: 'puzzle',
-      action: { kind: 'dupes' },
-    })
-  }
+  // 动作组来自 lib/commands 的注册表：这里只做「本地化 → 面板条目」的映射，
+  // 不再自己维护一份动作清单（那正是以前「死类型」的来源）。
+  const actions: PaletteItem[] = commands.map((c) => ({
+    id: `cmd:${c.id}`,
+    group: 'actions' as const,
+    label: c.label,
+    icon: c.icon,
+    keywords: c.keywords,
+    action: { kind: 'command' as const, id: c.id },
+  }))
 
   // 课程：按代码去重（无代码用标题），label = 代码或标题，sub = 课程名
   const courseMap = new Map<

@@ -6,6 +6,8 @@ import GradeSchemeReview from '../GradeSchemeReview'
 import { loadGradeSchemes, parseGradeScheme, saveGradeSchemePreview } from '../../lib/gradeScheme'
 import { fetchCourseContents } from '../../lib/contents'
 import Icon from '../Icon'
+import CollapsiblePanel from '../CollapsiblePanel'
+import { DashboardHero, DashboardSplit, StatTile } from '../Dashboard'
 import {
   sortGrades,
   filterGrades,
@@ -66,11 +68,26 @@ export default function GradesSection({
     [md.grades, sort, q, only],
   )
 
+  const totalCourses = md.grades?.length ?? 0
   const matchedCount = md.grades?.filter((c) => c.matched).length ?? 0
   const dirty = q.trim() !== '' || only != null
 
+  // KPI 口径与 Moodle 页「当前均分」一致：有总分的课程等权平均；未评项含未计权重的条目。
+  const gradedCourses = md.grades?.filter((c) => c.average != null) ?? []
+  const average = gradedCourses.length > 0
+    ? Math.round(gradedCourses.reduce((sum, c) => sum + (c.average ?? 0), 0) / gradedCourses.length)
+    : null
+  const ungradedItems = md.grades?.reduce((sum, c) => sum + ungradedTotal(c), 0) ?? 0
+
+  const resetFilters = () => {
+    setQ('')
+    setOnly(null)
+    setSort('code')
+  }
+
   return (
-    <section className="space-y-2">
+    <section className="space-y-3">
+      {/* 页面动作：刷新/同步留在顶部（空态文案说的「上方按钮」就是它们）。 */}
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => void md.refreshGrades()}
@@ -96,93 +113,146 @@ export default function GradesSection({
       {md.message && <p className="text-[11px] text-[var(--text-2)]">{md.message}</p>}
       {md.token && md.grades && md.grades.length > 0 ? (
         <>
-          {/* Urutkan + saring — state lokal segmen, sort dipersistenkan */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="app-seg flex-wrap" role="tablist">
-              {SORTS.map((s) => (
-                <button
-                  key={s}
-                  role="tab"
-                  aria-selected={sort === s}
-                  onClick={() => setSort(s)}
-                  className="px-2 py-1 text-[11px]"
-                >
-                  {t(`gradeSort_${s.replace(/-/g, '_')}`)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative min-w-0 flex-1">
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder={t('gradeSearchPh', { n: md.grades.length })}
-                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 pr-7 text-[11px] focus:border-[var(--focus-line)] focus:outline-none"
-              />
-              {q && (
-                <button
-                  onClick={() => setQ('')}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--text-1)]"
-                  title={t('gradeReset')}
-                >
-                  <Icon name="close" size={11} />
-                </button>
-              )}
-            </div>
-            <div className="app-seg shrink-0" role="tablist">
-              {(['matched', 'unmatched'] as const).map((m) => {
-                const n = m === 'matched' ? matchedCount : (md.grades?.length ?? 0) - matchedCount
-                return (
-                  <button
-                    key={m}
-                    role="tab"
-                    aria-selected={only === m}
-                    onClick={() => setOnly(only === m ? null : m)}
-                    className="px-2 py-1 text-[11px]"
-                    title={m === 'matched' ? t('gradeMatchedTitle', { n: matchedCount }) : t('gradeUnmatchedTitle', { n })}
-                  >
-                    {t(m === 'matched' ? 'gradeMatched' : 'gradeUnmatched')} {n}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-          {shown && shown.length === 0 ? (
-            <p className="py-6 text-center text-xs text-[var(--text-3)]">{t('gradeNoMatch')}</p>
-          ) : (
-            <ul className="space-y-2">
-              {(shown ?? []).map((c) => (
-                <GradeCourseCard
-                  key={c.courseId ?? c.course}
-                  c={c}
-                  onJumpToCourse={onJumpToCourse}
-                  schemeReview={c.courseId != null && schemes[c.courseId] ? (
-                    <GradeSchemeReview
-                      key={`${c.courseId}`}
-                      courseId={c.courseId}
-                      courseCode={c.course}
-                      weights={schemes[c.courseId].weights}
-                      onConfirmed={() => {
-                        setSchemeRevision((revision) => revision + 1)
-                        void md.refreshGrades()
-                      }}
+          <DashboardHero
+            title={t('gradesKpiTitle')}
+            icon="graduation"
+            subtitle={t('gradesKpiHint', { n: totalCourses })}
+          >
+            <StatTile
+              label={t('gradesKpiAverage')}
+              value={average != null ? `${average}%` : '—'}
+              tone="ok"
+              hint={t('gradesKpiAverageHint')}
+              onClick={() => setSort('grade-desc')}
+              pressed={sort === 'grade-desc'}
+            />
+            <StatTile
+              label={t('gradesKpiUngraded')}
+              value={ungradedItems}
+              tone={ungradedItems > 0 ? 'due' : 'ok'}
+              hint={t('gradesKpiUngradedHint')}
+              onClick={() => { setOnly(null); setSort('ungraded') }}
+              pressed={sort === 'ungraded' && only == null}
+            />
+            <StatTile
+              label={t('gradesKpiMatched')}
+              value={`${matchedCount}/${totalCourses}`}
+              tone="info"
+              hint={t('gradesKpiMatchedHint')}
+              onClick={() => setOnly(only === 'matched' ? null : 'matched')}
+              pressed={only === 'matched'}
+            />
+            <StatTile
+              label={t('gradesKpiCourses')}
+              value={totalCourses}
+              tone="info"
+              hint={t('gradesKpiCoursesHint')}
+              onClick={resetFilters}
+              pressed={!dirty && sort === 'code'}
+            />
+          </DashboardHero>
+
+          <DashboardSplit
+            asideFirstOnMobile
+            main={
+              shown && shown.length === 0 ? (
+                <p className="app-card py-8 text-center text-xs text-[var(--text-3)]">{t('gradeNoMatch')}</p>
+              ) : (
+                <ul className="animate-stagger space-y-2">
+                  {(shown ?? []).map((c) => (
+                    <GradeCourseCard
+                      key={c.courseId ?? c.course}
+                      c={c}
+                      activityDates={md.activityDatesByCmid}
+                      moduleKindByCmid={md.moduleKindByCmid}
+                      onJumpToCourse={onJumpToCourse}
+                      schemeReview={c.courseId != null && schemes[c.courseId] ? (
+                        <GradeSchemeReview
+                          key={`${c.courseId}`}
+                          courseId={c.courseId}
+                          courseCode={c.course}
+                          weights={schemes[c.courseId].weights}
+                          onConfirmed={() => {
+                            setSchemeRevision((revision) => revision + 1)
+                            void md.refreshGrades()
+                          }}
+                        />
+                      ) : undefined}
+                      onOpenUngradedTasks={
+                        ungradedTotal(c) > 0 && c.course
+                          ? () => onOpenAssignments(null, c.course)
+                          : undefined
+                      }
                     />
-                  ) : undefined}
-                  onOpenUngradedTasks={
-                    ungradedTotal(c) > 0 && c.course
-                      ? () => onOpenAssignments(null, c.course)
-                      : undefined
-                  }
-                />
-              ))}
-            </ul>
-          )}
-          {dirty && shown && shown.length > 0 && (
-            <p className="text-right text-[10px] text-[var(--text-3)]">
-              {t('gradeShownN', { shown: shown.length, total: md.grades.length })}
-            </p>
-          )}
+                  ))}
+                </ul>
+              )
+            }
+            aside={
+              <CollapsiblePanel
+                storageKey={KEYS.gradesToolsOpen}
+                label={<span className="inline-flex items-center gap-1.5"><Icon name="search" size={12} /> {t('gradesToolsTitle')}</span>}
+                right={dirty ? <span className="app-badge px-1.5 py-0 text-[9px] tabular-nums">{shown?.length ?? 0}</span> : undefined}
+              >
+                <div className="space-y-2">
+                  <div className="relative min-w-0">
+                    <input
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      placeholder={t('gradeSearchPh', { n: totalCourses })}
+                      className="w-full rounded-md border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 pr-7 text-[11px] focus:border-[var(--focus-line)] focus:outline-none"
+                    />
+                    {q && (
+                      <button
+                        onClick={() => setQ('')}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[var(--text-3)] hover:text-[var(--text-1)]"
+                        title={t('gradeReset')}
+                      >
+                        <Icon name="close" size={11} />
+                      </button>
+                    )}
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] text-[var(--text-3)]">{t('gradesSortLabel')}</p>
+                    <div className="app-seg flex-wrap" role="tablist" aria-label={t('gradesSortLabel')}>
+                      {SORTS.map((s) => (
+                        <button
+                          key={s}
+                          role="tab"
+                          aria-selected={sort === s}
+                          onClick={() => setSort(s)}
+                          className="px-2 py-1 text-[11px]"
+                        >
+                          {t(`gradeSort_${s.replace(/-/g, '_')}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="app-seg flex-wrap" role="tablist" aria-label={t('gradesMatchFilter')}>
+                    {(['matched', 'unmatched'] as const).map((m) => {                          const n = m === 'matched' ? matchedCount : totalCourses - matchedCount
+                      return (
+                        <button
+                          key={m}
+                          role="tab"
+                          aria-selected={only === m}
+                          onClick={() => setOnly(only === m ? null : m)}
+                          className="px-2 py-1 text-[11px]"
+                          title={m === 'matched' ? t('gradeMatchedTitle', { n: matchedCount }) : t('gradeUnmatchedTitle', { n })}
+                        >
+                          {t(m === 'matched' ? 'gradeMatched' : 'gradeUnmatched')} {n}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {dirty && shown && shown.length > 0 && (
+                    <p className="text-right text-[10px] text-[var(--text-3)]">
+                      {t('gradeShownN', { shown: shown.length, total: totalCourses })}
+                    </p>
+                  )}
+                </div>
+              </CollapsiblePanel>
+            }
+          />
         </>
       ) : md.token ? (
         <p className="py-8 text-center text-xs text-[var(--text-3)]">{t('gradesEmptyHint')}</p>

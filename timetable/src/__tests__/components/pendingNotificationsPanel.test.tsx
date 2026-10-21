@@ -51,11 +51,14 @@ function seedFutureBlock(blockId: string, tracked: number[]) {
 }
 
 // 源码当数据集读（desktop.test.ts 同一惯用法）：glob 的键形状随 Vite 变化，按后缀取。
-const sources = import.meta.glob('../../components/Settings.tsx', {
+const sources = import.meta.glob(
+  ['../../components/Settings.tsx', '../../components/settings/*.tsx'],
+  {
   query: '?raw',
   import: 'default',
-  eager: true,
-}) as Record<string, string>
+    eager: true,
+  },
+) as Record<string, string>
 
 function renderPanel() {
   render(
@@ -172,10 +175,20 @@ describe('PendingNotificationsPanel', () => {
   })
 
   it('is mounted inside the settings logs group (wiring guard)', () => {
-    const settings = sources[Object.keys(sources).find((k) => k.endsWith('Settings.tsx')) ?? ''] ?? ''
+    // 设置拆成分区文件后，「logs 分组里挂了面板」变成两跳：
+    // Settings.tsx 的 logs 分组渲染 <LogsSection>，LogsSection 渲染面板。
+    const source = (suffix: string) =>
+      sources[Object.keys(sources).find((k) => k.endsWith(suffix)) ?? ''] ?? ''
+    const settings = source('Settings.tsx')
     expect(settings.length, 'Settings.tsx 没进 import.meta.glob，接线守卫等于没跑').toBeGreaterThan(1000)
-    const logs = settings.indexOf('Group id="logs"')
+    // 分组属性可以换行（导轨改造后 id / title / active 各占一行），
+    // 所以这里匹配「含 id="logs" 的 Group 块」而不是一行字面量。
+    const logs = settings.search(/<Group[\s\S]{0,200}?id="logs"/)
     expect(logs, 'Settings.tsx 里找不到 logs 分组').toBeGreaterThan(-1)
-    expect(settings.indexOf('<PendingNotificationsPanel />')).toBeGreaterThan(logs)
+    expect(settings.indexOf('<LogsSection', logs), 'logs 分组没渲染 LogsSection').toBeGreaterThan(logs)
+
+    const logsSection = source('settings/LogsSection.tsx')
+    expect(logsSection.length, 'LogsSection.tsx 没进 import.meta.glob').toBeGreaterThan(500)
+    expect(logsSection).toContain('<PendingNotificationsPanel />')
   })
 })

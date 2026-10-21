@@ -45,14 +45,14 @@ function mockWide(wide: boolean) {
   })) as unknown as typeof window.matchMedia
 }
 
-function renderGrid(onShiftWeek?: (delta: -1 | 1) => void) {
+function renderGrid(onWeekNav?: (id: 'this' | 'prev' | 'next') => void) {
   return render(
     <I18nProvider>
       <WeekGrid
         lessons={LESSONS}
         weekStart={WEEK_START}
         onSelect={() => {}}
-        onShiftWeek={onShiftWeek}
+        onWeekNav={onWeekNav}
       />
     </I18nProvider>,
   )
@@ -175,27 +175,27 @@ describe('WeekGrid conflict display', () => {
 
   it('asks for the previous week when swiping right off Monday', () => {
     mockWide(false)
-    const onShiftWeek = vi.fn()
-    renderGrid(onShiftWeek)
+    const onWeekNav = vi.fn()
+    renderGrid(onWeekNav)
 
     swipe(120) // Selasa → Senin
-    expect(onShiftWeek).not.toHaveBeenCalled()
+    expect(onWeekNav).not.toHaveBeenCalled()
 
     swipe(120) // Senin → minggu lalu (Minggu)
-    expect(onShiftWeek).toHaveBeenCalledWith(-1)
+    expect(onWeekNav).toHaveBeenCalledWith('prev')
   })
 
   it('asks for the next week when swiping left off Sunday', () => {
     mockWide(false)
-    const onShiftWeek = vi.fn()
-    renderGrid(onShiftWeek)
+    const onWeekNav = vi.fn()
+    renderGrid(onWeekNav)
 
     // Selasa → … → Minggu (5 sapuan ke kiri), lalu satu lagi lintasi minggu
     for (let i = 0; i < 5; i++) swipe(-120)
-    expect(onShiftWeek).not.toHaveBeenCalled()
+    expect(onWeekNav).not.toHaveBeenCalled()
 
     swipe(-120)
-    expect(onShiftWeek).toHaveBeenCalledWith(1)
+    expect(onWeekNav).toHaveBeenCalledWith('next')
   })
 
   it('keeps a dismissal made on mobile after switching to the desktop grid', () => {

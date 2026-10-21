@@ -7,6 +7,9 @@ import {
   loadStudyBlockPrefs,
   normalizeStudyBlockPrefs,
   saveStudyBlockPrefs,
+  studyDayWindow,
+  withStudyDayOverride,
+  type StudyDayOverrides,
 } from '../lib/studyBlockPrefs'
 
 beforeEach(() => {
@@ -30,6 +33,7 @@ describe('study block preferences', () => {
       horizonDays: 7,
       skipWeekends: false,
       remindEnabled: false,
+      dayOverrides: {},
     })
     expect(loadStudyBlockPrefs()).toEqual(DEFAULT_STUDY_BLOCK_PREFS)
   })
@@ -85,6 +89,25 @@ describe('study block preferences', () => {
     })).toMatchObject({ dayStartHour: 12, dayEndHour: 14 })
   })
 
+  it('normalizes stored per-day overrides without inventing weekdays', () => {
+    const prefs = normalizeStudyBlockPrefs({
+      ...DEFAULT_STUDY_BLOCK_PREFS,
+      dayOverrides: { 3: 'late', 4: { startHour: '8', off: 'yes' }, 7: { off: true }, '-1': { off: true }, 2: null },
+    })
+    expect(prefs.dayOverrides).toEqual({})
+  })
+
+  it('materializes both sides when a single-day override cannot fit one block plus its buffer', () => {
+    const squeezed = normalizeStudyBlockPrefs({ ...DEFAULT_STUDY_BLOCK_PREFS, dayOverrides: { 3: { endHour: 9 } } })
+    // 08:00 起放一块 60 分钟 + 15 分钟缓冲要到 10:00：存储里落成显式的双边窗口，而不是骗人的 09:00
+    expect(squeezed.dayOverrides[3]).toEqual({ startHour: 8, endHour: 10 })
+  })
+
+  it('drops an override that lost all of its fields', () => {
+    const prefs = normalizeStudyBlockPrefs({ ...DEFAULT_STUDY_BLOCK_PREFS, dayOverrides: { 3: { off: false } } })
+    expect(prefs.dayOverrides).toEqual({})
+  })
+
   it('merges partial saves, persists the normalized result and survives a reload', () => {
     const saved = saveStudyBlockPrefs({ blockMinutes: 90, skipWeekends: true })
     expect(saved.blockMinutes).toBe(90)
@@ -97,5 +120,66 @@ describe('study block preferences', () => {
     expect(next.dayEndHour).toBe(10)
     expect(next.blockMinutes).toBe(90)
     expect(loadStudyBlockPrefs()).toEqual(next)
+  })
+})
+
+// 按星期几调整：单日窗口覆盖全局窗口；不传覆盖时每一天都与全局逐字节一致。
+describe('per-weekday windows', () => {
+  const withDays = (dayOverrides: StudyDayOverrides) =>
+    normalizeStudyBlockPrefs({ ...DEFAULT_STUDY_BLOCK_PREFS, dayOverrides })
+
+  it('defaults to an empty map so every weekday keeps the daily window', () => {
+    expect(DEFAULT_STUDY_BLOCK_PREFS.dayOverrides).toEqual({})
+    for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+      expect(studyDayWindow(DEFAULT_STUDY_BLOCK_PREFS, weekday)).toEqual({ startHour: 8, endHour: 22 })
+    }
+  })
+
+  it('applies one day without touching the others and keeps the untouched side inherited', () => {
+    const prefs = withDays({ 3: { endHour: 16 } })
+    expect(prefs.dayOverrides[3]).toEqual({ endHour: 16 })
+    expect(studyDayWindow(prefs, 3)).toEqual({ startHour: 8, endHour: 16 })
+    expect(studyDayWindow(prefs, 4)).toEqual({ startHour: 8, endHour: 22 })
+  })
+
+  it('lets a day opt out of scheduling entirely', () => {
+    const prefs = withDays({ 5: { off: true } })
+    expect(studyDayWindow(prefs, 5)).toBeNull()
+    expect(studyDayWindow(prefs, 6)).toEqual({ startHour: 8, endHour: 22 })
+  })
+
+  it('keeps “skip weekends” authoritative over a per-day window', () => {
+    const prefs = normalizeStudyBlockPrefs({
+      ...withDays({ 6: { startHour: 7, endHour: 24 } }),
+      skipWeekends: true,
+    })
+    expect(studyDayWindow(prefs, 6)).toBeNull()
+    expect(studyDayWindow(prefs, 5)).toEqual({ startHour: 8, endHour: 22 })
+  })
+
+  it('clamps out-of-range hours and still yields a workable window', () => {
+    const prefs = withDays({ 1: { startHour: -3, endHour: 99 } })
+    expect(prefs.dayOverrides[1]).toEqual({ startHour: 0, endHour: 24 })
+    expect(studyDayWindow(prefs, 1)).toEqual({ startHour: 0, endHour: 24 })
+  })
+
+  it('adds, edits and clears a single day without disturbing the rest', () => {
+    const base = withDays({ 3: { endHour: 16 }, 5: { off: true } })
+    const edited = withStudyDayOverride(base, 3, { endHour: 18 })
+    expect(edited.dayOverrides).toEqual({ 3: { endHour: 18 }, 5: { off: true } })
+
+    const cleared = withStudyDayOverride(edited, 3, null)
+    expect(cleared.dayOverrides).toEqual({ 5: { off: true } })
+    expect(studyDayWindow(cleared, 3)).toEqual({ startHour: 8, endHour: 22 })
+  })
+
+  it('returns null for an unusable weekday instead of inventing one', () => {
+    expect(studyDayWindow(DEFAULT_STUDY_BLOCK_PREFS, Number.NaN)).toBeNull()
+  })
+
+  it('persists the per-day map inside the single preferences key', () => {
+    saveStudyBlockPrefs({ dayOverrides: { 3: { endHour: 16 } } })
+    expect(loadStudyBlockPrefs().dayOverrides).toEqual({ 3: { endHour: 16 } })
+    expect(JSON.parse(localStorage.getItem(KEYS.studyBlockPrefs) ?? '{}').dayOverrides).toEqual({ 3: { endHour: 16 } })
   })
 })

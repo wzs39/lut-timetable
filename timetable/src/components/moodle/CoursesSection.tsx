@@ -53,7 +53,7 @@ export default function CoursesSection({
   }
 
   return (
-    <ul className="space-y-1.5">
+    <ul className="animate-stagger space-y-1.5">
       {rows.map(({ c, code, pending, avg, color }) => (
         <li
           key={c.courseid}

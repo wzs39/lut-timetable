@@ -175,4 +175,46 @@ describe('GradesSection — rendering contracts', () => {
     renderGrades()
     expect(screen.getByText('还没有成绩数据，点上方按钮拉取')).toBeTruthy()
   })
+
+  it('renders the dashboard skeleton: KPI hero + list/tools split', () => {
+    mockMd = md([
+      course({ course: 'AA00AA01', average: 80 }),
+      course({ course: 'BB00BB02', matched: false, average: 60 }),
+    ])
+    renderGrades()
+
+    const hero = document.querySelector('[data-dashboard="hero"]') as HTMLElement
+    expect(hero).toBeTruthy()
+    expect(hero.querySelectorAll('.stat-tile')).toHaveLength(4)
+    expect(hero.textContent).toContain('成绩概览')
+    // 均分 = (80 + 60) / 2；已匹配 1/2
+    expect(hero.textContent).toContain('70%')
+    expect(hero.textContent).toContain('1/2')
+
+    // 主区与工具侧栏在同一个 split 容器里；工具面板可折叠且状态写入独立 key。
+    expect(document.querySelector('[data-dashboard="split"]')).toBeTruthy()
+    const tools = [...document.querySelectorAll('button')].find((b) => /排序与筛选/.test(b.textContent || ''))!
+    expect(tools.getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(tools)
+    expect(tools.getAttribute('aria-expanded')).toBe('false')
+    expect(localStorage.getItem('tt_grades_tools_open')).toBe('0')
+  })
+
+  it('KPI tiles drive sort and the match filter', () => {
+    mockMd = md([
+      course({ course: 'AA00AA01', average: 80 }),
+      course({ course: 'BB00BB02', matched: false, average: 60 }),
+    ])
+    renderGrades()
+    const hero = document.querySelector('[data-dashboard="hero"]') as HTMLElement
+    const tile = (label: string) => [...hero.querySelectorAll('button')].find((b) => b.textContent?.includes(label))!
+
+    fireEvent.click(tile('未评项'))
+    expect(localStorage.getItem('tt_grades_sort')).toContain('ungraded')
+
+    fireEvent.click(tile('已匹配'))
+    // 匹配筛选接管列表：未匹配的 BB00BB02 被隐藏，匹配 chip 变为选中。
+    expect(screen.queryByText('BB00BB02')).toBeNull()
+    expect(buttonsMatching(/课表/)[0].getAttribute('aria-selected')).toBe('true')
+  })
 })

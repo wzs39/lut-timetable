@@ -162,6 +162,25 @@ describe('TodayView', () => {
     expect(screen.queryByText('This morning')).toBeNull()
   })
 
+  it('shows the late cutoff and grading deadline on assignment rows', () => {
+    renderToday(
+      [],
+      [task({
+        id: 't1',
+        title: 'Final essay',
+        dueAt: at(15, 18),
+        cutoffAt: at(18, 18),
+        gradingDueAt: at(21, 18),
+      })],
+    )
+
+    openFeedTab()
+    const row = screen.getByText('Final essay').closest('li')!
+    expect(row.textContent).toContain('迟交截止')
+    expect(row.textContent).toContain('评分截止')
+    expect(row.textContent).not.toContain('关闭')
+  })
+
   it('ignores completed tasks and lessons from other days', () => {
     renderToday(
       [lesson({ id: 'l9', start: at(20, 10), end: at(20, 12) })],
@@ -227,5 +246,29 @@ describe('TodayView', () => {
     // mount baru → tab terakhir (动态) dipulihkan dari storage
     renderToday([], [])
     expect(buttonsMatching(/动态/)[0]?.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('keeps one hero card on top: date, next lesson and the day’s numbers', () => {
+    renderToday(
+      [
+        lesson({ id: 'l1', code: 'CT60A0250', title: 'Programming', start: at(15, 13), end: at(15, 15) }),
+        lesson({ id: 'l2', code: 'BM20A9200', title: 'Maths A', start: at(15, 16), end: at(15, 18) }),
+      ],
+      [
+        task({ id: 'due', title: 'Due today', dueAt: at(15, 20) }),
+        task({ id: 'late', title: 'Late one', dueAt: at(14, 20) }),
+      ],
+    )
+
+    const hero = document.querySelector('.app-hero')!
+    expect(hero).toBeTruthy()
+    // 日期 + 下一节标题 + 时间都在英雄卡里，而不是分散成标题行与独立横幅
+    expect(hero.textContent).toContain('9月15日星期二')
+    expect(hero.textContent).toContain('CT60A0250')
+    expect(hero.textContent).toContain('13:00 – 15:00')
+    // 三个数字：今日课程 2 / 今日截止 1 / 已逾期 1
+    expect(hero.textContent).toContain('今日课程')
+    expect(hero.textContent).toContain('今日截止')
+    expect(hero.textContent).toContain('已逾期')
   })
 })

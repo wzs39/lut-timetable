@@ -13,6 +13,7 @@ import { scopeText } from '../lib/notes'
 import { isOverdue, pendingTasks, type Task } from '../lib/tasks'
 import { openExternal } from '../lib/openExternal'
 import ExternalLink from './ExternalLink'
+import AttendanceControl from './AttendanceControl'
 
 /** 同一天内的翻课导航（App 用 date.sameDayQueue 算出位置后传入） */
 export interface LessonNav {
@@ -46,6 +47,8 @@ interface Props {
   watched?: boolean
   /** 切换订阅（不传则不显示该按钮） */
   onWatch?: (on: boolean) => void
+  /** 全部可见课时：出勤控制用它算课程级出勤率 */
+  allLessons?: Lesson[]
 }
 
 function toTimeInput(iso: string): string {
@@ -71,6 +74,7 @@ export default function LessonDetail({
   onRemoveNote,
   assignments,
   onOpenAssignments,
+  allLessons,
 }: Props) {
   const { t, locale } = useI18n()
   const [editing, setEditing] = useState(false)
@@ -404,6 +408,8 @@ export default function LessonDetail({
                   </div>
                 )}
               </dl>
+
+              <AttendanceControl lesson={lesson} lessons={allLessons} />
 
               {moodleCourseId && (
                 <>

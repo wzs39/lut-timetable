@@ -86,7 +86,7 @@ function cancelledIds(): number[] {
 const HOURS = 3600_000
 const DAYS = 24 * HOURS
 
-const DUE_TEXTS = { title: '作业即将截止', body: () => 'x' }
+const DUE_TEXTS = { title: () => '作业即将截止', body: () => 'x' }
 const EXAM_TEXTS = { title: '考试提醒', body: () => 'x' }
 const DIGEST_TEXTS = { title: '每日摘要', empty: 'none', body: () => 'x' }
 

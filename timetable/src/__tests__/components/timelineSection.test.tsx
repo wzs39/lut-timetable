@@ -93,9 +93,13 @@ function renderSection(props: Partial<SectionProps> = {}) {
   )
 }
 
-/** 四桶卡片是唯一带 aria-pressed 的按钮（作业列表的分组 chips 没有），按此定位。 */
+/**
+ * 四桶卡片限定在 `[data-timeline-buckets]` 的网格里。
+ * 内嵌的作业页现在也有 KPI 格子（同样带 aria-pressed），全文档选择器会数到 8 个。
+ */
 function cards(): HTMLButtonElement[] {
-  return [...document.querySelectorAll('button[aria-pressed]')] as HTMLButtonElement[]
+  const grid = document.querySelector('[data-timeline-buckets]')
+  return grid ? ([...grid.querySelectorAll('button[aria-pressed]')] as HTMLButtonElement[]) : []
 }
 
 describe('TimelineSection — cards drive the embedded assignment list', () => {

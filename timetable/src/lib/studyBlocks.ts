@@ -1,6 +1,11 @@
 import type { Lesson } from '../types'
 import { KEYS, readJson, writeJson } from './storage'
-import { DEFAULT_STUDY_BLOCK_PREFS, normalizeStudyBlockPrefs, type StudyBlockPrefs } from './studyBlockPrefs'
+import {
+  DEFAULT_STUDY_BLOCK_PREFS,
+  normalizeStudyBlockPrefs,
+  studyDayWindow,
+  type StudyBlockPrefs,
+} from './studyBlockPrefs'
 
 export type StudyBlockSourceKind = 'task' | 'sisu-plan'
 
@@ -157,12 +162,14 @@ export function planStudyBlocks(input: {
     let placed: StudyBlockRecommendation | undefined
     for (let offset = 0; offset < prefs.horizonDays && !placed; offset++) {
       const startOfDay = localDay(input.now, offset)
-      const weekday = startOfDay.getDay()
-      if (prefs.skipWeekends && (weekday === 0 || weekday === 6)) continue
+      // 每一天的窗口都由 `studyDayWindow` 合成（继承全局 → 单日覆盖 → 最小窗口），
+      // 排程器不自己拼「全局窗口 + 例外」，否则设置页与排程会是两份口径。
+      const window = studyDayWindow(prefs, startOfDay.getDay())
+      if (!window) continue
       const windowStart = new Date(startOfDay)
-      windowStart.setHours(prefs.dayStartHour, 0, 0, 0)
+      windowStart.setHours(window.startHour, 0, 0, 0)
       const windowEnd = new Date(startOfDay)
-      windowEnd.setHours(prefs.dayEndHour, 0, 0, 0)
+      windowEnd.setHours(window.endHour, 0, 0, 0)
       const first = Math.max(windowStart.getTime(), nowMs + 1)
       const roundedFirst = new Date(first)
       const remainder = roundedFirst.getMinutes() % SLOT_MINUTES

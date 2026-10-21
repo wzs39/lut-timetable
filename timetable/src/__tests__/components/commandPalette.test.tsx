@@ -41,7 +41,13 @@ function Harness({
   onClose: () => void
 }) {
   const { t } = useI18n()
-  const items = buildPalette({ t, locale: 'zh-CN', lessons, tasks, dupCount: 0 })
+  const items = buildPalette({
+    t,
+    locale: 'zh-CN',
+    lessons,
+    tasks,
+    commands: [{ id: 'settings', label: t('settingsTitle'), icon: 'settings' as const }],
+  })
   return <CommandPalette items={items} onRun={onRun} onClose={onClose} />
 }
 
@@ -108,7 +114,7 @@ describe('CommandPalette', () => {
     fireEvent.change(input(), { target: { value: '设置' } })
     fireEvent.keyDown(input(), { key: 'ArrowUp' })
     fireEvent.keyDown(input(), { key: 'Enter' })
-    expect(onRun).toHaveBeenCalledWith({ kind: 'settings' })
+    expect(onRun).toHaveBeenCalledWith({ kind: 'command', id: 'settings' })
   })
 
   it('closes on Escape without running anything', () => {

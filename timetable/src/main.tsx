@@ -7,6 +7,7 @@ import { ThemeProvider } from './theme.tsx'
 import { applyPreset, applyTheme, loadPreset, loadTheme } from './lib/theme'
 import { applyA11y, loadUiPrefs } from './lib/uiPrefs'
 import { consumeWidgetNav } from './lib/widgetData'
+import { viewDeclForRoute } from './lib/navigation'
 import { installErrorLogging } from './lib/errorLog'
 
 // Satu-satunya langkah sebelum render pertama: tulis tema & preset tersimpan
@@ -33,8 +34,8 @@ async function boot() {
   // Widget tap saat app MATI: MainActivity menulis view ke pref — baca dan
   // konsumsi SEBELUM render, karena view state App hanya dibaca sekali dari
   // location.hash saat mount. Web (bukan native) langsung render.
-  const nav = await consumeWidgetNav()
-  if (nav) location.hash = `#/view/${nav}`
+  const nav = viewDeclForRoute(await consumeWidgetNav())
+  if (nav) location.hash = `#/view/${nav.route}`
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>

@@ -8,6 +8,10 @@ export interface Task {
   course?: string
   /** ISO datetime for the deadline, when known. */
   dueAt?: string
+  /** 迟交截止（Moodle `cutoffdate`）：due 之后仍可提交到这一刻。 */
+  cutoffAt?: string
+  /** 评分截止（Moodle `gradingduedate`）：教师批改期限，不是学生提交期限。 */
+  gradingDueAt?: string
   /** ISO datetime when the activity opens/becomes available (Moodle open date). */
   startAt?: string
   note?: string
@@ -196,6 +200,14 @@ export function moduleTypeOf(task: Pick<Task, 'modtype' | 'url'>): ModuleType | 
   if (task.modtype) return task.modtype
   const m = task.url?.match(/\/mod\/([^/]+)\//)
   return m ? m[1] : null
+}
+
+/**
+ * 截止文案的唯一判定：测验是「关闭」，其余（作业/工作坊/手动）是「截止」。
+ * 返回 i18n key，组件只负责 t(key)，不要各自手写 modtype === 'quiz'。
+ */
+export function deadlineLabelKey(modtype?: string | null): 'taskDueShort' | 'taskCloses' {
+  return modtype === 'quiz' ? 'taskCloses' : 'taskDueShort'
 }
 
 /** Tugas ICS hasil upgrade URL belum punya modtype — isi dari URL sekali. */

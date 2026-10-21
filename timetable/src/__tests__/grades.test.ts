@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   parseGradeItems,
+  parseGradeCategoryParents,
   gradesErrorKind,
   type CourseGrades,
 } from '../lib/grades'
@@ -357,5 +358,190 @@ describe('parseGradeItems — scale items carry gradeText', () => {
       ],
     })
     expect(c.items[0].gradeText).toBeUndefined()
+  })
+})
+
+// 【2026-10-21】parentcategories 分层合成：旧 spreadCategoryWeights 只看
+// 「分类 → 直属成员」，遇到「加权分类里还有子分类、子分类与成员同层」
+// 会把 1.5 份权重归一成 100%（成员合计 40+10+50）而不是旧法的
+// A1 100 / B1 50 / C1 100（合计 250）。层级来自
+// gradereport_user_get_grades_table，与 user_get_grade_items 分开取。
+describe('parseGradeCategoryParents', () => {
+  const table = {
+    tables: [
+      {
+        tabledata: [
+          {
+            itemname: {
+              content:
+                '<a class="gradeitemheader" href="/grade/index.php?categoryid=510&amp;id=900" data-categoryid="510">Exam</a>',
+            },
+            parentcategories: [500],
+          },
+          { itemname: { content: '<a data-categoryid="512">Sub</a>' }, parentcategories: [500, 510] },
+          { itemname: { content: '<a data-categoryid="500">Course</a>' }, parentcategories: [] },
+          // 非分类行（活动行）不带 data-categoryid → 必须跳过
+          { itemname: { content: '<a href="/mod/quiz/view.php?id=1">Quiz 1</a>' } },
+          { itemname: { content: 'Broken' }, parentcategories: ['500', 'nope'] },
+        ],
+      },
+    ],
+  }
+
+  it('maps categoryid to its direct parent (last element of the chain)', () => {
+    const parents = parseGradeCategoryParents(table)
+    expect(parents.get(510)).toBe(500)
+    expect(parents.get(512)).toBe(510)
+    expect(parents.get(500)).toBeNull()
+    expect(parents.size).toBe(3)
+  })
+
+  it('ignores malformed responses instead of throwing', () => {
+    expect(parseGradeCategoryParents(null).size).toBe(0)
+    expect(parseGradeCategoryParents({}).size).toBe(0)
+    expect(parseGradeCategoryParents({ tables: [{ tabledata: 'nope' }] }).size).toBe(0)
+  })
+})
+
+describe('parseGradeItems — hierarchical weight composition', () => {
+  // 课程根 500（无权重）→ Exam 510 (50%) / Exercise 511 (50%)；
+  // 510 下：子分类 512 (25%) 与成员 A1（自身权重 1）同层。
+  const tree = {
+    usergrades: [
+      {
+        courseid: 900,
+        gradeitems: [
+          { itemname: 'A1', itemtype: 'mod', graderaw: 10, grademax: 10, weightraw: 1, categoryid: 510 },
+          { itemname: 'B1', itemtype: 'mod', graderaw: 5, grademax: 10, categoryid: 511 },
+          { itemname: 'C1', itemtype: 'mod', graderaw: 8, grademax: 10, weightraw: 1, categoryid: 512 },
+          { itemname: null, itemtype: 'category', iteminstance: 500 },
+          { itemname: null, itemtype: 'category', iteminstance: 510, weightraw: 0.5 },
+          { itemname: null, itemtype: 'category', iteminstance: 511, weightraw: 0.5 },
+          { itemname: null, itemtype: 'category', iteminstance: 512, weightraw: 0.25 },
+        ],
+      },
+    ],
+  }
+  const parents = new Map<number, number | null>([
+    [500, null],
+    [510, 500],
+    [511, 500],
+    [512, 510],
+  ])
+
+  it('normalizes siblings so the top level totals exactly 100%', () => {
+    const [c] = parseGradeItems(tree, {}, new Map([[900, parents]]))
+    const byName = (n: string) => c.items.find((i) => i.name === n)!
+    expect(byName('A1').weight).toBeCloseTo(40, 2) // 50% × 1/1.25
+    expect(byName('C1').weight).toBeCloseTo(10, 2) // 50% × 0.25/1.25
+    expect(byName('B1').weight).toBeCloseTo(50, 2) // 唯一成员 → 全拿
+    const total = c.items.reduce((sum, i) => sum + (i.weight ?? 0), 0)
+    expect(total).toBeCloseTo(100, 2)
+  })
+
+  it('uses the composed weights in the running total', () => {
+    const [c] = parseGradeItems(tree, {}, new Map([[900, parents]]))
+    // 40×100% + 50×50% + 10×80% = 73
+    expect(c.average).toBeCloseTo(73, 2)
+  })
+
+  it('legacy spread (no hierarchy) leaves the same tree at 250% — the bug this fixes', () => {
+    const [c] = parseGradeItems(tree)
+    const total = c.items.reduce((sum, i) => sum + (i.weight ?? 0), 0)
+    expect(total).toBeGreaterThan(100)
+  })
+
+  it('does not invent weights when no category or item carries one', () => {
+    const unweighted = {
+      usergrades: [
+        {
+          courseid: 901,
+          gradeitems: [
+            { itemname: 'X', itemtype: 'mod', graderaw: 5, grademax: 10, categoryid: 610 },
+            { itemname: 'Y', itemtype: 'mod', graderaw: 7, grademax: 10, categoryid: 611 },
+            { itemname: null, itemtype: 'category', iteminstance: 610 },
+            { itemname: null, itemtype: 'category', iteminstance: 611 },
+          ],
+        },
+      ],
+    }
+    const [c] = parseGradeItems(
+      unweighted,
+      {},
+      new Map([[901, new Map<number, number | null>([[610, null], [611, null]])]]),
+    )
+    expect(c.items.map((i) => i.weight)).toEqual([null, null])
+  })
+
+  it('drops explicitly zero-weight members/categories from the pool', () => {
+    const zero = {
+      usergrades: [
+        {
+          courseid: 902,
+          gradeitems: [
+            { itemname: 'Counts', itemtype: 'mod', graderaw: 10, grademax: 10, weightraw: 1, categoryid: 710 },
+            { itemname: 'Excluded', itemtype: 'mod', graderaw: 10, grademax: 10, weightraw: 0, categoryid: 710 },
+            { itemname: null, itemtype: 'category', iteminstance: 710, weightraw: 1 },
+          ],
+        },
+      ],
+    }
+    const [c] = parseGradeItems(zero, {}, new Map([[902, new Map<number, number | null>([[710, null]])]]))
+    expect(c.items.find((i) => i.name === 'Counts')!.weight).toBeCloseTo(100, 2)
+    expect(c.items.find((i) => i.name === 'Excluded')!.weight).toBeNull()
+  })
+
+  it('keeps weights scoped to their own course', () => {
+    const two = {
+      usergrades: [
+        tree.usergrades[0],
+        { courseid: 903, gradeitems: [{ itemname: 'Z', itemtype: 'mod', graderaw: 3, grademax: 3 }] },
+      ],
+    }
+    const [a, b] = parseGradeItems(two, {}, new Map([[900, parents]]))
+    expect(a.items.reduce((s, i) => s + (i.weight ?? 0), 0)).toBeCloseTo(100, 2)
+    expect(b.items[0].weight).toBeNull()
+  })
+})
+
+// 单位/缺省语义：weightraw 是同级相对权（0.1 = 10%）；同一个池里有显式
+// 权重时，未设置权重的项不参与。真实 CT60A4050 根分类的 pass/fail 项就是
+// 这种 "-"（无权重），不能把它们按 1% 或 100% 硬塞进归一。
+describe('parseGradeItems — weight units', () => {
+  it('excludes unset-weight items when weighted siblings exist', () => {
+    const response = {
+      usergrades: [
+        {
+          courseid: 904,
+          gradeitems: [
+            { itemname: 'Explicit', itemtype: 'mod', graderaw: 10, grademax: 10, weightraw: 1, categoryid: 810 },
+            { itemname: 'Default', itemtype: 'mod', graderaw: 10, grademax: 10, categoryid: 810 },
+            { itemname: null, itemtype: 'category', iteminstance: 810, weightraw: 0.1 },
+          ],
+        },
+      ],
+    }
+    const [c] = parseGradeItems(response, {}, new Map([[904, new Map<number, number | null>([[810, null]])]]))
+    const byName = (n: string) => c.items.find((i) => i.name === n)!
+    expect(byName('Explicit').weight).toBeCloseTo(100, 2)
+    expect(byName('Default').weight).toBeNull()
+  })
+
+  it('never emits an item weight above the course total', () => {
+    const response = {
+      usergrades: [
+        {
+          courseid: 905,
+          gradeitems: [
+            { itemname: 'A', itemtype: 'mod', graderaw: 10, grademax: 10, weightraw: 1, categoryid: 811 },
+            { itemname: 'B', itemtype: 'mod', graderaw: 10, grademax: 10, weightraw: 0.5, categoryid: 811 },
+            { itemname: null, itemtype: 'category', iteminstance: 811, weightraw: 0.3 },
+          ],
+        },
+      ],
+    }
+    const [c] = parseGradeItems(response, {}, new Map([[905, new Map<number, number | null>([[811, null]])]]))
+    for (const item of c.items) expect(item.weight!).toBeLessThanOrEqual(100)
+    expect(c.items.reduce((s, i) => s + (i.weight ?? 0), 0)).toBeCloseTo(100, 2)
   })
 })

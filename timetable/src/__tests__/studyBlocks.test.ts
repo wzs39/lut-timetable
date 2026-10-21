@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BACKUP_KEYS, KEYS } from '../lib/storage'
-import { DEFAULT_STUDY_BLOCK_PREFS, type StudyBlockPrefs } from '../lib/studyBlockPrefs'
+import {
+  DEFAULT_STUDY_BLOCK_PREFS,
+  type StudyBlockPrefs,
+  type StudyDayOverrides,
+} from '../lib/studyBlockPrefs'
 import {
   confirmStudyBlock,
   loadStudyBlocks,
@@ -196,6 +200,59 @@ describe('planStudyBlocks with user preferences', () => {
       items: [item], lessons: [], confirmed: [], now, prefs: withPrefs({ horizonDays: 14 }),
     })
     expect(longer.recommendations).toHaveLength(1)
+  })
+})
+
+// 按星期几的窗口必须真的改变排程结果，而不是只在设置里存着好看。
+// day(0) = 2026-09-14 周一 → day(2) 周三、day(5) 周六。
+describe('planStudyBlocks with per-weekday windows', () => {
+  const withDays = (dayOverrides: StudyDayOverrides): StudyBlockPrefs => ({
+    ...DEFAULT_STUDY_BLOCK_PREFS,
+    dayOverrides,
+  })
+
+  it('moves a suggestion off a day whose window was shortened', () => {
+    const now = day(2, 17) // 周三 17:00
+    const item = { ...candidate('report', 3), dueAt: iso(3, 20) } // 截止周四 20:00
+
+    const normal = planStudyBlocks({ items: [item], lessons: [], confirmed: [], now })
+    expect(normal.recommendations[0].startAt).toBe(iso(2, 17, 15))
+
+    // 周三窗口收到 16:00 → 当天再没有可用时段，退到周四的全局窗口
+    const shortened = planStudyBlocks({
+      items: [item], lessons: [], confirmed: [], now, prefs: withDays({ 3: { endHour: 16 } }),
+    })
+    expect(shortened.recommendations[0].startAt).toBe(iso(3, 8))
+  })
+
+  it('uses a widened weekend window and leaves weekdays on the daily window', () => {
+    const now = day(5, 6) // 周六 06:00
+    const item = { ...candidate('weekend', 6), dueAt: iso(6, 20) }
+
+    expect(planStudyBlocks({ items: [item], lessons: [], confirmed: [], now }).recommendations[0].startAt).toBe(iso(5, 8))
+
+    const widened = planStudyBlocks({
+      items: [item], lessons: [], confirmed: [], now, prefs: withDays({ 6: { startHour: 7 } }),
+    })
+    expect(widened.recommendations[0].startAt).toBe(iso(5, 7))
+  })
+
+  it('skips a day marked off and returns to the next day window', () => {
+    const now = day(2, 17)
+    const item = { ...candidate('report', 3), dueAt: iso(3, 20) }
+    const result = planStudyBlocks({ items: [item], lessons: [], confirmed: [], now, prefs: withDays({ 3: { off: true } }) })
+    expect(result.recommendations[0].startAt).toBe(iso(3, 8))
+  })
+
+  it('reports the item as unscheduled when every remaining day before the deadline is off', () => {
+    const now = day(2, 17)
+    const item = { ...candidate('report', 1), dueAt: iso(3, 20) }
+    const result = planStudyBlocks({
+      items: [item], lessons: [], confirmed: [], now,
+      prefs: withDays({ 3: { off: true }, 4: { off: true } }),
+    })
+    expect(result.recommendations).toEqual([])
+    expect(result.unscheduled.map((entry) => entry.sourceId)).toEqual(['report'])
   })
 })
 
