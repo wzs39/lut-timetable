@@ -25,10 +25,11 @@ export default function BottomNav({
   const { unread } = useMoodleData()
   return (
     <nav
-      className="md:hidden fixed inset-x-0 bottom-0 z-40 flex border-t border-[var(--line)] bg-[var(--surface-1)]"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      className="md:hidden fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface-1)]/90 px-2 py-1 backdrop-blur-xl shadow-lg shadow-black/20"
+      style={{ paddingBottom: 'calc(0.25rem + env(safe-area-inset-bottom, 0px))' }}
     >
       {VIEWS.filter((decl) => decl.inBottomNav).map((decl) => {
+        const active = view === decl.view
         const count =
           (decl.badges?.includes('tasks') ? pendingTaskCount : 0) +
           (decl.badges?.includes('unread') ? unread : 0)
@@ -36,33 +37,40 @@ export default function BottomNav({
           <button
             key={decl.route}
             onClick={() => onView(decl.view)}
-            aria-pressed={view === decl.view}
-            className="app-nav-item relative flex flex-1 flex-col items-center gap-0.5 rounded-lg py-2 text-[10px]"
+            aria-pressed={active}
+            className={`app-nav-item relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1.5 transition-all duration-200 ${
+              active
+                ? 'text-[var(--text-1)] font-semibold bg-[var(--surface-2)]/60'
+                : 'text-[var(--text-3)] hover:text-[var(--text-2)]'
+            }`}
           >
-            <span
-              aria-hidden="true"
-              className={
-                'absolute top-0 h-0.5 w-8 rounded-full bg-[var(--accent)] transition-all duration-150 ' +
-                (view === decl.view ? 'scale-x-100 opacity-100' : 'scale-x-50 opacity-0')
-              }
-            />
-            <Icon name={decl.icon} size={17} />
-            <span className="max-w-full truncate">{t(decl.labelKey)}</span>
-            {count > 0 && (
-              <span className="app-badge absolute right-[16%] top-2.5 px-1 text-[9px] font-semibold tabular-nums">
-                {count > 9 ? '9+' : count}
-              </span>
+            {active && (
+              <span
+                aria-hidden="true"
+                className="absolute top-1 h-1 w-6 rounded-full bg-gradient-to-r from-indigo-500 to-sky-400 shadow-sm shadow-indigo-500/50 animate-fade-in"
+              />
             )}
+            <div className="relative mt-1">
+              <Icon name={decl.icon} size={18} />
+              {count > 0 && (
+                <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white shadow-sm">
+                  {count > 9 ? '9+' : count}
+                </span>
+              )}
+            </div>
+            <span className="max-w-full truncate text-[10px] tracking-tight">{t(decl.labelKey)}</span>
           </button>
         )
       })}
       <button
         onClick={onOpenSheet}
-        className="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] text-[var(--text-3)]"
+        className="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-1.5 text-[10px] text-[var(--text-3)] hover:text-[var(--text-2)] transition-all duration-150"
         title={t('moreActions')}
       >
-        <Icon name="menu" size={17} />
-        <span className="max-w-full truncate">{t('moreActions')}</span>
+        <div className="mt-1">
+          <Icon name="menu" size={18} />
+        </div>
+        <span className="max-w-full truncate tracking-tight">{t('moreActions')}</span>
       </button>
     </nav>
   )

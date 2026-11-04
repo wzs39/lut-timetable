@@ -94,7 +94,7 @@ export default function GradeCourseCard({
   const dirty = hasOverrides || q.trim() !== ''
 
   return (
-    <li className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] p-2">
+    <li className="rounded-xl border border-[var(--line)] bg-[var(--surface-1)] p-3 shadow-xs transition-all duration-150 hover:border-[var(--hover-line)] hover:shadow-md">
       {/* Header: kode + nama + nilai saat ini */}
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-baseline gap-1.5">
@@ -115,7 +115,7 @@ export default function GradeCourseCard({
             </span>
           )}
         </span>
-        <span className="shrink-0 tabular-nums text-[11px] font-semibold text-[var(--text-1)]">
+        <span className="shrink-0 tabular-nums text-xs font-bold text-[var(--text-1)]">
           <span title={t('gradeCurTitle')}>
             {proj.current != null ? proj.current.toFixed(1) : '—'}%
           </span>

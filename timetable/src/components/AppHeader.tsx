@@ -56,80 +56,115 @@ export default function AppHeader({
 }) {
   const { t } = useI18n()
   return (
-    <header className="app-header safe-top flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/90 px-3 py-2.5 backdrop-blur sm:px-4">
+    <header className="app-header safe-top sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/85 px-4 py-2 backdrop-blur-xl transition-all sm:px-6">
+      {/* 品牌与状态区 */}
       <div className="flex items-center gap-3">
-        {/* 移动端不再放汉堡按钮：主导航已下到底部标签栏（拇指可达） */}
-        <span
-          aria-hidden="true"
-          className="flex h-6 w-6 items-center justify-center rounded-md border border-[var(--line)] bg-gradient-to-br from-[var(--tint-info)] to-[var(--tint-violet)] text-[10px] font-bold text-[var(--text-1)]"
-        >
-          L
-        </span>
-        <h1 className="text-sm font-semibold tracking-tight">{t('appName')}</h1>
-        <span className="hidden sm:inline text-[11px] text-[var(--text-3)]">
-          {t('lessonsSources', { n: lessonCount, m: sourceCount })}
-        </span>
-      </div>
-      <div className="app-actions flex flex-wrap items-center justify-end gap-1.5 text-xs ml-auto">
-        {/* 视图切换：桌面/平板保留在头部（移动端交给底部标签栏） */}
-        <div className="app-seg hidden md:flex">
-          {VIEWS.filter((decl) => decl.inHeader).map((decl) => (
-            <button
-              key={decl.route}
-              onClick={() => onView(decl.view)}
-              aria-pressed={view === decl.view}
-            >
-              <span className="inline-flex items-center gap-2">
-                {decl.headerIcon && <Icon name={decl.icon} size={15} />}
-                <span>{t(decl.labelKey)}</span>
-              </span>
-              {decl.badges?.includes('tasks') && pendingTaskCount > 0 && (
-                <span className="app-badge ml-1 font-semibold tabular-nums">{pendingTaskCount}</span>
-              )}
-              {decl.badges?.includes('unread') && <MoodleUnreadBadge />}
-            </button>
-          ))}
+        <div className="relative flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 via-sky-500 to-emerald-400 p-[1px] shadow-sm shadow-indigo-500/20">
+          <span
+            aria-hidden="true"
+            className="flex h-full w-full items-center justify-center rounded-[7px] bg-[var(--surface-0)] text-[11px] font-black text-transparent bg-clip-text bg-gradient-to-tr from-indigo-400 to-sky-300"
+          >
+            L
+          </span>
         </div>
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold tracking-tight text-[var(--text-1)]">{t('appName')}</h1>
+            <span className="hidden items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {t('lessonsSources', { n: lessonCount, m: sourceCount })}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 视图切换：桌面端精致浮动分段胶囊 */}
+      <div className="app-actions flex flex-1 flex-wrap items-center justify-end gap-2 text-xs">
+        <div className="app-seg hidden md:flex shadow-sm">
+          {VIEWS.filter((decl) => decl.inHeader).map((decl) => {
+            const active = view === decl.view
+            return (
+              <button
+                key={decl.route}
+                onClick={() => onView(decl.view)}
+                aria-pressed={active}
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all duration-150 ${
+                  active
+                    ? 'font-semibold text-[var(--accent-text)] bg-[var(--accent)] shadow-sm'
+                    : 'text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)]'
+                }`}
+              >
+                {decl.headerIcon && <Icon name={decl.icon} size={14} />}
+                <span>{t(decl.labelKey)}</span>
+                {decl.badges?.includes('tasks') && pendingTaskCount > 0 && (
+                  <span className="app-badge ml-1 px-1.5 py-0 text-[10px] font-bold tabular-nums bg-rose-500 text-white border-0 shadow-sm">
+                    {pendingTaskCount}
+                  </span>
+                )}
+                {decl.badges?.includes('unread') && <MoodleUnreadBadge />}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* 周导航：仅在周视图下显示 */}
         {view === 'week' && (
-          <div className="hidden md:flex items-center gap-1.5">
-            <button onClick={() => onWeekNav(WEEK_NAV.prev.id)} className="app-btn px-2.5 min-h-9" aria-label={t(WEEK_NAV.prev.labelKey)} title={t(WEEK_NAV.prev.labelKey)}>
-              <Icon name={WEEK_NAV.prev.icon} size={15} />
+          <div className="hidden md:flex items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface-1)] p-0.5 shadow-sm">
+            <button
+              onClick={() => onWeekNav(WEEK_NAV.prev.id)}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)] transition-colors"
+              aria-label={t(WEEK_NAV.prev.labelKey)}
+              title={t(WEEK_NAV.prev.labelKey)}
+            >
+              <Icon name={WEEK_NAV.prev.icon} size={14} />
             </button>
             <span
-              className="inline-block max-w-[24vw] truncate align-middle rounded-md border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1.5 text-[11px] sm:max-w-none sm:text-xs tabular-nums text-[var(--text-2)]"
+              className="px-2 text-xs font-medium tabular-nums text-[var(--text-2)]"
               title={t('weekRange', { w: weekNum, range: weekRangeText })}
             >
               {t('weekRange', { w: weekNum, range: weekRangeText })}
             </span>
-            <button onClick={() => onWeekNav(WEEK_NAV.next.id)} className="app-btn px-2.5 min-h-9" aria-label={t(WEEK_NAV.next.labelKey)} title={t(WEEK_NAV.next.labelKey)}>
-              <Icon name={WEEK_NAV.next.icon} size={15} />
+            <button
+              onClick={() => onWeekNav(WEEK_NAV.next.id)}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)] transition-colors"
+              aria-label={t(WEEK_NAV.next.labelKey)}
+              title={t(WEEK_NAV.next.labelKey)}
+            >
+              <Icon name={WEEK_NAV.next.icon} size={14} />
             </button>
             {!isCurrentWeek && (
-              <button onClick={() => onWeekNav(WEEK_NAV.this.id)} className="app-btn-primary px-2.5 min-h-9">
+              <button
+                onClick={() => onWeekNav(WEEK_NAV.this.id)}
+                className="ml-0.5 rounded-md bg-[var(--accent)] px-2 py-1 text-[11px] font-semibold text-[var(--accent-text)] shadow-sm hover:opacity-90 transition-opacity"
+              >
                 {t(WEEK_NAV.this.labelKey)}
               </button>
             )}
           </div>
         )}
+
+        {/* 快捷搜索 (命令面板) */}
         <button
           onClick={onOpenPalette}
-          className="app-btn inline-flex items-center gap-1.5 px-2 sm:px-2.5 min-h-9"
+          className="app-btn inline-flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-2)] hover:text-[var(--text-1)]"
           title={t('paletteShortcuts')}
         >
-          <Icon name="search" size={14} />
-          <span className="hidden sm:inline text-[10px] text-[var(--text-3)]">Ctrl K</span>
+          <Icon name="search" size={13} />
+          <span className="hidden lg:inline text-[11px] font-normal text-[var(--text-3)]">
+            <kbd className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-1 py-0.5 text-[10px] font-mono">Ctrl K</kbd>
+          </span>
         </button>
+
+        {/* 桌面端更多菜单 */}
         <div className="relative max-md:hidden">
           <button
             onClick={onToggleMenu}
-            className="app-btn px-2 sm:px-2.5 min-h-9"
+            className="app-btn inline-flex items-center gap-1 px-2.5 py-1.5 text-xs text-[var(--text-2)] hover:text-[var(--text-1)]"
             title={t('moreActions')}
             aria-expanded={menuOpen}
           >
-            <span aria-hidden="true" className="inline-flex items-center">
-              <Icon name="more" size={16} />
-            </span>
-            <span className="hidden sm:inline"> {t('moreActions')}</span>
+            <Icon name="more" size={15} />
+            <span className="hidden xl:inline">{t('moreActions')}</span>
           </button>
           <AppMenu open={menuOpen} commands={menuCommands} onClose={onCloseMenu} />
         </div>

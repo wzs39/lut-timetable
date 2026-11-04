@@ -635,9 +635,9 @@ function LessonList({
             <button
               onClick={() => onSelect(l.id)}
               className={
-                'lesson-card w-full rounded-lg border px-3 py-2 text-left text-xs transition hover:-translate-y-0.5 ' +
+                'lesson-card w-full rounded-xl border px-3.5 py-2.5 text-left text-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ' +
                 (past ? 'opacity-40 ' : '') +
-                (live ? 'ring-2 ring-[var(--ok)] shadow-sm shadow-[var(--ok)]/15 ' : '')
+                (live ? 'ring-2 ring-[var(--ok)] shadow-md shadow-[var(--ok)]/25 bg-[var(--tint-ok)]/10 ' : '')
               }
               style={courseStyle(c)}
             >

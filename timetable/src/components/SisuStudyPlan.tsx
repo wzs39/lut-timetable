@@ -183,7 +183,7 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
         className={tabCls('overview')}
       >
       {/* 概览：学分、分类最低要求、目标年限与预计毕业 */}
-      <div className="app-card space-y-3 p-3">
+      <div className="app-card space-y-3.5 p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="app-card-label inline-flex items-center gap-1.5"><Icon name="graduation" size={13} /> {t('planOverviewTitle')}</h3>
@@ -204,7 +204,7 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
         </div>
         {/* 仪表盘：学分为主块，毕业与负荷是内嵌小卡，分类进度缩成条带 */}
         <div className="grid gap-2 md:grid-cols-2 @2xl:grid-cols-[1.4fr_1fr_1fr]">
-          <div className="flex min-w-0 items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2.5 md:col-span-2 @2xl:col-span-1">
+          <div className="flex min-w-0 items-center gap-3.5 rounded-xl border border-[var(--line)] bg-[var(--surface-2)] p-3 shadow-xs md:col-span-2 @2xl:col-span-1">
             <div className="relative h-14 w-14 shrink-0" role="img" aria-label={t('planDashCreditsRing', { pct: earnedPct })}>
               <svg viewBox="0 0 36 36" className="h-14 w-14 -rotate-90">
                 <circle cx="18" cy="18" r="15.5" fill="none" stroke="var(--line)" strokeWidth="3.5" />

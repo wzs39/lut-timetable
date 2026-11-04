@@ -30,11 +30,13 @@ interface StatTileProps {
 export function StatTile({ label, value, hint, tone = 'info', onClick, pressed, className = '' }: StatTileProps) {
   const body = (
     <>
-      <div className="stat-value text-lg font-semibold leading-tight tabular-nums">{value}</div>
-      <div className="mt-0.5 text-[10px] text-[var(--text-3)]">{label}</div>
+      <div className="stat-value text-xl font-bold leading-tight tabular-nums tracking-tight sm:text-2xl">{value}</div>
+      <div className="mt-1 text-[11px] font-medium text-[var(--text-3)]">{label}</div>
     </>
   )
-  const classes = `stat-tile px-2.5 py-2 text-left ${pressed ? 'ring-1 ring-[var(--line-info)]' : ''} ${className}`
+  const classes = `stat-tile group relative rounded-xl p-3 text-left transition-all duration-150 ${
+    pressed ? 'ring-2 ring-[var(--line-info)] bg-[var(--surface-2)] shadow-sm' : ''
+  } ${className}`
   if (!onClick) {
     return <div data-tone={tone} title={hint} className={classes}>{body}</div>
   }
@@ -65,17 +67,22 @@ interface DashboardHeroProps {
 /** 页面顶部的「一眼概览」：标题行 + 一行 KPI 格子。 */
 export function DashboardHero({ title, subtitle, icon, actions, children }: DashboardHeroProps) {
   return (
-    <section className="app-hero p-3" data-dashboard="hero">
-      <div className="flex flex-wrap items-start justify-between gap-2">
+    <section className="app-hero p-4 sm:p-5 shadow-sm" data-dashboard="hero">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="app-card-label inline-flex items-center gap-1.5">
-            {icon && <Icon name={icon} size={13} />} {title}
+          <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight text-[var(--text-1)]">
+            {icon && (
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-[var(--surface-2)] text-[var(--text-2)]">
+                <Icon name={icon} size={13} />
+              </span>
+            )}
+            <span>{title}</span>
           </h2>
-          {subtitle && <p className="mt-1 text-[11px] text-[var(--text-3)]">{subtitle}</p>}
+          {subtitle && <p className="mt-1 text-xs text-[var(--text-3)]">{subtitle}</p>}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap items-center gap-1.5">{actions}</div>}
+        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">{children}</div>
+      <div className="mt-3.5 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">{children}</div>
     </section>
   )
 }
@@ -94,10 +101,10 @@ interface DashboardSplitProps {
 export function DashboardSplit({ main, aside, asideFirstOnMobile = false }: DashboardSplitProps) {
   return (
     <div className="@container" data-dashboard="split">
-      <div className="grid gap-3 @2xl:grid-cols-3 @2xl:items-start">
-        <div className="min-w-0 space-y-3">{main}</div>
+      <div className="grid gap-4 @2xl:grid-cols-3 @2xl:items-start @2xl:gap-5">
+        <div className="min-w-0 space-y-3.5 @2xl:col-span-2">{main}</div>
         <div
-          className={`min-w-0 space-y-3 @2xl:col-span-1 ${asideFirstOnMobile ? 'order-first @2xl:order-none' : ''}`}
+          className={`min-w-0 space-y-3.5 @2xl:col-span-1 ${asideFirstOnMobile ? 'order-first @2xl:order-none' : ''}`}
         >
           {aside}
         </div>
