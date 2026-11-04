@@ -123,19 +123,36 @@ export function planStudyBlocks(input: {
   confirmed: StudyBlock[]
   now: Date
   prefs?: StudyBlockPrefs
-}): { recommendations: StudyBlockRecommendation[]; unscheduled: StudyBlockCandidate[] } {
+}): {
+  recommendations: StudyBlockRecommendation[]
+  unscheduled: StudyBlockCandidate[]
+  /**
+   * 落在规划视野之外的候选（已过期，或截止日晚于 horizonDays 的最后一天）。
+   *
+   * 这些项以前被 `return` 直接丢掉，界面上既不进推荐也不进 unscheduled，
+   * 用户只看到"5 个任务要安排"却数不清剩下的 20 个去哪了。现在单列出来，
+   * 由界面说明"还有 N 项在视野外"，而不是静默消失。
+   */
+  outOfHorizon: StudyBlockCandidate[]
+} {
   const prefs = normalizeStudyBlockPrefs(input.prefs ?? DEFAULT_STUDY_BLOCK_PREFS)
   const nowMs = input.now.getTime()
-  if (!Number.isFinite(nowMs)) return { recommendations: [], unscheduled: input.items.filter(validCandidate) }
+  if (!Number.isFinite(nowMs)) {
+    return { recommendations: [], unscheduled: input.items.filter(validCandidate), outOfHorizon: [] }
+  }
 
   const dueLimit = localDay(input.now, Math.max(0, prefs.horizonDays - 1))
   dueLimit.setHours(23, 59, 59, 999)
   const unique = new Map<string, { item: StudyBlockCandidate; index: number }>()
   const unscheduled: StudyBlockCandidate[] = []
+  const outOfHorizon: StudyBlockCandidate[] = []
   input.items.forEach((item, index) => {
     if (!validCandidate(item)) return
     const due = timestamp(item.dueAt)
-    if (due <= nowMs || due > dueLimit.getTime()) return
+    if (due <= nowMs || due > dueLimit.getTime()) {
+      outOfHorizon.push(item)
+      return
+    }
     const key = sourceKey(item)
     if (unique.has(key)) return
     unique.set(key, { item, index })
@@ -155,29 +172,43 @@ export function planStudyBlocks(input: {
   const recommendedKeys = new Set<string>()
   const durationMs = prefs.blockMinutes * 60_000
 
+  // 每天的可排起点 / 窗口结束只与 (now, prefs, offset) 有关，与候选无关。
+  // 旧实现把这段（含 new Date + setHours + studyDayWindow 合成）放在
+  // 「每个候选 × 每一天」的双层循环里，20 个候选 × 7 天 = 140 次重复计算；
+  // 这里预计算一次，语义逐字保持等价。
+  const dayPlans: Array<{ firstSlot: number; windowEndMs: number } | null> = []
+  for (let offset = 0; offset < prefs.horizonDays; offset++) {
+    const startOfDay = localDay(input.now, offset)
+    // 每一天的窗口都由 `studyDayWindow` 合成（继承全局 → 单日覆盖 → 最小窗口），
+    // 排程器不自己拼「全局窗口 + 例外」，否则设置页与排程会是两份口径。
+    const window = studyDayWindow(prefs, startOfDay.getDay())
+    if (!window) {
+      dayPlans.push(null)
+      continue
+    }
+    const windowStart = new Date(startOfDay)
+    windowStart.setHours(window.startHour, 0, 0, 0)
+    const windowEnd = new Date(startOfDay)
+    windowEnd.setHours(window.endHour, 0, 0, 0)
+    const first = Math.max(windowStart.getTime(), nowMs + 1)
+    const roundedFirst = new Date(first)
+    const remainder = roundedFirst.getMinutes() % SLOT_MINUTES
+    if (remainder !== 0 || roundedFirst.getSeconds() !== 0 || roundedFirst.getMilliseconds() !== 0) {
+      roundedFirst.setMinutes(roundedFirst.getMinutes() + (SLOT_MINUTES - remainder), 0, 0)
+    }
+    else roundedFirst.setSeconds(0, 0)
+    dayPlans.push({ firstSlot: roundedFirst.getTime(), windowEndMs: windowEnd.getTime() })
+  }
+
   for (const { item } of ordered) {
     const key = sourceKey(item)
     if (confirmedKeys.has(key)) continue
     const due = timestamp(item.dueAt)
     let placed: StudyBlockRecommendation | undefined
     for (let offset = 0; offset < prefs.horizonDays && !placed; offset++) {
-      const startOfDay = localDay(input.now, offset)
-      // 每一天的窗口都由 `studyDayWindow` 合成（继承全局 → 单日覆盖 → 最小窗口），
-      // 排程器不自己拼「全局窗口 + 例外」，否则设置页与排程会是两份口径。
-      const window = studyDayWindow(prefs, startOfDay.getDay())
-      if (!window) continue
-      const windowStart = new Date(startOfDay)
-      windowStart.setHours(window.startHour, 0, 0, 0)
-      const windowEnd = new Date(startOfDay)
-      windowEnd.setHours(window.endHour, 0, 0, 0)
-      const first = Math.max(windowStart.getTime(), nowMs + 1)
-      const roundedFirst = new Date(first)
-      const remainder = roundedFirst.getMinutes() % SLOT_MINUTES
-      if (remainder !== 0 || roundedFirst.getSeconds() !== 0 || roundedFirst.getMilliseconds() !== 0) {
-        roundedFirst.setMinutes(roundedFirst.getMinutes() + (SLOT_MINUTES - remainder), 0, 0)
-      }
-      else roundedFirst.setSeconds(0, 0)
-      for (let start = roundedFirst.getTime(); start + durationMs <= windowEnd.getTime() && start + durationMs <= due; start += SLOT_MINUTES * 60_000) {
+      const plan = dayPlans[offset]
+      if (!plan) continue
+      for (let start = plan.firstSlot; start + durationMs <= plan.windowEndMs && start + durationMs <= due; start += SLOT_MINUTES * 60_000) {
         const end = start + durationMs
         if (intervals.some((other) => overlapsWithBuffer(start, end, other.start, other.end, prefs.bufferMinutes))) continue
         placed = { ...item, startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() }
@@ -190,7 +221,7 @@ export function planStudyBlocks(input: {
     if (!placed && !recommendedKeys.has(key)) unscheduled.push(item)
   }
 
-  return { recommendations, unscheduled }
+  return { recommendations, unscheduled, outOfHorizon }
 }
 
 /**
@@ -263,4 +294,42 @@ export function removeStudyBlock(id: string): StudyBlock[] {
   writeJson(KEYS.studyBlocks, next)
   emitStudyBlocksChanged()
   return next
+}
+
+/**
+ * 复核「已确认」的学习块：排程当时避开了课程，但之后课表会变（换教室、调时间、
+ * 新加一门课、手动改课）。已确认的块是冻结的，不会自己挪，于是可能压到课上，
+ * 而界面上完全看不出来——用户按计划去自习，发现教室在上课。
+ *
+ * 这里只做「找出被压到的块」，不自动挪：自动改用户确认过的时间比不改更糟。
+ * 纯函数，`lessons` 用结构类型接，避免把 Lesson 的耦合引进来。
+ */
+export interface StaleStudyBlock {
+  block: StudyBlock
+  /** 与这个块重叠的课程（可能多门） */
+  lessons: { start: string; end: string; title?: string; code?: string }[]
+}
+
+export function staleStudyBlocks(
+  blocks: StudyBlock[],
+  lessons: { start: string; end: string; title?: string; code?: string }[],
+  bufferMinutes = 0,
+): StaleStudyBlock[] {
+  const buffer = Math.max(0, Math.trunc(bufferMinutes)) * 60_000
+  const out: StaleStudyBlock[] = []
+  for (const block of blocks) {
+    if (!isStudyBlock(block) || block.completed === true) continue
+    const bs = timestamp(block.startAt)
+    const be = timestamp(block.endAt)
+    if (!Number.isFinite(bs) || !Number.isFinite(be) || be <= bs) continue
+    const clashing = lessons.filter((lesson) => {
+      const ls = timestamp(lesson.start)
+      const le = timestamp(lesson.end)
+      if (!Number.isFinite(ls) || !Number.isFinite(le) || le <= ls) return false
+      // 缓冲只向外扩学习块，课程本身的时间不动
+      return bs - buffer < le && ls < be + buffer
+    })
+    if (clashing.length > 0) out.push({ block, lessons: clashing })
+  }
+  return out.sort((a, b) => timestamp(a.block.startAt) - timestamp(b.block.startAt))
 }

@@ -22,6 +22,11 @@ describe('parseSisuWeights — real SISU evaluation criteria', () => {
     expect(weightsOf('0-5. Exam 50%, project 30%, weekly tasks 20%')).toEqual({ exam: 50, project: 30, exercises: 20 })
   })
 
+  it('matches Finnish criteria keywords (harjoitustyö, viikkotehtävät, loppukoe)', () => {
+    expect(weightsOf('0-5. Loppukoe 40%, Harjoitustyö 40%, Viikkotehtävät 20%'))
+      .toEqual({ exam: 40, project: 40, exercises: 20 })
+  })
+
   it('survives the grade-scale prefix and a missing sentence boundary', () => {
     // CT60A4050 — "0-5, continuous evaluation.Compulsory weekly exercises 25 %, …"
     expect(weightsOf('0-5, continuous evaluation.Compulsory weekly exercises 25 %, project 25 %, exam 50 %.'))

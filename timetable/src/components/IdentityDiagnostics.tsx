@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { SyncSource } from '../types'
 import { useI18n } from '../i18n'
 import { KEYS } from '../lib/storage'
-import { loadIdentityDiagnostics, type IdentityDiagnostics } from '../lib/diagnostics'
+import { loadIdentityDiagnostics } from '../lib/diagnostics'
 import { formatTime } from '../lib/date'
 
 /**
@@ -23,31 +23,28 @@ interface Props {
 
 export default function IdentityDiagnostics({ sources, revision, onResync }: Props) {
   const { t } = useI18n()
-  const [diag, setDiag] = useState<IdentityDiagnostics | null>(null)
+  const [resyncTick, setResyncTick] = useState(0)
   const [resyncing, setResyncing] = useState(false)
   const [resyncMsg, setResyncMsg] = useState<string | null>(null)
 
-  const refresh = useCallback(() => {
-    // Tanpa hook Moodle: token state hidup di provider di atas Settings;
-    // snapshot langsung dari storage cukup untuk diagnostik read-only.
-    setDiag(
-      loadIdentityDiagnostics(
-        sources,
-        readLastSync(KEYS.gradesSource),
-        readLastSync(KEYS.moodleSource),
-      ),
+  // Tanpa hook Moodle: token state hidup di provider di atas Settings;
+  // snapshot langsung dari storage cukup untuk diagnostik read-only.
+  const diag = useMemo(() => {
+    void resyncTick
+    void revision
+    return loadIdentityDiagnostics(
+      sources,
+      readLastSync(KEYS.gradesSource),
+      readLastSync(KEYS.moodleSource),
     )
-  }, [sources])
-
-  useEffect(refresh, [refresh, revision])
+  }, [sources, revision, resyncTick])
 
   const handleResync = async () => {
     setResyncing(true)
     setResyncMsg(null)
     try {
       const ok = await onResync()
-      // revision（md.busy）变化已触发 refresh；这里再刷一次兜底时序。
-      refresh()
+      setResyncTick((v) => v + 1)
       setResyncMsg(ok ? t('diagResyncDone') : t('diagResyncNoToken'))
     } catch {
       setResyncMsg(t('diagResyncFail'))

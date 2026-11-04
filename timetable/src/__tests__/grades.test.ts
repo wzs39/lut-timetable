@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   parseGradeItems,
   parseGradeCategoryParents,
+  parseGradeTableWeights,
   gradesErrorKind,
   type CourseGrades,
 } from '../lib/grades'
@@ -107,6 +108,46 @@ describe('parseGradeItems', () => {
     })
     expect(c.items[0].grade).toBe(50)
     expect(c.items[1].grade).toBeNull()
+  })
+
+  it('parses string weightraw, weight and weightformatted correctly', () => {
+    const [c] = parseGradeItems({
+      usergrades: [
+        {
+          courseid: 1,
+          gradeitems: [
+            { itemname: 'A', graderaw: 8, grademax: '10.00', weightraw: '0.25000' },
+            { itemname: 'B', graderaw: 15, grademax: 20, weight: '35.00' },
+            { itemname: 'C', graderaw: 36, grademax: 40, weightformatted: '40.00 %' },
+          ],
+        },
+      ],
+    })
+    expect(c.items[0].max).toBe(10)
+    expect(c.items[0].weight).toBe(25)
+    expect(c.items[1].weight).toBe(35)
+    expect(c.items[2].weight).toBe(40)
+  })
+
+  it('supplements missing weights from tableWeightsByCourse', () => {
+    const payload = {
+      usergrades: [
+        {
+          courseid: 101,
+          gradeitems: [
+            { itemname: 'Project Work', graderaw: 90, grademax: 100 },
+            { itemname: 'Final Exam', graderaw: 80, grademax: 100 },
+          ],
+        },
+      ],
+    }
+    const tableWeights = new Map([
+      ['Project Work', 40],
+      ['Final Exam', 60],
+    ])
+    const [c] = parseGradeItems(payload, {}, undefined, new Map([[101, tableWeights]]))
+    expect(c.items[0].weight).toBe(40)
+    expect(c.items[1].weight).toBe(60)
   })
 })
 
@@ -400,6 +441,46 @@ describe('parseGradeCategoryParents', () => {
     expect(parseGradeCategoryParents(null).size).toBe(0)
     expect(parseGradeCategoryParents({}).size).toBe(0)
     expect(parseGradeCategoryParents({ tables: [{ tabledata: 'nope' }] }).size).toBe(0)
+  })
+})
+
+describe('parseGradeTableWeights', () => {
+  const table = {
+    tables: [
+      {
+        tabledata: [
+          {
+            itemname: { content: '<a href="...">Weekly Tasks</a>' },
+            weight: { content: '20.00 %' },
+          },
+          {
+            itemname: { content: 'Course Project' },
+            weight: { content: '30.00 %' },
+          },
+          {
+            itemname: { content: 'Final Exam' },
+            weight: { content: '50.00 %' },
+          },
+          {
+            itemname: { content: 'Ungraded Task' },
+            weight: { content: '-' },
+          },
+        ],
+      },
+    ],
+  }
+
+  it('parses item weights from table HTML and strings', () => {
+    const weights = parseGradeTableWeights(table)
+    expect(weights.get('Weekly Tasks')).toBe(20)
+    expect(weights.get('Course Project')).toBe(30)
+    expect(weights.get('Final Exam')).toBe(50)
+    expect(weights.has('Ungraded Task')).toBe(false)
+  })
+
+  it('handles null or malformed tables safely', () => {
+    expect(parseGradeTableWeights(null).size).toBe(0)
+    expect(parseGradeTableWeights({}).size).toBe(0)
   })
 })
 

@@ -178,6 +178,13 @@ export interface CutOptions {
   goalCredits?: number
   /** 每周可投入小时上限；超过这个数的课优先砍。缺省 60。 */
   maxWeeklyHours?: number
+  /**
+   * 用户明确不能删的课程代码。
+   *
+   * 这些课仍然计入总学分与模块余量（它们是计划的一部分，占着额度），
+   * 只是不进入砍课候选 —— 否则引擎会反复推荐删掉同一门课。
+   */
+  protectedCodes?: readonly string[]
 }
 
 /**
@@ -223,11 +230,14 @@ export function suggestCuts(
     if (moduleSlack[cat] === 0) warnings.push(`${cat} 模块已无余量（${moduleTotal[cat]} / 最低 ${categoryMinimums[cat] ?? 0}），一门都不能砍`)
   }
 
+  const protectedCodes = new Set((options.protectedCodes ?? []).filter(Boolean))
   const candidates = plan
     .filter((row) => !row.completed)
     .filter((row) => (row.credits ?? 0) > 0)
     // 学位程序要求的占位课不参与砍课 —— 学分少但砍了程序上不成立。
     .filter((row) => courseValue(row.code ?? '').value !== 'administrative')
+    // 用户明确不能删的课不参与砍课，但仍计入上面的总学分与模块余量。
+    .filter((row) => !protectedCodes.has(row.code ?? ''))
     .map((row) => {
       const code = row.code ?? ''
       const fact = facts[code]
@@ -268,6 +278,16 @@ export function suggestCuts(
     slack[candidate.category] -= candidate.credits
     cutSoFar += candidate.credits
     cuts.push({ ...candidate, cutSoFar })
+  }
+
+  // 低加成课不够砍时，清单会一路砍到核心课里去。这不是「建议」，是「目标学分
+  // 在不碰核心课的前提下达不到」——必须说出来，不能让它看起来像正常建议。
+  const coreCuts = cuts.filter((cut) => cut.value.startsWith('core-'))
+  if (coreCuts.length > 0) {
+    warnings.push(
+      `为凑到 ${goal} 学分已砍到核心课（${coreCuts.map((cut) => cut.code).join(', ')}）。` +
+      `低加成课不够砍：要么接受更高的总学分，要么解除对部分低加成课的保护。`,
+    )
   }
 
   return {

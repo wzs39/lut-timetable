@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { Lesson } from '../types'
 import {
   loadTombstones,
@@ -60,15 +60,23 @@ interface Props {
 export default function SyncProtection({ revision }: Props) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  const [tombs, setTombs] = useState<string[]>([])
-  const [ovrs, setOvrs] = useState<[string, Partial<Lesson>][]>([])
+  const [tick, setTick] = useState(0)
+
+  const tombs = useMemo(() => {
+    void revision
+    void tick
+    return [...loadTombstones()]
+  }, [revision, tick])
+
+  const ovrs = useMemo(() => {
+    void revision
+    void tick
+    return Object.entries(loadOverrides())
+  }, [revision, tick])
 
   const refresh = useCallback(() => {
-    setTombs([...loadTombstones()])
-    setOvrs(Object.entries(loadOverrides()))
+    setTick((v) => v + 1)
   }, [])
-
-  useEffect(refresh, [refresh, revision, open])
 
   const total = tombs.length + ovrs.length
 

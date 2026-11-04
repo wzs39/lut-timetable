@@ -1,4 +1,5 @@
 import type { CourseGrades, GradeItem } from './grades'
+import { normalizeCourseCode } from './ics'
 
 /**
  * Kalkulator proyeksi nilai murni (tanpa React, tanpa I/O).
@@ -103,7 +104,8 @@ export function clamp(v: number): number {
  *   1. total resmi Moodle (officialTotal) — diabaikan saat what-if override
  *      (angka resmi sudah basi terhadap nilai harapan)
  *   2. total berjalan berbobot Σ w·g, belum dinilai = 0 — kolom
- *      "Contribution to course total"; hanya bila ada item berbobot dan > 0
+ *      "Contribution to course total"; hanya bila ada item berbobot yang
+ *      sudah dinilai (0 poin tetap nilai sah, bukan "belum ada nilai")
  *   3. rata-rata sederhana item yang sudah dinilai (kursus tanpa bobot)
  *   4. null — Moodle juga menampilkan "-"
  */
@@ -115,8 +117,19 @@ export function getFinalCourseGrade(
   const hasOverrides = Object.keys(overrides).length > 0
   if (!hasOverrides && officialTotal != null) return officialTotal
   if (items.some((it) => it.weight != null && it.weight > 0)) {
-    const running = weightedRunningTotal(items, overrides)
-    return running > 0 ? running : null
+    // 0 分 ≠ 还没评：只要存在已评（含 what-if）的加权项，总分为 0 就是
+    // 合法值。旧实现用 `running > 0` 当"有没有数据"的判据，把全 0 的
+    // 课程显示成 "—"，学生考砸了反而看不见分。
+    let anyGraded = false
+    for (let i = 0; i < items.length; i++) {
+      const w = items[i].weight
+      if (w == null || w <= 0) continue
+      if (effectiveGrade(items[i], overrides[i]) != null) {
+        anyGraded = true
+        break
+      }
+    }
+    return anyGraded ? weightedRunningTotal(items, overrides) : null
   }
   let num = 0
   let n = 0
@@ -189,6 +202,7 @@ export function gradeTargetPlan(
   items: GradeItem[],
   overrides: Record<number, number>,
   target: number,
+  officialTotal?: number | null,
 ): GradeTargetPlan {
   let remainingWeight = 0
   let settledWeight = 0
@@ -199,7 +213,14 @@ export function gradeTargetPlan(
     if (known) settledWeight += w
     else remainingWeight += w
   }
-  const earned = weightedRunningTotal(items, overrides)
+  // 与 headline 同口径：无 what-if 时官方总评优先（Moodle 可能做了
+  // lowest-drop / 分类聚合，Σw·g 复现不了那个数），否则用加权进行中总分。
+  // 旧实现只算 Σw·g，导致目标模式与卡片 headline 的"当前分"打架。
+  const hasOverrides = Object.keys(overrides).length > 0
+  const earned =
+    !hasOverrides && officialTotal != null
+      ? officialTotal
+      : weightedRunningTotal(items, overrides)
   const requiredAvg = remainingWeight > 0 ? ((target - earned) / remainingWeight) * 100 : null
   const status: GradeTargetPlan['status'] =
     remainingWeight <= 0
@@ -232,6 +253,20 @@ export function ungradedTotal(c: CourseGrades): number {
 }
 
 /**
+ * Pembanding kode kursus yang deterministik.
+ * `localeCompare` bergantung pada locale perangkat (mis. di locale Jerman
+ * "Ä" dan "A" berbeda urutan dibanding locale Inggris), sehingga urutan
+ * kartu nilai bisa berubah hanya karena bahasa sistem berbeda — dan
+ * urutan itu dipakai sebagai kunci sekunder SEMUA mode sortir. Kode kursus
+ * LUT murni ASCII huruf besar, jadi perbandingan codepoint sudah benar dan
+ * stabil di semua perangkat.
+ */
+function compareCourseCode(a: string, b: string): number {
+  if (a === b) return 0
+  return a < b ? -1 : 1
+}
+
+/**
  * Urutkan daftar CourseGrades. Stabil: kunci sekunder selalu kode kursus,
  * sehingga urutan tidak lompat-lompat antar render.
  */
@@ -240,7 +275,7 @@ export function sortGrades(
   sort: GradeSort,
 ): CourseGrades[] {
   const byCode = (a: CourseGrades, b: CourseGrades) =>
-    a.course.localeCompare(b.course)
+    compareCourseCode(a.course, b.course)
   const arr = [...list]
   switch (sort) {
     case 'grade-asc':
@@ -278,18 +313,31 @@ export function sortGrades(
   return arr
 }
 
-/** Filter daftar kursus (kata kunci nama/kode, ATAU status kecocokan). */
+/**
+ * Filter daftar kursus (kata kunci nama/kode, ATAU status kecocokan).
+ *
+ * Kode kursus dinormalkan dulu: data Moodle membawa sufiks grup
+ * (`BM20A9200-3001`) sedangkan pengguna mengetik kode dasarnya
+ * (`BM20A9200`) — pencocokan mentah membuat kursus bergrup tidak pernah
+ * ketemu. Normalisasi memakai `normalizeCourseCode` (pemilik tunggal
+ * semantik kode di repo ini), bukan trim/toLowerCase buatan sendiri.
+ */
 export function filterGrades(
   list: readonly CourseGrades[],
   opts: { q?: string; only?: 'matched' | 'unmatched' | null },
 ): CourseGrades[] {
-  const kw = opts.q?.trim().toLowerCase()
+  const kw = opts.q?.trim()
+  const kwLower = kw?.toLowerCase()
+  const kwCode = kw ? normalizeCourseCode(kw) : ''
   return list.filter((c) => {
     if (opts.only === 'matched' && !c.matched) return false
     if (opts.only === 'unmatched' && c.matched) return false
-    if (kw) {
-      const hay = `${c.course} ${c.courseTitle ?? ''}`.toLowerCase()
-      if (!hay.includes(kw)) return false
+    if (kwLower) {
+      const code = normalizeCourseCode(c.course)
+      const title = (c.courseTitle ?? '').toLowerCase()
+      const hitCode = kwCode.length > 0 && code.includes(kwCode)
+      const hitTitle = title.includes(kwLower)
+      if (!hitCode && !hitTitle) return false
     }
     return true
   })

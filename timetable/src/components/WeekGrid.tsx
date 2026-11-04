@@ -415,7 +415,7 @@ export default function WeekGrid({
                   : dayEmpty(i)
                     ? 'border-dashed border-[var(--line)] bg-transparent text-[var(--text-3)] opacity-75 hover:opacity-100'
                     : 'border-[var(--line)] bg-[var(--surface-1)] text-[var(--text-2)] hover:text-[var(--text-1)]') +
-                (sameDay(d, new Date()) && i !== mobileDay ? ' ring-1 ring-[var(--line)]' : '')
+                (sameDay(d, new Date()) && i !== mobileDay ? ' ring-1.5 ring-[var(--accent)] font-semibold text-[var(--accent)]' : '')
               }
             >
               <div className="font-medium">
@@ -528,7 +528,13 @@ export default function WeekGrid({
           <div className="relative flex flex-1">
             {/* Hari */}
             {weekDays.map((day, i) => (
-              <div key={i} className="flex-1 min-w-0 border-l border-[var(--line)]">
+              <div
+                key={i}
+                className={
+                  'flex-1 min-w-0 border-l border-[var(--line)] ' +
+                  (sameDay(day, new Date()) ? 'bg-[var(--accent)]/[0.03]' : '')
+                }
+              >
                 <div
                   className={
                     // 表头吸顶：纵向滚动时日期/冲突徽标始终可见（外层统一 h-7 = 28px）
@@ -538,7 +544,15 @@ export default function WeekGrid({
                       : 'text-[var(--text-3)]')
                   }
                 >
-                  {formatDay(day, locale)}
+                  <span
+                    className={
+                      sameDay(day, new Date())
+                        ? 'inline-flex items-center gap-1 rounded-full bg-[var(--tint-info)] px-2 py-0.5 text-[11px] font-semibold text-[var(--info)]'
+                        : ''
+                    }
+                  >
+                    {formatDay(day, locale)}
+                  </span>
                   {(() => {
                     const shown = shownGroupsOf(i)
                     const hidden = hiddenGroupsOf(i)
@@ -770,11 +784,11 @@ export default function WeekGrid({
             {showNowLine && (
               <>
                 <div
-                  className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-[var(--danger)]"
+                  className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-[var(--danger)] shadow-[0_0_6px_rgba(239,68,68,0.4)]"
                   style={{ top: nowTop }}
                 />
                 <div
-                  className="pointer-events-none absolute z-20 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[var(--danger)] shadow"
+                  className="pointer-events-none absolute z-20 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[var(--danger)] ring-2 ring-[var(--surface-0)] shadow-sm"
                   style={{
                     top: nowTop,
                     left: `calc(${(todayIndex * 100) / 7}% - 5px)`,

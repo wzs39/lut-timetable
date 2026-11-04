@@ -22,7 +22,10 @@ export function useExitAnimation(onClosed: Close): [boolean, Close] {
   const [closing, setClosing] = useState(false)
   const timer = useRef<number | undefined>(undefined)
   const onClosedRef = useRef(onClosed)
-  onClosedRef.current = onClosed
+
+  useEffect(() => {
+    onClosedRef.current = onClosed
+  })
 
   useEffect(() => {
     return () => {
@@ -54,15 +57,62 @@ export function useDelayedUnmount(open: boolean, ms = EXIT_MS): boolean {
   const [closing, setClosing] = useState(false)
 
   useEffect(() => {
-    if (open) {
-      setClosing(false)
-      return
-    }
+    if (open) return
     if (reducedMotionProbe.get()) return
     setClosing(true)
     const t = window.setTimeout(() => setClosing(false), ms)
     return () => clearTimeout(t)
   }, [open, ms])
 
+  if (open && closing) {
+    setClosing(false)
+  }
+
   return open || closing
+}
+
+/**
+ * Menahan permukaan tetap ter-render selama frame keluarnya bermain
+ * (dipakai drawer ponsel): mounted = `open || sedang menutup`. Buka ulang
+ * saat closing membatalkan timer penutupan dan menaikkan permukaan kembali.
+ */
+export function useExitMounted(open: boolean): [boolean, boolean, Close] {
+  const [closing, setClosing] = useState(false)
+  const [mounted, setMounted] = useState(open)
+  const timer = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    if (open && timer.current !== undefined) {
+      clearTimeout(timer.current)
+    }
+  }, [open])
+
+  if (open && (!mounted || closing)) {
+    setClosing(false)
+    setMounted(true)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (timer.current !== undefined) clearTimeout(timer.current)
+    }
+  }, [])
+
+  const requestClose = useCallback(() => {
+    if (reducedMotionProbe.get()) {
+      setClosing(false)
+      setMounted(false)
+      return
+    }
+    setClosing((prev) => {
+      if (prev) return prev
+      timer.current = window.setTimeout(() => {
+        setClosing(false)
+        setMounted(false)
+      }, EXIT_MS)
+      return true
+    })
+  }, [])
+
+  return [mounted, closing, requestClose]
 }

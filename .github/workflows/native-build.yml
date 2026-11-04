@@ -114,6 +114,14 @@ jobs:
       - name: Test-collection consistency gate
         working-directory: timetable
         run: npm run test:consistent
+      # Instruction-budget gate: AGENTS.md must stay a router (<32 KB) and its
+      # §4 pitfall table under 80 rows. The harness injects at most 64 KB of
+      # workspace instructions, so an oversized file is silently truncated —
+      # rules stay in the repo, look authoritative, and never reach the agent.
+      # Cheap (pure Node, no node_modules), so it runs before Gradle minutes.
+      - name: Instruction budget gate
+        working-directory: timetable
+        run: npm run gate:agents
       - name: Sync Capacitor
         working-directory: timetable
         run: npx cap sync android

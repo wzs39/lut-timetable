@@ -5,7 +5,15 @@ import { planItemIdentity } from './sisuCourseSelection'
 import { PRESSURE_SCORE, bestOfferingPressure, type WindowPressure } from './optionalPressure'
 import { ABSOLUTE_MAX_WEEKLY_HOURS, courseWeeklyHours } from './sisuWorkload'
 
-export type OptionalTag = 'software' | 'systems' | 'ai' | 'math' | 'career' | 'society'
+export type OptionalTag =
+  | 'software'
+  | 'systems'
+  | 'ai'
+  | 'math'
+  | 'career'
+  | 'society'
+  | 'sustainability'
+  | 'management'
 
 export interface OptionalCourse {
   code: string
@@ -22,10 +30,9 @@ export interface OptionalCourse {
  * Curated from SISU public catalogue + LUT's official programme page.
  * These are recommendations, never auto-added to the plan.
  *
- * Computer-science / software-engineering only: the HDD (HEBUT) Chinese
- * language and culture courses are NOT part of this programme's optional
- * studies, so they must not be recommended here (the earlier "double-degree
- * Chinese requirement" entries were wrong).
+ * Computer-science, data, systems, sustainability and engineering management
+ * electives. The HDD (HEBUT) Chinese language and culture courses are NOT
+ * part of optional studies, so they are excluded.
  */
 export const OPTIONAL_COURSES: readonly OptionalCourse[] = [
   {
@@ -150,6 +157,41 @@ export const OPTIONAL_COURSES: readonly OptionalCourse[] = [
       en: 'A quick Python foundation for AI/data courses and scripting.',
     },
   },
+  {
+    code: 'BH60A6802', title: 'Sustainable.now', tags: ['sustainability', 'society', 'career'], priority: 8, categoryImpact: 'elective',
+    why: {
+      zh: 'LUT 招牌可持续通识选修（3 学分，0-5，全年在线自学），零先修要求，各专业均认可选修学分。',
+      en: 'Flagship LUT sustainability elective (3 cr, 0-5, online self-paced all year), no prerequisites, widely accepted as elective.',
+    },
+  },
+  {
+    code: 'BH60A7201', title: 'Circular.now', tags: ['sustainability', 'society', 'management'], priority: 7, categoryImpact: 'elective',
+    why: {
+      zh: '循环经济基础通识（3 学分，0-5，P3–P4 在线自学），连接工程与可持续商业模式。',
+      en: 'Circular economy fundamentals (3 cr, 0-5, P3–P4 online), bridging engineering and sustainable business models.',
+    },
+  },
+  {
+    code: 'BH60A6200', title: 'Sustainable Cities', tags: ['sustainability', 'society'], priority: 6, categoryImpact: 'elective',
+    why: {
+      zh: '可持续城市与能源转型（6 学分，P1–P2），拓宽工程与社会综合视野。',
+      en: 'Sustainable cities and energy transition (6 cr, P1–P2), broadening engineering and societal perspectives.',
+    },
+  },
+  {
+    code: 'HDD4130', title: 'Lean Management (HDD)', tags: ['management', 'career'], priority: 7, categoryImpact: 'elective',
+    why: {
+      zh: '精益管理与工业流程优化（3 学分，0-5），直接赋能敏捷开发与项目落地。',
+      en: 'Lean management and process optimization (3 cr, 0-5), valuable for agile workflows and project execution.',
+    },
+  },
+  {
+    code: 'HDD4100', title: 'Engineering Project Management (HDD)', tags: ['management', 'career'], priority: 8, categoryImpact: 'elective',
+    why: {
+      zh: '工程项目管理实务（3 学分，0-5），涵盖范围、预算与跨职能团队协作。',
+      en: 'Engineering project management (3 cr, 0-5), covering scope, budget, and cross-functional teamwork.',
+    },
+  },
 ] as const
 
 export interface OptionalSwapOption {
@@ -252,6 +294,35 @@ export function findSwapOptions(
     .slice(0, 4)
 }
 
+export interface UserProfileInference {
+  dominantTag: OptionalTag
+  earnedCredits: number
+}
+
+export function inferUserProfile(plan: SisuStudyPlan): UserProfileInference {
+  const codes = plan.items.map((it) => it.courseCode?.toUpperCase() ?? '')
+  let ct = 0
+  let bm = 0
+  let bh = 0
+  let hdd = 0
+  for (const c of codes) {
+    if (c.startsWith('CT')) ct++
+    else if (c.startsWith('BM')) bm++
+    else if (c.startsWith('BH')) bh++
+    else if (c.startsWith('HDD')) hdd++
+  }
+  let dominantTag: OptionalTag = 'software'
+  if (bh > ct && bh >= bm) dominantTag = 'sustainability'
+  else if (bm > ct && bm >= bh) dominantTag = 'ai'
+  else if (hdd > ct) dominantTag = 'management'
+
+  const earnedCredits = plan.items
+    .filter((it) => it.completed)
+    .reduce((s, it) => s + (it.credits ?? 0), 0)
+
+  return { dominantTag, earnedCredits }
+}
+
 export function recommendOptionalCourses(
   plan: SisuStudyPlan,
   facts: Readonly<Record<string, CourseFact>>,
@@ -262,6 +333,7 @@ export function recommendOptionalCourses(
     maxWeeklyHours?: number
     /** 已订阅课表；传入后推荐会按开课窗口的空档排序。 */
     lessons?: readonly Lesson[]
+    tagFilter?: OptionalTag | 'all'
   } = {},
 ): OptionalRecommendation[] {
   const codes = planCodes(plan)
@@ -270,8 +342,12 @@ export function recommendOptionalCourses(
   // 单门推荐课的上限用绝对上限（80h/周）：正常课程（6cr/单学段 ≈ 20h）远低于它，
   // 这里只拦数据异常；「学段总负荷」的 60h 阈值在 sisuWorkload，概念不同。
   const maxWeeklyHours = options.maxWeeklyHours ?? ABSOLUTE_MAX_WEEKLY_HOURS
+  const userProfile = inferUserProfile(plan)
+  const tagFilter = options.tagFilter && options.tagFilter !== 'all' ? options.tagFilter : null
+
   return OPTIONAL_COURSES
     .filter((course) => !codes.has(course.code))
+    .filter((course) => !tagFilter || course.tags.includes(tagFilter))
     .flatMap((course) => {
       const fact = facts[course.code]
       if (!fact) return []
@@ -304,10 +380,30 @@ export function recommendOptionalCourses(
       }]
     })
     .sort((a, b) => {
-      const score = (item: OptionalRecommendation) => item.course.priority * 10 +
-        (item.prereqStatus === 'ok' ? 4 : item.prereqStatus === 'likely-equivalent' ? 2 : 0) +
-        (item.swapOptions.length > 0 ? 3 : 0) - item.weeklyDelta / 10 +
-        (item.pressure ? PRESSURE_SCORE[item.pressure.status] : 0)
+      const score = (item: OptionalRecommendation) => {
+        let s = item.course.priority * 10
+
+        // 先修课要求：满足先修加分，缺失先修大幅扣分（避免推荐无法修读的课程）
+        if (item.prereqStatus === 'ok') s += 20
+        else if (item.prereqStatus === 'likely-equivalent') s += 10
+        else s -= 25
+
+        // 用户所属专业 / 方向契合度加成
+        if (item.course.tags.includes(userProfile.dominantTag)) s += 15
+
+        // 阶段适应：低年级倾向基础选修，高年级倾向进阶/论文
+        if (userProfile.earnedCredits < 60) {
+          if (item.course.priority <= 8 && item.fact.formalPrerequisites.length === 0) s += 10
+          if (item.course.code === 'CT70A9300' || item.course.code === 'CT10A7052') s -= 20
+        } else if (userProfile.earnedCredits >= 110) {
+          if (item.course.code === 'CT70A9300' || item.course.code === 'CT10A7052' || item.course.code === 'CT30A8912') s += 15
+        }
+
+        if (item.swapOptions.length > 0) s += 3
+        s -= item.weeklyDelta / 10
+        if (item.pressure) s += PRESSURE_SCORE[item.pressure.status]
+        return s
+      }
       return score(b) - score(a) || a.course.code.localeCompare(b.course.code)
     })
     .slice(0, options.limit ?? 8)

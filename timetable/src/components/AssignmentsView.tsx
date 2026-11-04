@@ -41,6 +41,20 @@ interface Props {
   initialQuery?: string
 }
 
+function toDatetimeLocal(isoString?: string): string {
+  if (!isoString) return ''
+  const d = new Date(isoString)
+  if (isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function fromDatetimeLocal(localStr: string): string {
+  if (!localStr) return ''
+  const d = new Date(localStr)
+  return isNaN(d.getTime()) ? '' : d.toISOString()
+}
+
 type Group = 'overdue' | 'due7' | 'later' | 'nodue' | 'done'
 
 const GROUP_ORDER: Group[] = ['overdue', 'due7', 'later', 'nodue', 'done']
@@ -91,10 +105,11 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
       setError(t('taskTitleRequired'))
       return
     }
+    const finalDueAt = fromDatetimeLocal(dueAt)
     if (editingId) {
-      onChange(updateTask(tasks, editingId, { title, course, dueAt, note }))
+      onChange(updateTask(tasks, editingId, { title, course, dueAt: finalDueAt, note }))
     } else {
-      onChange(addTask(tasks, { title, course, dueAt, note }))
+      onChange(addTask(tasks, { title, course, dueAt: finalDueAt, note }))
     }
     reset()
   }
@@ -103,9 +118,10 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     setEditingId(task.id)
     setTitle(task.title)
     setCourse(task.course || '')
-    setDueAt(task.dueAt ? task.dueAt.slice(0, 16) : '')
+    setDueAt(toDatetimeLocal(task.dueAt))
     setNote(task.note || '')
     setError(null)
+    setShowAddForm(true)
   }
 
   /** 该任务课程的日历内代码（用于着色与跳转）；无匹配则 null */
@@ -298,13 +314,64 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
                 placeholder={t('taskCoursePh')}
                 className={inputCls}
               />
-              <input
-                type="datetime-local"
-                value={dueAt}
-                onChange={(event) => setDueAt(event.target.value)}
-                className={inputCls}
-                aria-label={t('taskDue')}
-              />
+              <div className="space-y-1">
+                <input
+                  type="datetime-local"
+                  value={dueAt}
+                  onChange={(event) => setDueAt(event.target.value)}
+                  className={inputCls + ' w-full'}
+                  aria-label={t('taskDue')}
+                />
+                <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                  <span className="text-[10px] text-[var(--text-3)]">{t('quickAddDuePrefix')}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date()
+                      d.setHours(23, 59, 0, 0)
+                      setDueAt(toDatetimeLocal(d.toISOString()))
+                    }}
+                    className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-1.5 py-0.5 text-[10px] text-[var(--text-2)] hover:text-[var(--text-1)]"
+                  >
+                    {t('dueTonight')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date()
+                      d.setDate(d.getDate() + 1)
+                      d.setHours(23, 59, 0, 0)
+                      setDueAt(toDatetimeLocal(d.toISOString()))
+                    }}
+                    className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-1.5 py-0.5 text-[10px] text-[var(--text-2)] hover:text-[var(--text-1)]"
+                  >
+                    {t('dueTomorrowNight')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date()
+                      const day = d.getDay()
+                      const daysUntilSunday = (7 - day) % 7 || 7
+                      d.setDate(d.getDate() + daysUntilSunday)
+                      d.setHours(23, 59, 0, 0)
+                      setDueAt(toDatetimeLocal(d.toISOString()))
+                    }}
+                    className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-1.5 py-0.5 text-[10px] text-[var(--text-2)] hover:text-[var(--text-1)]"
+                  >
+                    {t('dueThisSunday')}
+                  </button>
+                  {dueAt && (
+                    <button
+                      type="button"
+                      onClick={() => setDueAt('')}
+                      className="ml-auto text-[10px] text-[var(--text-3)] hover:text-[var(--danger)]"
+                    >
+                      {t('clear')}
+                    </button>
+                  )}
+                </div>
+              </div>
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}

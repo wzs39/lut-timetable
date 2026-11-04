@@ -48,10 +48,10 @@ export interface SisuWeightPlan {
 
 const KIND_PATTERNS: Array<[SisuWeightKind, RegExp]> = [
   // Moodle names exam rows "Final Exam1/2/3", so the digit suffix must count.
-  ['exam', /\b(exam|exams|examination|exam\d+|midterm|tentti|loppukoe)\b/i],
-  ['attendance', /\b(attendance|participation|classroom performance|lectures|osallistuminen)\b/i],
-  ['exercises', /\b(exercise|exercises|assignment|assignments|homework|home work|task|tasks|quiz|quizzes|harjoitus|harjoitukset|tehtävä)\b/i],
-  ['project', /\b(project|projects|group work|workshop|portfolio|report|reports|essay|thesis|presentation|presentations|pitch|pitching|diary|peer review|modelling|modeling|hands-on|seminar|maturity)\b/i],
+  ['exam', /(?:^|[^\p{L}\p{N}])(exam|exams|examination|exam\d+|midterm|tentti|loppukoe|välikoe|koe|final\s*exam)(?:[^\p{L}\p{N}]|$)/iu],
+  ['attendance', /(?:^|[^\p{L}\p{N}])(attendance|participation|classroom performance|lectures|osallistuminen|läsnäolo)(?:[^\p{L}\p{N}]|$)/iu],
+  ['exercises', /(?:^|[^\p{L}\p{N}])(exercise|exercises|assignment|assignments|homework|home work|task|tasks|quiz|quizzes|harjoitus|harjoitukset|tehtävä|tehtävät|viikkotehtävä|viikkotehtävät|laboratorio|labra|lab|laboratory)(?:[^\p{L}\p{N}]|$)/iu],
+  ['project', /(?:^|[^\p{L}\p{N}])(project|projects|group work|workshop|portfolio|report|reports|essay|thesis|presentation|presentations|pitch|pitching|diary|peer review|modelling|modeling|hands-on|seminar|maturity|harjoitustyö|projekti|lopputyö|essee|seminaari|oppimispäiväkirja)(?:[^\p{L}\p{N}]|$)/iu],
 ]
 
 /** Words that mark a percentage as a threshold, not a weight. */

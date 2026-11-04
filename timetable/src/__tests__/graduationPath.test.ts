@@ -134,6 +134,49 @@ describe('suggestCuts', () => {
     expect(result.cuts.map((cut) => cut.code)).not.toContain('CT10A9900')
   })
 
+  it('never cuts a protected course, but still counts it against the total', () => {
+    const plan = [
+      item('HDD4020', 3, 'elective'),
+      item('MOOC0006A', 2, 'elective'),
+      item('HDD4100', 3, 'general'),
+    ]
+    const facts = {
+      HDD4020: fact('HDD4020'),
+      MOOC0006A: fact('MOOC0006A', { credits: 2 }),
+      HDD4100: fact('HDD4100'),
+    }
+    const result = suggestCuts(plan, facts, MINIMUMS, {
+      goalCredits: 0,
+      protectedCodes: ['HDD4020'],
+    })
+    expect(result.cuts.map((c) => c.code)).not.toContain('HDD4020')
+    // Protected does not mean invisible. Its 3 credits still sit in the
+    // elective module, so the overload the plan has to shed stays at 8 —
+    // protecting a course cannot make the surplus disappear.
+    expect(result.plannedCredits).toBe(8)
+    expect(result.creditsToCut).toBe(8)
+    // What can actually be cut shrinks to the one unprotected elective.
+    expect(result.cuts.map((c) => c.code)).toEqual(['MOOC0006A'])
+    expect(result.projectedCredits).toBe(6)
+  })
+
+  it('warns when reaching the goal forces cuts into the core courses', () => {
+    // Both sit in `elective` only because at this fixture size it is the sole
+    // module with any slack; what matters is that the low-value course runs out
+    // before the goal is met and the engine then reaches for a core one.
+    const plan = [
+      item('BH60A7201', 3, 'elective'),
+      item('HDD5030', 6, 'elective'),
+    ]
+    const facts = {
+      BH60A7201: fact('BH60A7201', { gradeScale: 'pass-fail' }),
+      HDD5030: fact('HDD5030', { credits: 6 }),
+    }
+    const result = suggestCuts(plan, facts, MINIMUMS, { goalCredits: 0 })
+    expect(result.cuts.map((c) => c.code)).toContain('HDD5030')
+    expect(result.warnings.some((w) => w.includes('HDD5030') && w.includes('核心课'))).toBe(true)
+  })
+
   it('ignores completed courses', () => {
     const plan = [item('MOOC0006A', 2, 'elective', { completed: true })]
     const result = suggestCuts(plan, { MOOC0006A: fact('MOOC0006A') }, MINIMUMS, { goalCredits: 0 })

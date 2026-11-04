@@ -64,11 +64,30 @@ export default function TaskRow({
   const dueLabel = t(deadlineLabelKey(moduleTypeOf(task)))
 
   const st = md.subStatus.get(taskMatchKey(task))
+  const isDueSoon = !task.completed && !overdue && leftMin != null && leftMin > 0 && leftMin <= 1440
+
+  const rowBorderClass = task.completed
+    ? 'border-[var(--line)] bg-[var(--surface-2)]/60 opacity-60'
+    : overdue
+      ? 'border-l-4 border-l-[var(--danger)] border-t border-r border-b border-[var(--danger)]/50 bg-[var(--tint-danger)]/20 shadow-xs'
+      : isDueSoon
+        ? 'border-l-4 border-l-[var(--due)] border-t border-r border-b border-[var(--due)]/40 bg-[var(--tint-due)]/15 shadow-xs'
+        : 'border-l-4 border-t border-r border-b border-[var(--line)] bg-[var(--surface-2)] shadow-xs hover:border-[var(--text-3)]/60'
+
+  const rowStyle = task.completed
+    ? undefined
+    : overdue
+      ? { borderLeftColor: 'var(--danger)' }
+      : isDueSoon
+        ? { borderLeftColor: 'var(--due)' }
+        : c
+          ? { ...courseStyle(c), borderLeftColor: c.text }
+          : undefined
 
   return (
     <li
-      className={'task-row rounded-lg border p-2.5 ' + (task.completed ? 'border-[var(--line)] bg-[var(--surface-2)] opacity-50' : overdue ? 'border-[var(--danger)] bg-[var(--surface-2)]' : 'border-[var(--line)] bg-[var(--surface-2)]')}
-      style={task.completed || overdue ? undefined : c ? courseStyle(c) : undefined}
+      className={'task-row rounded-lg border p-2.5 transition-colors ' + rowBorderClass}
+      style={rowStyle}
     >
       <div className="flex items-start gap-2">
         <input
@@ -94,6 +113,11 @@ export default function TaskRow({
               <ModBadge task={task} />
               {task.title}
             </div>
+            {overdue && !task.completed && (
+              <span className="app-badge-overdue shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-bold">
+                <Icon name="warn" size={11} /> {t('taskOverdue')}
+              </span>
+            )}
             {priorityHint && !task.completed && (
               <span
                 className="app-badge shrink-0 px-1.5 text-[var(--info)]"
@@ -102,8 +126,8 @@ export default function TaskRow({
                 <Icon name="jump" size={10} /> {t('taskDoFirst')}
               </span>
             )}
-            {leftMin != null && (
-              <span className="app-badge app-badge-due shrink-0">
+            {leftMin != null && !task.completed && !overdue && (
+              <span className="app-badge app-badge-due shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold">
                 <Icon name="hourglass" size={11} /> {leftMin >= 60 ? t('durationHM', { h: Math.floor(leftMin / 60), m: leftMin % 60 }) : t('durationM', { m: leftMin })}
               </span>
             )}

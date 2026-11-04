@@ -54,8 +54,8 @@ export default function GradeCourseCard({
     writeString(KEYS.gradeTarget, String(v))
   }
   const plan = useMemo(
-    () => gradeTargetPlan(c.items, overrides, target),
-    [c.items, overrides, target],
+    () => gradeTargetPlan(c.items, overrides, target, c.officialTotal),
+    [c.items, overrides, target, c.officialTotal],
   )
   // LUT tidak selalu mengekspos bobot per item: meta memakai hitungan item
   // bila tak ada bobot sama sekali, dan menandai sebagian berbobot.

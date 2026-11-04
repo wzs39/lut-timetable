@@ -28,3 +28,12 @@ signing.properties
 Thumbs.db
 # Private SDD/planning ledger (session-local, never published)
 .superpowers/
+
+# Local notes, captures and harnesses
+course-plan-*.md
+*-notes.md
+docs/
+dsh-freebuff/
+screenshots/
+shots/
+timetable/screenshots/

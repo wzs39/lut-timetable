@@ -28,6 +28,7 @@ import { noticesForLessons, type LessonNotice } from '../lib/lessonAlerts'
 import { studyBlocksOnDay, type StudyBlock } from '../lib/studyBlocks'
 import SemesterStrip from './SemesterStrip'
 import WeekInsights from './WeekInsights'
+import PomodoroCard from './PomodoroCard'
 
 interface Props {
   lessons: Lesson[]
@@ -250,7 +251,7 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                   {banner.lesson ? (
                     <>
                       {banner.tone === 'ongoing' && (
-                        <span className="app-badge-live inline-flex items-center gap-1 text-[10px] font-medium">
+                        <span className="app-badge app-badge-live inline-flex items-center gap-1 text-[10px] font-medium">
                           <Icon name="live" size={11} /> {t('nowOngoing')}
                         </span>
                       )}
@@ -316,36 +317,8 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
           </section>
         </div>
 
-        <div className="xl:col-span-2">
-          <SemesterStrip lessons={lessons} tasks={tasks} onOpenWeek={onOpenWeek} />
-        </div>
-
         <div className={'space-y-3' + (tab === 'lessons' ? '' : ' hidden xl:block')}>
-
-            {buildings.length > 0 && (
-              <CollapsiblePanel
-                storageKey={KEYS.todayIndoorOpen}
-                label={
-                  <span className="app-card-label inline-flex items-center gap-1.5">
-                    <Icon name="compass" size={12} /> {t('indoorNav')}
-                  </span>
-                }
-              >
-                <div className="space-y-1">
-                  {buildings.map(([building, items]) => (
-                    <div key={building} className="text-[11px]">
-                      <span className="font-semibold text-[var(--text-1)] inline-flex items-center gap-1"><Icon name="building" size={12} /> {building}</span>
-                      <span className="ml-2 text-[var(--text-2)]">
-                        {items.map((i) => `${i.room} ${i.time}${i.live ? ' ' : ''}`).join(' · ')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </CollapsiblePanel>
-            )}
-
-            {/* 空态处理：空课日或已结束时优先内嵌明日预览；<p> 兜底只在横幅
-                未表达空态时出现（避免同屏两句「今天没有课程」）。 */}
+            {/* 今日课程安排（置顶首位） */}
             {today.length === 0 ? (
               nextDayPreview || (banner.tone !== 'empty' ? (
                 <p className="py-10 text-center text-xs text-[var(--text-3)]">{t('noLessonsToday')}</p>
@@ -356,7 +329,7 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
               <LessonList lessons={today} notices={notices} notes={notes} locale={locale} onSelect={onSelect} now={now} />
             )}
 
-            {/* 已确认学习时段：今日只读行（没有点击行为，也不是课程卡） */}
+            {/* 已确认学习时段：紧随课程之后 */}
             {todayStudyBlocks.length > 0 && (
               <section className="animate-modal-in app-card p-3">
                 <h3 className="app-card-label inline-flex items-center gap-1.5">
@@ -385,13 +358,185 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 </ul>
               </section>
             )}
+
+            {/* 室内导航指南：折叠收纳在课程下方 */}
+            {buildings.length > 0 && (
+              <CollapsiblePanel
+                storageKey={KEYS.todayIndoorOpen}
+                label={
+                  <span className="app-card-label inline-flex items-center gap-1.5">
+                    <Icon name="compass" size={12} /> {t('indoorNav')}
+                  </span>
+                }
+              >
+                <div className="space-y-1">
+                  {buildings.map(([building, items]) => (
+                    <div key={building} className="text-[11px]">
+                      <span className="font-semibold text-[var(--text-1)] inline-flex items-center gap-1"><Icon name="building" size={12} /> {building}</span>
+                      <span className="ml-2 text-[var(--text-2)]">
+                        {items.map((i) => `${i.room} ${i.time}${i.live ? ' ' : ''}`).join(' · ')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CollapsiblePanel>
+            )}
         </div>
 
         <div className={'space-y-3' + (tab === 'feed' ? '' : ' hidden xl:block')}>
-            {/* ---- 本周提示：空档 / 赶场 / 满课（最多三条） ---- */}
+            {/* 1. 紧急与截止：逾期任务警示横幅 */}
+            {overdueTasks.length > 0 && (
+              <section className="animate-modal-in app-card border-2 border-[var(--danger)]/60 bg-[var(--tint-danger)]/10 shadow-sm">
+                <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                  <button
+                    onClick={toggleTasks}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                    title={t('toggleHint')}
+                  >
+                    <span className="shrink-0 text-[var(--danger)]"><Icon name={tasksOpen ? 'chevron-down' : 'chevron-right'} size={12} /></span>
+                    <span className="app-badge-overdue truncate text-xs font-bold inline-flex items-center gap-1.5 px-2 py-0.5">
+                      <Icon name="warn" size={13} /> {t('dueOverdueBanner', { n: overdueTasks.length })}
+                    </span>
+                  </button>
+                  <button
+                    onClick={onOpenAssignments}
+                    className="app-btn-overdue shrink-0 text-[11px] font-medium px-2.5 py-1"
+                  >
+                    {t('dueGoAssign')} ›
+                  </button>
+                </div>
+                {tasksOpen && (
+                  <div className="space-y-1.5 border-t border-[var(--danger)]/30 px-3 pb-3 pt-2">
+                    {overdueTasks.slice(0, 5).map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-[var(--danger)]/40 bg-[var(--surface-2)] p-2 text-xs shadow-xs"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={task.completed}
+                            onChange={(e) => onToggleTask?.(task, e.target.checked)}
+                            className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+                            aria-label={task.title}
+                          />
+                          <span className="truncate font-medium text-[var(--danger)]">
+                            · {task.title}
+                          </span>
+                        </div>
+                        {task.dueAt && (
+                          <span className="shrink-0 text-[10px] font-medium text-[var(--danger)]">
+                            {formatDueShort(task.dueAt, locale)}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    {overdueTasks.length > 5 && (
+                      <div className="text-center pt-0.5">
+                        <button
+                          onClick={onOpenAssignments}
+                          className="app-btn-ghost text-[10px] font-medium text-[var(--danger)] hover:underline"
+                        >
+                          {t('dueMoreN', { n: overdueTasks.length - 5 })} ›
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* 2. 今日截止任务清单 */}
+            {dueToday.length > 0 && (
+              <section className="animate-modal-in app-card p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <button
+                    onClick={toggleTasks}
+                    className="flex min-w-0 items-center gap-1.5 text-left"
+                    title={t('toggleHint')}
+                  >
+                    <span className="collapse-chevron shrink-0 text-[var(--text-3)]" aria-hidden>
+                      <Icon name="chevron-down" size={12} />
+                    </span>
+                    <h3 className="app-badge-due truncate text-xs font-semibold inline-flex items-center gap-1.5">
+                      <Icon name="clock" size={13} /> {t('dueTodayTitle', { n: dueToday.length })}
+                    </h3>
+                  </button>
+                  <button
+                    onClick={onOpenAssignments}
+                    className="app-btn-due shrink-0 text-[11px]"
+                  >
+                    {t('dueGoAssign')} ›
+                  </button>
+                </div>
+                <div className={`collapse-wrap${tasksOpen ? ' open' : ' is-closed'}`} inert={!tasksOpen}>
+                  <div>
+                  <ul className="space-y-2">
+                  {dueToday.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      lessons={lessons}
+                      onToggle={(t0, completed) => onToggleTask?.(t0, completed)}
+                      onJumpToCourse={onJumpToCourse}
+                      showCountdown
+                    />
+                  ))}
+                  </ul>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* 3. 考试倒计时 */}
+            {exams.length > 0 && (
+              <CollapsiblePanel
+                storageKey={KEYS.todayExamsOpen}
+                label={
+                  <span className="app-card-label inline-flex items-center gap-1.5">
+                    <Icon name="exam" size={12} /> {t('examCountdownTitle', { n: exams.length })}
+                  </span>
+                }
+              >
+                <ul className="space-y-1">
+                  {exams.map(({ lesson, inDays, live }) => (
+                    <li key={lesson.id}>
+                      <button
+                        onClick={() => onSelect(lesson.id)}
+                        className="flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-xs transition hover:border-[var(--line)] hover:bg-[var(--surface-2)]"
+                      >
+                        <span className="min-w-0 truncate text-[var(--text-1)]">
+                          {lesson.code ? `${lesson.code} · ` : ''}
+                          {displayTitle(lesson)}
+                          {lesson.location && (
+                            <span className="ml-1.5 text-[10px] font-normal text-[var(--text-3)]">@ {lesson.location}</span>
+                          )}
+                        </span>
+                        {live ? (
+                          <span className="app-badge app-badge-live">
+                            <Icon name="live" size={11} /> {t('nowOngoing')}
+                          </span>
+                        ) : (
+                          <span className="app-badge tabular-nums">
+                            {inDays === 0
+                              ? t('examToday')
+                              : t('examInDays', { n: inDays })}
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </CollapsiblePanel>
+            )}
+
+            {/* 4. 番茄钟专注 / 课间减压（紧凑可折叠） */}
+            <PomodoroCard />
+
+            {/* 5. 本周提示：空档 / 赶场 / 满课 */}
             <WeekInsights lessons={lessons} onSelect={onSelect} />
 
-            {/* ---- 空闲教室 ---- */}
+            {/* 6. 空闲教室自习查询 */}
             {freeRooms.length > 0 && (
               <CollapsiblePanel
                 storageKey={KEYS.todayRoomsOpen}
@@ -445,127 +590,11 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 </div>
               </CollapsiblePanel>
             )}
+        </div>
 
-            {/* ---- 逾期任务红色横幅 ---- */}
-            {overdueTasks.length > 0 && (
-              <section className="animate-modal-in app-card">
-                <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-                  <button
-                    onClick={toggleTasks}
-                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                    title={t('toggleHint')}
-                  >
-                    <span className="shrink-0 text-[var(--text-3)]"><Icon name={tasksOpen ? 'chevron-down' : 'chevron-right'} size={12} /></span>
-                    <span className="app-badge-overdue truncate text-xs font-semibold inline-flex items-center gap-1.5">
-                      <Icon name="warn" size={13} /> {t('dueOverdueBanner', { n: overdueTasks.length })}
-                    </span>
-                  </button>
-                  <button
-                    onClick={onOpenAssignments}
-                    className="app-btn-overdue shrink-0 text-[11px]"
-                  >
-                    {t('dueGoAssign')} ›
-                  </button>
-                </div>
-                {tasksOpen && (
-                  <div className="mt-1 space-y-0.5 border-t border-[var(--danger)] px-3 pb-2.5 pt-2">
-                    {overdueTasks.slice(0, 3).map((task) => (
-                      <div key={task.id} className="app-badge-overdue truncate text-[11px]">
-                        · {task.title}
-                        {task.dueAt && ` · ${formatDueShort(task.dueAt, locale)}`}
-                      </div>
-                    ))}
-                    {overdueTasks.length > 3 && (
-                      <div className="text-[10px] text-[var(--text-3)]">{t('dueMoreN', { n: overdueTasks.length - 3 })}</div>
-                    )}
-                  </div>
-                )}
-              </section>
-            )}
-
-            {/* ---- 考试倒计时 ---- */}
-            {exams.length > 0 && (
-              <CollapsiblePanel
-                storageKey={KEYS.todayExamsOpen}
-                label={
-                  <span className="app-card-label inline-flex items-center gap-1.5">
-                    <Icon name="exam" size={12} /> {t('examCountdownTitle', { n: exams.length })}
-                  </span>
-                }
-              >
-                <ul className="space-y-1">
-                  {exams.map(({ lesson, inDays, live }) => (
-                    <li key={lesson.id}>
-                      <button
-                        onClick={() => onSelect(lesson.id)}
-                        className="flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2.5 py-1.5 text-left text-xs transition hover:border-[var(--line)] hover:bg-[var(--surface-2)]"
-                      >
-                        <span className="min-w-0 truncate text-[var(--text-1)]">
-                          {lesson.code ? `${lesson.code} · ` : ''}
-                          {displayTitle(lesson)}
-                          {lesson.location && (
-                            <span className="ml-1.5 text-[10px] font-normal text-[var(--text-3)]">@ {lesson.location}</span>
-                          )}
-                        </span>
-                        {live ? (
-                          <span className="app-badge app-badge-live">
-                            <Icon name="live" size={11} /> {t('nowOngoing')}
-                          </span>
-                        ) : (
-                          <span className="app-badge tabular-nums">
-                            {inDays === 0
-                              ? t('examToday')
-                              : t('examInDays', { n: inDays })}
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </CollapsiblePanel>
-            )}
-
-            {/* ---- 今日截止任务 ---- */}
-            {dueToday.length > 0 && (
-              <section className="animate-modal-in app-card p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <button
-                    onClick={toggleTasks}
-                    className="flex min-w-0 items-center gap-1.5 text-left"
-                    title={t('toggleHint')}
-                  >
-                    <span className="collapse-chevron shrink-0 text-[var(--text-3)]" aria-hidden>
-                      <Icon name="chevron-down" size={12} />
-                    </span>
-                    <h3 className="app-badge-due truncate text-xs font-semibold inline-flex items-center gap-1.5">
-                      <Icon name="clock" size={13} /> {t('dueTodayTitle', { n: dueToday.length })}
-                    </h3>
-                  </button>
-                  <button
-                    onClick={onOpenAssignments}
-                    className="app-btn-due shrink-0 text-[11px]"
-                  >
-                    {t('dueGoAssign')} ›
-                  </button>
-                </div>
-                <div className={`collapse-wrap${tasksOpen ? ' open' : ' is-closed'}`} inert={!tasksOpen}>
-                  <div>
-                  <ul className="space-y-2">
-                  {dueToday.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      lessons={lessons}
-                      onToggle={(t0, completed) => onToggleTask?.(t0, completed)}
-                      onJumpToCourse={onJumpToCourse}
-                      showCountdown
-                    />
-                  ))}
-                  </ul>
-                  </div>
-                </div>
-              </section>
-            )}
+        {/* 宏观全景：学期进度全景带（底置，保持首屏核心日程精简） */}
+        <div className="xl:col-span-2 pt-1">
+          <SemesterStrip lessons={lessons} tasks={tasks} onOpenWeek={onOpenWeek} />
         </div>
       </div>
     </div>
@@ -608,7 +637,7 @@ function LessonList({
               className={
                 'lesson-card w-full rounded-lg border px-3 py-2 text-left text-xs transition hover:-translate-y-0.5 ' +
                 (past ? 'opacity-40 ' : '') +
-                (live ? 'ring-1 ring-[var(--ok)] ' : '')
+                (live ? 'ring-2 ring-[var(--ok)] shadow-sm shadow-[var(--ok)]/15 ' : '')
               }
               style={courseStyle(c)}
             >
@@ -644,7 +673,7 @@ function LessonList({
                       </span>
                     )}
                     {live && (
-                      <span className="app-badge-live inline-flex items-center gap-1 text-[10px] font-medium">
+                      <span className="app-badge app-badge-live inline-flex items-center gap-1 text-[10px] font-medium">
                         <Icon name="live" size={11} /> {t('nowOngoing')}
                       </span>
                     )}

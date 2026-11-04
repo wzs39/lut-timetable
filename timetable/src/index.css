@@ -469,12 +469,18 @@ body {
 }
 .app-badge-live {
   color: var(--ok);
+  background: var(--tint-ok);
+  border-color: var(--line-ok);
 }
 .app-badge-due {
   color: var(--due);
+  background: var(--tint-due);
+  border-color: var(--line-due);
 }
 .app-badge-overdue {
   color: var(--danger);
+  background: var(--tint-danger);
+  border-color: var(--danger);
 }
 
 /* Link accents for panel headers (查看作业 ›) */

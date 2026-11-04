@@ -14,6 +14,7 @@ import {
   setStudyBlockCompleted,
   studyBlocksOnDay,
   subscribeStudyBlocks,
+  staleStudyBlocks,
   type StudyBlock,
   type StudyBlockCandidate,
 } from '../lib/studyBlocks'
@@ -326,5 +327,96 @@ describe('StudyBlock completion', () => {
     unsubscribe()
     setStudyBlockCompleted(block.id, false)
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('planStudyBlocks · 视野外候选不再静默消失', () => {
+  it('把已过期与超出 horizonDays 的候选放进 outOfHorizon，而不是丢掉', () => {
+    const result = plan({
+      items: [
+        candidate('due-past', -1),   // 昨天就到期
+        candidate('due-far', 30),    // 30 天后，远超默认 7 天视野
+        candidate('due-near', 1),    // 视野内，应被排上
+      ],
+    })
+    expect(result.recommendations.map((item) => item.sourceId)).toEqual(['due-near'])
+    expect(result.outOfHorizon.map((item) => item.sourceId).sort()).toEqual(['due-far', 'due-past'])
+    // 视野外不是"排不下"，两者不能混在一起
+    expect(result.unscheduled).toEqual([])
+  })
+
+  it('视野内但确实排不下的仍然进 unscheduled（语义不串台）', () => {
+    const lessons = [0, 1, 2, 3, 4, 5, 6].map((offset) => ({
+      start: iso(offset, 8), end: iso(offset, 22),
+    }))
+    const result = plan({ items: [candidate('blocked', 1)], lessons })
+    expect(result.outOfHorizon).toEqual([])
+    expect(result.unscheduled.map((item) => item.sourceId)).toEqual(['blocked'])
+  })
+})
+
+describe('planStudyBlocks · 日窗口预计算与原逐日合成等价', () => {
+  it('同一天连续排 7 个 60 分钟块：起始时刻按 15 分钟槽顺延（08:00 起）', () => {
+    // 排程器总是取「最早可用时段」，所以 7 个候选全落在第 0 天。
+    // 60 分钟块 + 两侧各 15 分钟缓冲 ⇒ 步进 75 分钟。
+    const items = [0, 1, 2, 3, 4, 5, 6].map((offset) => candidate(`d${offset}`, offset))
+    const result = plan({ items })
+    expect(result.recommendations).toHaveLength(7)
+    expect(result.recommendations.map((block) => new Date(block.startAt).getHours() * 60 + new Date(block.startAt).getMinutes()))
+      .toEqual([480, 555, 630, 705, 780, 855, 930]) // 08:00, 09:15, 10:30, 11:45, 13:00, 14:15, 15:30
+    // 全部落在同一天且不越过 22:00 窗口尾
+    result.recommendations.forEach((block) => {
+      expect(new Date(block.startAt).getDate()).toBe(new Date(iso(0, 0)).getDate())
+      expect(new Date(block.endAt).getHours()).toBeLessThanOrEqual(22)
+    })
+  })
+
+  it('单日覆盖（某天 off）在预计算路径下依然生效', () => {
+    const prefs: StudyBlockPrefs = {
+      ...DEFAULT_STUDY_BLOCK_PREFS,
+      dayOverrides: { 0: { off: true } } as StudyDayOverrides, // 周日不排
+    }
+    // 7 个候选、7 天全开 vs 关掉周日：关掉后周日窗口为 null，不会在周日产出块。
+    const items = [0, 1, 2, 3, 4, 5, 6].map((offset) => candidate(`w${offset}`, offset))
+    const result = planStudyBlocks({ items, lessons: [], confirmed: [], now: day(0, 7), prefs })
+    const sundays = result.recommendations.filter((block) => new Date(block.startAt).getDay() === 0)
+    expect(sundays).toEqual([])
+    expect(result.unscheduled.length + result.recommendations.length).toBe(7)
+  })
+})
+
+describe('staleStudyBlocks', () => {
+  const block = (id: string, startOffset: number, startHour: number, endHour: number): StudyBlock => ({
+    id, sourceKind: 'task', sourceId: id, title: id,
+    startAt: iso(startOffset, startHour), endAt: iso(startOffset, endHour),
+    dueAt: iso(startOffset, 22), createdAt: iso(0, 7), completed: false,
+  } as StudyBlock)
+
+  it('reports a confirmed block that a later lesson change pushed a lesson onto', () => {
+    const blocks = [block('b1', 1, 9, 10)]
+    const lessons = [{ start: iso(1, 9, 30), end: iso(1, 10, 30), title: 'Signaalinkäsittely' }]
+    const stale = staleStudyBlocks(blocks, lessons)
+    expect(stale).toHaveLength(1)
+    expect(stale[0].block.id).toBe('b1')
+    expect(stale[0].lessons[0].title).toBe('Signaalinkäsittely')
+  })
+
+  it('ignores completed blocks and non-overlapping lessons', () => {
+    const blocks = [block('done', 1, 9, 10), block('free', 1, 14, 15)]
+    const lessons = [{ start: iso(1, 9, 30), end: iso(1, 10, 30) }, { start: iso(1, 16), end: iso(1, 17) }]
+    expect(staleStudyBlocks(blocks.map((b) => (b.id === 'done' ? { ...b, completed: true } : b)), lessons)).toEqual([])
+  })
+
+  it('treats a buffer as outward padding of the study block only', () => {
+    const blocks = [block('b1', 1, 9, 10)]
+    const touching = [{ start: iso(1, 10), end: iso(1, 11) }]
+    expect(staleStudyBlocks(blocks, touching)).toEqual([])
+    expect(staleStudyBlocks(blocks, touching, 15)).toHaveLength(1)
+  })
+
+  it('returns clashing blocks in chronological order', () => {
+    const blocks = [block('late', 2, 14, 15), block('early', 1, 9, 10)]
+    const lessons = [{ start: iso(1, 9), end: iso(1, 16) }, { start: iso(2, 9), end: iso(2, 16) }]
+    expect(staleStudyBlocks(blocks, lessons).map((s) => s.block.id)).toEqual(['early', 'late'])
   })
 })

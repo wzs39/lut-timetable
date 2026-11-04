@@ -6,11 +6,12 @@ import type { EnrolledCourse } from '../lib/courses'
 import type { PlanCategory, SisuPlanKind } from '../lib/sisuStudyPlan'
 import { PERSONAL_PLAN_DATE, PERSONAL_PLAN_META } from '../lib/personalStudyPlan'
 import { coursePlanIdentity, isPlannerCourseSelected } from '../lib/sisuCourseSelection'
-import type { OptionalRecommendation } from '../lib/optionalCourses'
+import type { OptionalRecommendation, OptionalTag } from '../lib/optionalCourses'
 import { periodWindowLabel } from '../lib/sisuRebalance'
 import { DEFAULT_MAX_WEEKLY_HOURS } from '../lib/sisuWorkload'
 import ExternalLink from './ExternalLink'
 import Icon from './Icon'
+import PomodoroCard from './PomodoroCard'
 
 const KINDS: SisuPlanKind[] = ['course', 'registration', 'exam', 'milestone']
 const CATEGORIES: PlanCategory[] = ['general', 'language', 'intermediate', 'minor', 'elective']
@@ -26,6 +27,17 @@ function yearRange(startYear: number, index: number): string {
   return `${startYear + index}–${startYear + index + 1}`
 }
 
+const TAG_LABEL_KEYS: Record<OptionalTag, string> = {
+  software: 'optionalTrackSoftware',
+  ai: 'optionalTrackAi',
+  systems: 'optionalTrackSystems',
+  sustainability: 'optionalTrackSustainability',
+  management: 'optionalTrackManagement',
+  career: 'optionalTrackCareer',
+  math: 'optionalTrackAi',
+  society: 'optionalTrackSustainability',
+}
+
 function OptionalCard({ recommendation, onAdd, onSwap }: {
   recommendation: OptionalRecommendation
   onAdd: () => void
@@ -39,16 +51,23 @@ function OptionalCard({ recommendation, onAdd, onSwap }: {
       ? 'optionalPrereqLikely'
       : 'optionalPrereqMissing'
   return (
-    <article className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2.5">
+    <article className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] p-2.5 shadow-xs">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="font-mono text-[11px] font-semibold text-[var(--text-2)]">{course.code}</span>
         <span className="text-[11px] font-medium text-[var(--text-1)]">{fact.name ?? course.title}</span>
         <span className="text-[10px] text-[var(--text-3)]">{t('sisuPlanCreditsShort', { n: fact.credits })}</span>
         <span className="text-[10px] text-[var(--text-3)]">{t('optionalWeekly', { h: recommendation.weeklyDelta })}</span>
       </div>
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {course.tags.map((tag) => (
+          <span key={tag} className="app-badge px-1 py-0.2 text-[9px] text-[var(--text-3)]">
+            #{t(TAG_LABEL_KEYS[tag] ?? 'optionalTrackSoftware')}
+          </span>
+        ))}
+      </div>
       <p className="mt-1 text-[10px] leading-relaxed text-[var(--text-2)]">{course.why[lang]}</p>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
-        <span className={recommendation.prereqStatus === 'ok' ? 'text-[var(--ok)]' : 'text-[var(--due)]'}>
+        <span className={recommendation.prereqStatus === 'ok' ? 'text-[var(--ok)] font-medium' : 'text-[var(--due)] font-medium'}>
           {t(statusKey, { codes: recommendation.missingPrerequisites.join(', ') })}
         </span>
         <span className="text-[var(--text-3)]">{t('optionalOffering', { periods: fact.offeringPattern.length > 0 ? fact.offeringPattern.map((p) => `P${p}`).join('/') : t('sisuCourseYearUnknown') })}</span>
@@ -80,11 +99,11 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
   const {
     plan, scenario, rebalance, scenarioPrefs, changeScenario, scenarioComparison, feasibleYears,
     newCancelledCode, setNewCancelledCode, addCancelledCode, removeCancelledCode, restorePlan,
-    startYear, graduation, categoryProgress, optionalRecommendations, addOptionalCourse, applyOptionalSwap,
-    studyBlocks, studyBlockRecommendations, unscheduledStudyItems,
+    startYear, graduation, categoryProgress, optionalRecommendations, optionalTagFilter, setOptionalTagFilter, addOptionalCourse, applyOptionalSwap,
+    studyBlocks, studyBlockRecommendations, unscheduledStudyItems, outOfHorizonStudyItems,
     generateStudyBlockRecommendations, confirmStudyBlockRecommendation,
     confirmAllStudyBlockRecommendations, skipStudyBlockRecommendation, deleteStudyBlock,
-    setStudyBlockCompleted, studyLoad,
+    setStudyBlockCompleted, studyLoad, staleBlocks,
     title, setTitle, courseCode, setCourseCode, kind, setKind,
     credits, setCredits, dueAt, setDueAt, error,
     coursePreferences, visibleCandidates, alreadyPlanned, selectedNotPlannedCount,
@@ -433,13 +452,39 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
         className={tabCls('tools')}
       >
       {/* 可选课程：只推荐，不自动加入 */}
-      <div className="app-card space-y-2 p-3">
+      <div className="app-card space-y-2.5 p-3">
         <div>
           <h3 className="app-card-label">{t('optionalTitle')}</h3>
-          <p className="mt-1 text-[10px] leading-relaxed text-[var(--text-3)]">{t('optionalHint')}</p>
+          <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--text-3)]">{t('optionalHint')}</p>
         </div>
+
+        {/* 方向筛选器 */}
+        <div className="flex flex-wrap gap-1 border-b border-[var(--line)]/60 pb-2">
+          {[
+            { key: 'all', labelKey: 'optionalTrackAll' },
+            { key: 'software', labelKey: 'optionalTrackSoftware' },
+            { key: 'ai', labelKey: 'optionalTrackAi' },
+            { key: 'systems', labelKey: 'optionalTrackSystems' },
+            { key: 'sustainability', labelKey: 'optionalTrackSustainability' },
+            { key: 'management', labelKey: 'optionalTrackManagement' },
+            { key: 'career', labelKey: 'optionalTrackCareer' },
+          ].map(({ key, labelKey }) => (
+            <button
+              key={key}
+              onClick={() => setOptionalTagFilter(key as OptionalTag | 'all')}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                optionalTagFilter === key
+                  ? 'bg-[var(--accent)] text-[var(--accent-fg)] shadow-xs'
+                  : 'bg-[var(--surface-2)] text-[var(--text-3)] hover:text-[var(--text-1)] border border-[var(--line)]'
+              }`}
+            >
+              {t(labelKey)}
+            </button>
+          ))}
+        </div>
+
         {optionalRecommendations.length === 0
-          ? <p className="py-2 text-center text-[10px] text-[var(--text-3)]">{t('optionalEmpty')}</p>
+          ? <p className="py-3 text-center text-[10px] text-[var(--text-3)]">{t('optionalEmpty')}</p>
           : <div className="space-y-2">
             {optionalRecommendations.map((recommendation) => (
               <OptionalCard
@@ -659,6 +704,34 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
             </ul>
           </div>
         )}
+        {outOfHorizonStudyItems.length > 0 && (
+          <p className="text-[10px] text-[var(--text-3)]">
+            {t('studyBlockOutOfHorizon', { n: outOfHorizonStudyItems.length })}
+          </p>
+        )}
+        {staleBlocks.length > 0 && (
+          <div className="rounded-lg border border-[var(--due)]/40 bg-[var(--surface-2)] p-2">
+            <h4 className="text-[11px] font-semibold text-[var(--due)]">
+              {t('studyBlockStale', { n: staleBlocks.length })}
+            </h4>
+            <ul className="mt-1 space-y-1 text-[10px] text-[var(--text-2)]">
+              {staleBlocks.map(({ block, lessons: clash }) => (
+                <li key={block.id} className="flex min-w-0 flex-wrap items-center gap-1">
+                  <span className="min-w-0 flex-1 truncate" title={clash.map((l) => l.title ?? l.code ?? '').join(' / ')}>
+                    {clash.map((l) => l.title ?? l.code ?? '').filter(Boolean).join(' / ')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => deleteStudyBlock(block.id)}
+                    className="shrink-0 rounded border border-[var(--line)] px-1.5 py-0.5 text-[10px] text-[var(--text-2)]"
+                  >
+                    {t('studyBlockStaleDrop')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div>
           <h4 className="mb-1 text-[11px] font-semibold text-[var(--text-2)]">{t('studyBlockConfirmed')}</h4>
           {studyBlocks.length === 0
@@ -707,6 +780,10 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
             )}
         </div>
       </div>
+
+      {/* 番茄钟：与上面那块共用 `blocks`（已确认的学习时段），
+          一轮专注结束可以把绑定块标完成——单向依赖，关掉不影响排程。 */}
+      <PomodoroCard />
       </div>
     </section>
   )

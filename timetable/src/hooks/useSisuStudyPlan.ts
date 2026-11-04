@@ -32,7 +32,7 @@ import { cleanPlanCode, buildScenario, compareScenarios, earliestFeasibleYears, 
 import { compareRebalancedScenarios, rebalanceScenario } from '../lib/sisuRebalance'
 import { loadScenarioPrefs, saveScenarioPrefs, type SisuScenarioPrefs } from '../lib/sisuScenarioPrefs'
 import { COURSE_FACTS } from '../lib/sisuCourseFacts'
-import { recommendOptionalCourses, type OptionalRecommendation } from '../lib/optionalCourses'
+import { recommendOptionalCourses, type OptionalRecommendation, type OptionalTag } from '../lib/optionalCourses'
 import { refreshSisuPlanReminders } from '../lib/sisuStudyPlanReminders'
 import { loadTasks } from '../lib/tasks'
 import {
@@ -41,6 +41,7 @@ import {
   planStudyBlocks,
   removeStudyBlock as persistStudyBlockRemoval,
   setStudyBlockCompleted as persistStudyBlockCompletion,
+  staleStudyBlocks,
   type StudyBlock,
   type StudyBlockCandidate,
   type StudyBlockRecommendation,
@@ -56,6 +57,7 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
   const [studyBlocks, setStudyBlocks] = useState<StudyBlock[]>(loadStudyBlocks)
   const [studyBlockRecommendations, setStudyBlockRecommendations] = useState<StudyBlockRecommendation[]>([])
   const [unscheduledStudyItems, setUnscheduledStudyItems] = useState<StudyBlockCandidate[]>([])
+  const [outOfHorizonStudyItems, setOutOfHorizonStudyItems] = useState<StudyBlockCandidate[]>([])
   const [coursePreferences, setCoursePreferences] = useState(loadSisuCoursePreferences)
   const [title, setTitle] = useState('')
   const [courseCode, setCourseCode] = useState('')
@@ -139,13 +141,15 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     : compareScenarios(comparisonInput, comparisonTargets)),
   [comparisonInput, comparisonTargets, rebalanceOptions, scenarioPrefs.autoBalance])
   const feasibleYears = useMemo(() => earliestFeasibleYears(scenarioComparison), [scenarioComparison])
+  const [optionalTagFilter, setOptionalTagFilter] = useState<OptionalTag | 'all'>('all')
   // 课表一起传进去：只看学分与周工作量会推荐出「负荷有余量、但课时根本插不进」的课。
   const optionalRecommendations = useMemo(() => recommendOptionalCourses(plan, COURSE_FACTS, {
     limit: 8,
     targetYears: scenarioPrefs.targetYears,
     maxWeeklyHours: 50,
     lessons,
-  }), [plan, scenarioPrefs.targetYears, lessons])
+    tagFilter: optionalTagFilter,
+  }), [plan, scenarioPrefs.targetYears, lessons, optionalTagFilter])
 
   useEffect(() => () => searchController.current?.abort(), [])
 
@@ -248,6 +252,7 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     setStudyBlocks(loadStudyBlocks())
     setStudyBlockRecommendations(result.recommendations)
     setUnscheduledStudyItems(result.unscheduled)
+    setOutOfHorizonStudyItems(result.outOfHorizon)
   }
   const confirmStudyBlockRecommendation = (recommendation: StudyBlockRecommendation) => {
     const block = persistStudyBlock(recommendation)
@@ -274,6 +279,8 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
   const setStudyBlockCompleted = (id: string, completed: boolean) =>
     setStudyBlocks(persistStudyBlockCompletion(id, completed))
   const studyLoad = studyLoadSummary(studyBlocks, startOfWeek(new Date()), new Date())
+  // 已确认的块不会自己挪，课表变了就可能压到课上——这里只提示，不自动改用户确认过的时间。
+  const staleBlocks = useMemo(() => staleStudyBlocks(studyBlocks, lessons), [studyBlocks, lessons])
   const setPlanItemCompleted = (itemId: string, completed: boolean) => {
     updatePlanItems(plan.items.map((item) => item.id === itemId ? { ...item, completed } : item))
   }
@@ -402,17 +409,21 @@ export function useSisuStudyPlan(lessons: Lesson[], enrolled: EnrolledCourse[]) 
     graduation,
     categoryProgress,
     optionalRecommendations,
+    optionalTagFilter,
+    setOptionalTagFilter,
     addOptionalCourse,
     applyOptionalSwap,
     studyBlocks,
     studyBlockRecommendations,
     unscheduledStudyItems,
+    outOfHorizonStudyItems,
     generateStudyBlockRecommendations,
     confirmStudyBlockRecommendation,
     confirmAllStudyBlockRecommendations,
     skipStudyBlockRecommendation,
     deleteStudyBlock,
     setStudyBlockCompleted,
+    staleBlocks,
     studyLoad,
     title, setTitle,
     courseCode, setCourseCode,

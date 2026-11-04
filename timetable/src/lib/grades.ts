@@ -279,34 +279,55 @@ function ratioToPercent(v: unknown): number | null {
   return Math.round((n <= 1.0001 ? n * 100 : n) * 10) / 10
 }
 
+/** Parse angka aman dari string persen/angka/number; null bila tidak valid. */
+function parseNumeric(v: unknown): number | null {
+  if (v == null) return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v === 'string') {
+    const cleaned = v.replace('%', '').trim()
+    if (!cleaned) return null
+    const n = Number(cleaned)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
 function buildItems(raw: (RawGradeItem & { itemtype?: string })[]): GradeItem[] {
-  return raw.map((it) => ({
-    name: htmlToText(it.itemname) || '—',
-    // cmid hanya bermakna untuk baris modul（category/course 行没这个东西）。
-    cmid:
-      it.itemtype === 'mod' && typeof it.cmid === 'number' && Number.isFinite(it.cmid)
-        ? it.cmid
-        : undefined,
-    grade: toPercent(it.graderaw, it.grademax),
-    max: typeof it.grademax === 'number' && it.grademax > 0 ? it.grademax : null,
-    classAvg: toPercent(it.gradeaverage ?? it.average, it.grademax),
-    // Bobot: weightraw (rasio 0–1, Moodle 4.x) > weight (persen); kategori
-    // ditangani terpisah di spreadCategoryWeights (lihat observasi di atas).
-    weight:
-      typeof it.weightraw === 'number' && it.weightraw > 0
-        ? Math.round(it.weightraw * 1000) / 10
-        : typeof it.weight === 'number' && it.weight > 0
-          ? Math.round(it.weight * 10) / 10
-          : null,
-    // Teks nilai resmi Moodle ("Passed", "8.00") — UTAMAKAN di atas persen:
-    // skala Fail–Pass 1/2 = 50% menyesatkan. Belum dinilai ('-')/tanpa field
-    // → undefined (UI fallback ke persen, lalu —).
-    gradeText:
-      it.graderaw != null
-        ? htmlToText(it.gradeformatted)?.trim() || undefined
-        : undefined,
-    feedback: it.feedback?.trim() || undefined,
-  }))
+  return raw.map((it) => {
+    const maxVal = parseNumeric(it.grademax)
+    const wr = parseNumeric(it.weightraw)
+    const w = parseNumeric(it.weight)
+    const wf = parseNumeric(it.weightformatted)
+    const weightVal =
+      wr != null && wr > 0
+        ? (wr <= 1.0001 ? Math.round(wr * 1000) / 10 : Math.round(wr * 10) / 10)
+        : w != null && w > 0
+          ? Math.round(w * 10) / 10
+          : wf != null && wf > 0
+            ? Math.round(wf * 10) / 10
+            : null
+
+    return {
+      name: htmlToText(it.itemname) || '—',
+      // cmid hanya bermakna untuk baris modul（category/course 行没这个东西）。
+      cmid:
+        it.itemtype === 'mod' && typeof it.cmid === 'number' && Number.isFinite(it.cmid)
+          ? it.cmid
+          : undefined,
+      grade: toPercent(it.graderaw, it.grademax),
+      max: maxVal != null && maxVal > 0 ? maxVal : null,
+      classAvg: toPercent(it.gradeaverage ?? it.average, it.grademax),
+      weight: weightVal,
+      // Teks nilai resmi Moodle ("Passed", "8.00") — UTAMAKAN di atas persen:
+      // skala Fail–Pass 1/2 = 50% menyesatkan. Belum dinilai ('-')/tanpa field
+      // → undefined (UI fallback ke persen, lalu —).
+      gradeText:
+        it.graderaw != null
+          ? htmlToText(it.gradeformatted)?.trim() || undefined
+          : undefined,
+      feedback: it.feedback?.trim() || undefined,
+    }
+  })
 }
 
 /* ------------------------------- parsing ------------------------------- */
@@ -339,6 +360,8 @@ interface RawGradeItem {
   weightraw?: number | string
   /** Alternatif lama: bobot langsung dalam persen. */
   weight?: number | string
+  /** Moodle gradebook text formatted weight (mis. "25.00 %"). */
+  weightformatted?: string
   /** iteminstance baris kategori = id kategori yang dirujuk categoryid item. */
   iteminstance?: number
   gradeformatted?: string
@@ -355,11 +378,40 @@ interface RawCourseGrades {
   gradeitems?: RawGradeItem[]
 }
 
+/**
+ * gradereport_user_get_grades_table → { itemname: calculatedWeightPercentage }
+ * Ekstraksi kolom "Weight" resmi Moodle langsung dari tabel laporan pengguna.
+ */
+export function parseGradeTableWeights(response: unknown): Map<string, number> {
+  const out = new Map<string, number>()
+  const tables = (response as { tables?: unknown })?.tables
+  if (!Array.isArray(tables)) return out
+  for (const table of tables) {
+    const rows = (table as { tabledata?: unknown })?.tabledata
+    if (!Array.isArray(rows)) continue
+    for (const raw of rows as Record<string, unknown>[]) {
+      if (!raw || typeof raw !== 'object') continue
+      const itemname = raw.itemname as { content?: unknown } | undefined
+      const content = typeof itemname?.content === 'string' ? itemname.content : ''
+      const name = htmlToText(content)?.trim()
+      if (!name) continue
+      const weightObj = raw.weight as { content?: unknown } | undefined
+      const weightContent = typeof weightObj?.content === 'string' ? weightObj.content : ''
+      const parsedWeight = parseNumeric(weightContent)
+      if (parsedWeight != null && parsedWeight > 0) {
+        out.set(name, parsedWeight)
+      }
+    }
+  }
+  return out
+}
+
 /** gradereport_user_get_grade_items → CourseGrades[] (hanya kursus bernilai). */
 export function parseGradeItems(
   response: unknown,
   confirmedSchemes: Record<number, import('./gradeScheme').SchemeWeight[]> = {},
   categoryParentsByCourse?: ReadonlyMap<number, GradeCategoryParents>,
+  tableWeightsByCourse?: ReadonlyMap<number, Map<string, number>>,
 ): CourseGrades[] {
   const byId = (response as { usergrades?: unknown[] })?.usergrades
   if (!Array.isArray(byId)) return []
@@ -382,6 +434,15 @@ export function parseGradeItems(
       composeHierarchicalWeights(rawItems, nonCat, parsedItems, catIds, parents)
     } else {
       spreadCategoryWeights(rawItems, parsedItems, catIds)
+    }
+    // 若表格中提供了真实计算权重，补齐尚无权重的项目
+    const tableWeights = tableWeightsByCourse?.get(c.courseid ?? -1)
+    if (tableWeights && tableWeights.size > 0) {
+      for (const item of parsedItems) {
+        if (item.weight == null && tableWeights.has(item.name)) {
+          item.weight = tableWeights.get(item.name)!
+        }
+      }
     }
     const scheme = confirmedSchemes[c.courseid ?? -1] ?? activeSchemeWeights(c.courseid)
     const items = applySchemeWeights(parsedItems, scheme)
@@ -424,12 +485,14 @@ function spreadCategoryWeights(
   const catWeightByInstanceId = new Map<number, number>()
   for (const r of raw) {
     if (r.itemtype === 'category' && r.iteminstance != null) {
+      const wr = parseNumeric(r.weightraw)
       const w =
-        typeof r.weightraw === 'number' && r.weightraw > 0
-          ? Math.round(r.weightraw * 1000) / 10
-          : typeof r.weight === 'number' && r.weight > 0
-            ? Math.round(r.weight * 10) / 10
-            : null
+        wr != null && wr > 0
+          ? (wr <= 1.0001 ? Math.round(wr * 1000) / 10 : Math.round(wr * 10) / 10)
+          : (() => {
+              const pw = parseNumeric(r.weight) ?? parseNumeric(r.weightformatted)
+              return pw != null && pw > 0 ? Math.round(pw * 10) / 10 : null
+            })()
       if (w != null) catWeightByInstanceId.set(r.iteminstance, w)
     }
   }
@@ -461,8 +524,12 @@ type GradeWeightParticipant =
  * 取整会累积到「权重合计 99.4%」，百分比只在最终写回时取 2 位。
  */
 function weightRatioOf(row: RawGradeItem): number | null {
-  if (typeof row.weightraw === 'number' && Number.isFinite(row.weightraw)) return row.weightraw
-  if (typeof row.weight === 'number' && Number.isFinite(row.weight)) return row.weight / 100
+  const wr = parseNumeric(row.weightraw)
+  if (wr != null && wr >= 0) return wr <= 1.0001 ? wr : wr / 100
+  const w = parseNumeric(row.weight)
+  if (w != null && w >= 0) return w / 100
+  const wf = parseNumeric(row.weightformatted)
+  if (wf != null && wf >= 0) return wf / 100
   return null
 }
 
@@ -656,31 +723,37 @@ export async function fetchGrades(
       }
     }),
   )
-  // 层级只为「分类行带权重」的课程补齐：LUT 的 CT60A4050 / KE00DA03 这类
-  // 课，user_get_grade_items 只给直属 categoryid，父分类链只有
-  // gradereport_user_get_grades_table 的 parentcategories 才有。扁平课
-  // （权重挂在叶子项）不需要，别为全校每门课多打一趟。
+  // 层级与表格真实权重：优先为分类带权或叶子项缺失权重的课程抓取
+  // gradereport_user_get_grades_table 的 parentcategories 与实际权重列。
   const categoryParentsByCourse = new Map<number, GradeCategoryParents>()
+  const tableWeightsByCourse = new Map<number, Map<string, number>>()
   await Promise.all(
     courseIds.map(async (courseid, index) => {
       const raw = reports[index] as
         | { usergrades?: Array<{ gradeitems?: Record<string, unknown>[] }> }
         | null
-      const needsHierarchy = (raw?.usergrades ?? []).some((u) =>
-        (u?.gradeitems ?? []).some(
+      const needsTable = (raw?.usergrades ?? []).some((u) => {
+        const items = u?.gradeitems ?? []
+        const hasCatWeight = items.some(
           (item) =>
             item?.itemtype === 'category' &&
             (Number(item.weightraw) > 0 || Number(item.weight) > 0),
-        ),
-      )
-      if (!needsHierarchy) return
-      try {
-        categoryParentsByCourse.set(
-          courseid,
-          parseGradeCategoryParents(
-            await wsCall(src.token, 'gradereport_user_get_grades_table', { userid, courseid }),
-          ),
         )
+        const hasMissingWeights = items.some(
+          (item) =>
+            item?.itemtype === 'mod' &&
+            parseNumeric(item.weightraw) == null &&
+            parseNumeric(item.weight) == null &&
+            parseNumeric(item.weightformatted) == null,
+        )
+        return hasCatWeight || hasMissingWeights
+      })
+      if (!needsTable) return
+      try {
+        const tableRes = await wsCall(src.token, 'gradereport_user_get_grades_table', { userid, courseid })
+        categoryParentsByCourse.set(courseid, parseGradeCategoryParents(tableRes))
+        const tw = parseGradeTableWeights(tableRes)
+        if (tw.size > 0) tableWeightsByCourse.set(courseid, tw)
       } catch {
         // 表格 API 不可用（站点关闭 / 权限）→ 该课退回旧均摊，成绩照常。
       }
@@ -692,7 +765,7 @@ export async function fetchGrades(
       record.confirmedWeights ? [[Number(id), record.confirmedWeights]] : [],
     ),
   )
-  const parsed = parseGradeItems(report, confirmedSchemes, categoryParentsByCourse)
+  const parsed = parseGradeItems(report, confirmedSchemes, categoryParentsByCourse, tableWeightsByCourse)
   if (parsed.length === 0) throw { kind: 'empty' } as GradesError
 
   // Cocokkan ke jadwal lewat matcher tunggal (courses.ts): daftar enrol

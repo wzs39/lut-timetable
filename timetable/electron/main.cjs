@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain, protocol } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const { autoUpdater } = require('electron-updater')
@@ -39,7 +39,6 @@ function isSsoLaunchUrl(url) {
  *  redirect launch.php ke moodlemobile:// / lut-timetable:// tertangkap
  *  DI DALAM aplikasi — tidak pernah diteruskan ke OS (tanpa dialog
  *  "pilih aplikasi", tanpa membuka aplikasi Moodle resmi). */
-let ssoLaunchCapture = null
 
 /** Ekstrak bagian token mentah (belum terverifikasi) dari URL launch.
  *  Verifikasi md5(passport) tetap di renderer yang memiliki passport. */

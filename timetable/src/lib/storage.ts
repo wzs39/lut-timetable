@@ -85,6 +85,8 @@ export const KEYS = {
   studyBlocks: 'tt_study_blocks_v1',
   /** 学习时段偏好（窗口/时长/缓冲/范围）；唯一所有者是 lib/studyBlockPrefs.ts */
   studyBlockPrefs: 'tt_study_block_prefs_v1',
+  /** 番茄钟配置 + 当日完成的专注轮数；唯一所有者是 lib/pomodoro.ts */
+  pomodoro: 'tt_pomodoro_v1',
 } as const
 
 export type StorageKey = (typeof KEYS)[keyof typeof KEYS]

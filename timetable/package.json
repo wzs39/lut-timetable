@@ -15,7 +15,9 @@
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"vite --port 5210\" \"wait-on tcp:5210 && electron electron/main.cjs\"",
     "electron:build": "node -e \"require('node:fs').rmSync('release-electron', { recursive: true, force: true })\" && npm run build && electron-builder --win nsis msi",
-    "test:consistent": "node scripts/checkTestConsistency.mjs"
+    "test:consistent": "node scripts/checkTestConsistency.mjs",
+    "gate:agents": "node scripts/checkAgentsBudget.mjs",
+    "gate": "npm run lint && npx tsc -b --pretty false && npm run test && npm run test:consistent && npm run gate:agents"
   },
   "build": {
     "appId": "dev.lut.timetable",

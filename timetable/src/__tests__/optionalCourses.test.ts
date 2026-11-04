@@ -102,4 +102,28 @@ describe('optional course recommendations', () => {
     const mooc = { CT30A1500: fact('CT30A1500', { totalHours: 162, selfPaced: true }) }
     expect(recommendOptionalCourses(plan([]), mooc, { targetYears: 3, limit: 8 })[0].weeklyDelta).toBe(0)
   })
+
+  it('filters recommendations by tag', () => {
+    const facts = {
+      BH60A6802: fact('BH60A6802', { credits: 3 }),
+      CT30A1500: fact('CT30A1500', { credits: 6 }),
+    }
+    const filtered = recommendOptionalCourses(plan([]), facts, { tagFilter: 'sustainability' })
+    expect(filtered.every((rec) => rec.course.tags.includes('sustainability'))).toBe(true)
+    expect(filtered.map((rec) => rec.course.code)).toContain('BH60A6802')
+    expect(filtered.map((rec) => rec.course.code)).not.toContain('CT30A1500')
+  })
+
+  it('adapts recommendations to user profile based on plan courses', () => {
+    const sustainabilityPlan = plan([
+      item('BH60A6200', 6),
+      item('BH60A7400', 2),
+    ])
+    const facts = {
+      BH60A6802: fact('BH60A6802', { credits: 3 }),
+      CT30A1400: fact('CT30A1400', { credits: 6 }),
+    }
+    const recs = recommendOptionalCourses(sustainabilityPlan, facts, { targetYears: 3 })
+    expect(recs[0].course.code).toBe('BH60A6802')
+  })
 })
