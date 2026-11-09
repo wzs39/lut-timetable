@@ -67,26 +67,26 @@ export default function TaskRow({
   const isDueSoon = !task.completed && !overdue && leftMin != null && leftMin > 0 && leftMin <= 1440
 
   const rowBorderClass = task.completed
-    ? 'border-[var(--line)] bg-[var(--surface-2)]/60 opacity-60'
+    ? 'border-[var(--line)] bg-[var(--surface-1)] opacity-50'
     : overdue
-      ? 'border-l-4 border-l-[var(--danger)] border-t border-r border-b border-[var(--danger)]/50 bg-[var(--tint-danger)]/20 shadow-xs'
+      ? 'border border-[var(--danger)]/40 bg-[var(--tint-danger)]/10 hover:border-[var(--danger)]/60'
       : isDueSoon
-        ? 'border-l-4 border-l-[var(--due)] border-t border-r border-b border-[var(--due)]/40 bg-[var(--tint-due)]/15 shadow-xs'
-        : 'border-l-4 border-t border-r border-b border-[var(--line)] bg-[var(--surface-2)] shadow-xs hover:border-[var(--text-3)]/60'
+        ? 'border border-[var(--due)]/40 bg-[var(--tint-due)]/10 hover:border-[var(--due)]/60'
+        : 'border border-[var(--line)] bg-[var(--surface-1)] hover:border-[var(--hover-line)]'
 
   const rowStyle = task.completed
     ? undefined
     : overdue
-      ? { borderLeftColor: 'var(--danger)' }
+      ? undefined
       : isDueSoon
-        ? { borderLeftColor: 'var(--due)' }
+        ? undefined
         : c
-          ? { ...courseStyle(c), borderLeftColor: c.text }
+          ? courseStyle(c)
           : undefined
 
   return (
     <li
-      className={'task-row rounded-lg border p-2.5 transition-colors ' + rowBorderClass}
+      className={'task-row rounded-md border p-2.5 transition-colors ' + rowBorderClass}
       style={rowStyle}
     >
       <div className="flex items-start gap-2">
@@ -100,7 +100,7 @@ export default function TaskRow({
             const cmid = taskCmidOf(task)
             if (cmid !== undefined) md.pushTaskCompletion(cmid, event.target.checked)
           }}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-500"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--ok)]"
           aria-label={task.title}
         />
         <div className="min-w-0 flex-1">

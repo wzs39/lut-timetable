@@ -65,7 +65,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
   jump: <path d="M2 14V8a6 6 0 016-6h6m0 0l-3-3m3 3l-3 3" transform="translate(1 1) scale(0.8)" />,
   restore: <path d="M2 8a6 6 0 116 6m-6-6V4m0 4h4" />,
   menu: <path d="M2 4h12M2 8h12M2 12h12" />,
-  more: <circle cx="3" cy="8" r="1.2" fill="currentColor" stroke="none" />,
+  more: (
+    <g fill="currentColor" stroke="none">
+      <circle cx="3" cy="8" r="1.2" />
+      <circle cx="8" cy="8" r="1.2" />
+      <circle cx="13" cy="8" r="1.2" />
+    </g>
+  ),
   close: <path d="M3 3l10 10M13 3L3 13" />,
   search: <path d="M6.5 11a4.5 4.5 0 100-9 4.5 4.5 0 000 9zM10 10l4 4" />,
   warn: <path d="M8 2L1 14h14L8 2zm0 5v3m0 2v.5" />,

@@ -256,7 +256,8 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                         </span>
                       )}
                       <span className="min-w-0 truncate">
-                        {banner.lesson.code ? `${banner.lesson.code} · ` : ''}
+                        {banner.lesson.code ? <span className="font-mono">{banner.lesson.code}</span> : null}
+                        {banner.lesson.code ? ' · ' : ''}
                         {displayTitle(banner.lesson)}
                       </span>
                     </>
@@ -266,10 +267,10 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 </h2>
                 <p className="mt-1 text-[11px] text-[var(--text-2)]">
                   {banner.lesson ? (
-                    <span className="tabular-nums">
+                    <span className="tabular-nums font-mono">
                       {formatTime(banner.lesson.start, locale)} – {formatTime(banner.lesson.end, locale)}
                       {banner.lesson.location ? ` · ${banner.lesson.location}` : ''}
-                      <span className="text-[var(--text-3)]"> · {banner.text}</span>
+                      <span className="text-[var(--text-3)] font-sans"> · {banner.text}</span>
                     </span>
                   ) : (
                     <span className="text-[var(--text-3)]">{t('todayTabLessons')} · {t('todayTabFeed')}</span>
@@ -282,24 +283,24 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 </button>
                 <button role="tab" aria-selected={tab === 'feed'} onClick={() => switchTab('feed')} className="px-2.5 py-1 text-[11px]">
                   {t('todayTabFeed')}
-                  {feedCount > 0 && <span className="ml-1 tabular-nums text-[var(--text-3)]">{feedCount}</span>}
+                  {feedCount > 0 && <span className="ml-1 font-mono text-[var(--text-3)]">{feedCount}</span>}
                 </button>
               </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <div data-tone="info" className="stat-tile px-2.5 py-1.5">
-                <span className="stat-value text-base font-semibold tabular-nums">{today.length}</span>
+                <span className="stat-value text-base font-semibold font-mono tabular-nums">{today.length}</span>
                 <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceLessons')}</span>
               </div>
               {dueToday.length > 0 && (
                 <div data-tone="due" className="stat-tile px-2.5 py-1.5">
-                  <span className="stat-value text-base font-semibold tabular-nums">{dueToday.length}</span>
+                  <span className="stat-value text-base font-semibold font-mono tabular-nums">{dueToday.length}</span>
                   <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceDue')}</span>
                 </div>
               )}
               {overdueTasks.length > 0 && (
                 <div data-tone="danger" className="stat-tile px-2.5 py-1.5">
-                  <span className="stat-value text-base font-semibold tabular-nums">{overdueTasks.length}</span>
+                  <span className="stat-value text-base font-semibold font-mono tabular-nums">{overdueTasks.length}</span>
                   <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceOverdue')}</span>
                 </div>
               )}
@@ -386,8 +387,8 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
         <div className={'space-y-3' + (tab === 'feed' ? '' : ' hidden xl:block')}>
             {/* 1. 紧急与截止：逾期任务警示横幅 */}
             {overdueTasks.length > 0 && (
-              <section className="animate-modal-in app-card border-2 border-[var(--danger)]/60 bg-[var(--tint-danger)]/10 shadow-sm">
-                <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+              <section className="animate-modal-in app-card border border-[var(--danger)]/40 bg-[var(--tint-danger)]/10">
+                <div className="flex items-center justify-between gap-2 px-3 py-2">
                   <button
                     onClick={toggleTasks}
                     className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
@@ -406,18 +407,18 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                   </button>
                 </div>
                 {tasksOpen && (
-                  <div className="space-y-1.5 border-t border-[var(--danger)]/30 px-3 pb-3 pt-2">
+                  <div className="space-y-1.5 border-t border-[var(--danger)]/20 px-3 pb-3 pt-2">
                     {overdueTasks.slice(0, 5).map((task) => (
                       <div
                         key={task.id}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-[var(--danger)]/40 bg-[var(--surface-2)] p-2 text-xs shadow-xs"
+                        className="flex items-center justify-between gap-2 rounded border border-[var(--danger)]/30 bg-[var(--surface-2)] p-2 text-xs"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <input
                             type="checkbox"
                             checked={task.completed}
                             onChange={(e) => onToggleTask?.(task, e.target.checked)}
-                            className="h-3.5 w-3.5 shrink-0 accent-emerald-500"
+                            className="h-3.5 w-3.5 shrink-0 accent-[var(--ok)]"
                             aria-label={task.title}
                           />
                           <span className="truncate font-medium text-[var(--danger)]">
@@ -425,7 +426,7 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                           </span>
                         </div>
                         {task.dueAt && (
-                          <span className="shrink-0 text-[10px] font-medium text-[var(--danger)]">
+                          <span className="shrink-0 text-[10px] font-mono font-medium text-[var(--danger)]">
                             {formatDueShort(task.dueAt, locale)}
                           </span>
                         )}
@@ -635,9 +636,9 @@ function LessonList({
             <button
               onClick={() => onSelect(l.id)}
               className={
-                'lesson-card w-full rounded-xl border px-3.5 py-2.5 text-left text-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ' +
+                'lesson-card w-full rounded-md border border-[var(--line)] px-3 py-2 text-left text-xs transition-colors hover:border-[var(--hover-line)] hover:bg-[var(--surface-2)]/40 ' +
                 (past ? 'opacity-40 ' : '') +
-                (live ? 'ring-2 ring-[var(--ok)] shadow-md shadow-[var(--ok)]/25 bg-[var(--tint-ok)]/10 ' : '')
+                (live ? 'border-[var(--ok)]/50 bg-[var(--tint-ok)]/15 ' : 'bg-[var(--surface-1)] ')
               }
               style={courseStyle(c)}
             >
@@ -645,11 +646,12 @@ function LessonList({
                 <div className="min-w-0">
                   <div className="truncate font-medium" style={courseTextStyle(c)}>
                     {SOURCE_ICON[l.source]}{' '}
-                    {l.code ? `${l.code} · ` : ''}
+                    {l.code ? <span className="font-mono">{l.code}</span> : null}
+                    {l.code ? ' · ' : ''}
                     {displayTitle(l)}
                   </div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[var(--text-2)]">
-                    <span className="truncate">
+                    <span className="truncate font-mono">
                       {l.location || '—'}
                       {l.mergedSources && l.mergedSources.length > 1 ? ' · +' : ''}
                     </span>
@@ -666,7 +668,7 @@ function LessonList({
                   <div className="mt-0.5 flex items-center justify-end gap-1.5">
                     {l.type && TYPE_META[l.type] && (
                       <span
-                        className="rounded-full border border-[var(--line)] bg-[var(--surface-1)] px-1.5 py-px text-[10px] text-[var(--text-2)]"
+                        className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-1.5 py-px text-[10px] text-[var(--text-2)] font-mono"
                         title={t(TYPE_META[l.type].key)}
                       >
                         {<Icon name={TYPE_META[l.type].icon} size={11} />} {t(TYPE_META[l.type].key)}

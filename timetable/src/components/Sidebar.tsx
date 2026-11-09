@@ -208,7 +208,7 @@ export default function Sidebar({
     // 宽度由外层容器决定（桌面可拖拽调宽；embedded = 移动端抽屉内占满剩余高度）
     <aside
       className={
-        'w-full min-w-0 shrink-0 bg-gradient-to-b from-[var(--surface-1)] to-[var(--surface-0)] flex flex-col overflow-y-auto safe-bottom ' +
+        'w-full min-w-0 shrink-0 bg-[var(--surface-1)] flex flex-col overflow-y-auto safe-bottom ' +
         (embedded
           ? 'flex-1 min-h-0 border-t border-[var(--line)]'
           : 'h-full border-r border-[var(--line)]')

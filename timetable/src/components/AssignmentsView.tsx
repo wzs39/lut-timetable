@@ -196,7 +196,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
     done: t('assignDone'),
   }
 
-  const inputCls = 'w-full rounded-xl border border-[var(--line)] bg-[var(--surface-2)] px-3 py-2 text-xs focus:outline-none focus:border-[var(--focus-line)] focus:ring-2 focus:ring-indigo-500/20 transition-all'
+  const inputCls = 'w-full rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-3 py-1.5 text-xs text-[var(--text-1)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--focus-line)] focus:ring-1 focus:ring-[var(--focus-line)] transition-colors'
 
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
@@ -295,7 +295,7 @@ export default function AssignmentsView({ tasks, lessons, onChange, onJumpToCour
 
         {/* ---- 收纳抽屉：手动添加任务 ---- */}
         {showAddForm && (
-          <section className="animate-modal-in rounded-2xl border border-[var(--line-info)] bg-[var(--tint-info)]/80 p-4 shadow-sm backdrop-blur-sm">
+          <section className="animate-modal-in rounded-lg border border-[var(--line)] bg-[var(--surface-1)] p-4">
             <div className="mb-2 text-[11px] font-semibold text-[var(--info)]">
               {editingId ? t('taskEdit') : t('taskAdd')}
             </div>

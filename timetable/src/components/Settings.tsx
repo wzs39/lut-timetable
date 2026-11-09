@@ -144,10 +144,10 @@ export default function Settings({
       <div
         className={
           (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
-          'flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] shadow-2xl md:max-w-4xl md:flex-row'
+          'flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-1)] shadow-xl md:max-w-4xl md:flex-row'
         }
       >
-        <aside className="flex shrink-0 flex-col border-b border-[var(--line)] bg-gradient-to-b from-[var(--surface-1)] to-[var(--surface-0)] md:w-56 md:border-b-0 md:border-r">
+        <aside className="flex shrink-0 flex-col border-b border-[var(--line)] bg-[var(--surface-1)] md:w-56 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-4 md:pb-3">
             <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
               <Icon name="settings" size={15} /> {t('settingsTitle')}

@@ -56,22 +56,17 @@ export default function AppHeader({
 }) {
   const { t } = useI18n()
   return (
-    <header className="app-header safe-top sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/85 px-4 py-2 backdrop-blur-xl transition-all sm:px-6">
+    <header className="app-header safe-top sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/95 px-4 py-2 backdrop-blur-md transition-all sm:px-6">
       {/* 品牌与状态区 */}
       <div className="flex items-center gap-3">
-        <div className="relative flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-tr from-indigo-500 via-sky-500 to-emerald-400 p-[1px] shadow-sm shadow-indigo-500/20">
-          <span
-            aria-hidden="true"
-            className="flex h-full w-full items-center justify-center rounded-[7px] bg-[var(--surface-0)] text-[11px] font-black text-transparent bg-clip-text bg-gradient-to-tr from-indigo-400 to-sky-300"
-          >
-            L
-          </span>
+        <div className="flex h-7 w-7 items-center justify-center rounded border border-[var(--line)] bg-[var(--surface-2)] text-[11px] font-mono font-bold tracking-tight text-[var(--text-1)]">
+          LUT
         </div>
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-bold tracking-tight text-[var(--text-1)]">{t('appName')}</h1>
-            <span className="hidden items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 sm:inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="hidden items-center gap-1.5 rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-0.5 text-[10px] font-mono font-medium text-[var(--text-2)] sm:inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)]" />
               {t('lessonsSources', { n: lessonCount, m: sourceCount })}
             </span>
           </div>
@@ -80,7 +75,7 @@ export default function AppHeader({
 
       {/* 视图切换：桌面端精致浮动分段胶囊 */}
       <div className="app-actions flex flex-1 flex-wrap items-center justify-end gap-2 text-xs">
-        <div className="app-seg hidden md:flex shadow-sm">
+        <div className="app-seg hidden md:flex">
           {VIEWS.filter((decl) => decl.inHeader).map((decl) => {
             const active = view === decl.view
             return (
@@ -90,14 +85,19 @@ export default function AppHeader({
                 aria-pressed={active}
                 className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all duration-150 ${
                   active
-                    ? 'font-semibold text-[var(--accent-text)] bg-[var(--accent)] shadow-sm'
+                    ? 'font-semibold text-[var(--accent-text)] bg-[var(--accent)] shadow-none'
                     : 'text-[var(--text-2)] hover:text-[var(--text-1)] hover:bg-[var(--surface-2)]'
                 }`}
               >
                 {decl.headerIcon && <Icon name={decl.icon} size={14} />}
                 <span>{t(decl.labelKey)}</span>
+                {decl.shortcut && (
+                  <kbd className={`app-kbd ml-1 hidden sm:inline-block ${active ? 'border-black/20 bg-black/10 text-black/70' : ''}`}>
+                    {decl.shortcut}
+                  </kbd>
+                )}
                 {decl.badges?.includes('tasks') && pendingTaskCount > 0 && (
-                  <span className="app-badge ml-1 px-1.5 py-0 text-[10px] font-bold tabular-nums bg-rose-500 text-white border-0 shadow-sm">
+                  <span className="ml-1 inline-flex items-center px-1.5 py-0 rounded text-[10px] font-mono font-bold border border-[var(--danger)]/30 bg-[var(--tint-danger)] text-[var(--danger)]">
                     {pendingTaskCount}
                   </span>
                 )}
@@ -109,35 +109,38 @@ export default function AppHeader({
 
         {/* 周导航：仅在周视图下显示 */}
         {view === 'week' && (
-          <div className="hidden md:flex items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface-1)] p-0.5 shadow-sm">
+          <div className="hidden md:flex items-center gap-1 rounded-md border border-[var(--line)] bg-[var(--surface-1)] p-0.5">
             <button
               onClick={() => onWeekNav(WEEK_NAV.prev.id)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)] transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)] transition-colors"
               aria-label={t(WEEK_NAV.prev.labelKey)}
-              title={t(WEEK_NAV.prev.labelKey)}
+              title={`${t(WEEK_NAV.prev.labelKey)} (←)`}
             >
               <Icon name={WEEK_NAV.prev.icon} size={14} />
             </button>
             <span
-              className="px-2 text-xs font-medium tabular-nums text-[var(--text-2)]"
+              className="px-2 text-xs font-mono font-medium tabular-nums text-[var(--text-2)]"
               title={t('weekRange', { w: weekNum, range: weekRangeText })}
             >
               {t('weekRange', { w: weekNum, range: weekRangeText })}
             </span>
             <button
               onClick={() => onWeekNav(WEEK_NAV.next.id)}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)] transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)] transition-colors"
               aria-label={t(WEEK_NAV.next.labelKey)}
-              title={t(WEEK_NAV.next.labelKey)}
+              title={`${t(WEEK_NAV.next.labelKey)} (→)`}
             >
               <Icon name={WEEK_NAV.next.icon} size={14} />
             </button>
             {!isCurrentWeek && (
               <button
                 onClick={() => onWeekNav(WEEK_NAV.this.id)}
-                className="ml-0.5 rounded-md bg-[var(--accent)] px-2 py-1 text-[11px] font-semibold text-[var(--accent-text)] shadow-sm hover:opacity-90 transition-opacity"
+                aria-label={t(WEEK_NAV.this.labelKey)}
+                title={`${t(WEEK_NAV.this.labelKey)} (T)`}
+                className="ml-0.5 inline-flex items-center gap-1 rounded border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1 text-[11px] font-medium text-[var(--text-1)] hover:bg-[var(--hover-1)] transition-colors"
               >
-                {t(WEEK_NAV.this.labelKey)}
+                <span>{t(WEEK_NAV.this.labelKey)}</span>
+                <kbd className="app-kbd">T</kbd>
               </button>
             )}
           </div>
@@ -151,7 +154,7 @@ export default function AppHeader({
         >
           <Icon name="search" size={13} />
           <span className="hidden lg:inline text-[11px] font-normal text-[var(--text-3)]">
-            <kbd className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-1 py-0.5 text-[10px] font-mono">Ctrl K</kbd>
+            <kbd className="app-kbd">Ctrl K</kbd>
           </span>
         </button>
 

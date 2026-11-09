@@ -34,8 +34,8 @@ export function StatTile({ label, value, hint, tone = 'info', onClick, pressed, 
       <div className="mt-1 text-[11px] font-medium text-[var(--text-3)]">{label}</div>
     </>
   )
-  const classes = `stat-tile group relative rounded-xl p-3 text-left transition-all duration-150 ${
-    pressed ? 'ring-2 ring-[var(--line-info)] bg-[var(--surface-2)] shadow-sm' : ''
+  const classes = `stat-tile group relative rounded-md p-3 text-left transition-all duration-150 ${
+    pressed ? 'border-[var(--line-info)] bg-[var(--surface-2)]' : ''
   } ${className}`
   if (!onClick) {
     return <div data-tone={tone} title={hint} className={classes}>{body}</div>
@@ -67,7 +67,7 @@ interface DashboardHeroProps {
 /** 页面顶部的「一眼概览」：标题行 + 一行 KPI 格子。 */
 export function DashboardHero({ title, subtitle, icon, actions, children }: DashboardHeroProps) {
   return (
-    <section className="app-hero p-4 sm:p-5 shadow-sm" data-dashboard="hero">
+    <section className="app-hero p-4 sm:p-5" data-dashboard="hero">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight text-[var(--text-1)]">
