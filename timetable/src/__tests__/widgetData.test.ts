@@ -227,3 +227,92 @@ describe('buildTasksPayload', () => {
     expect(buildTasksPayload([task({ id: 'y', title: 'Bare', dueAt: '2026-09-20T12:00:00' })], NOW).items[0].c).toBe('')
   })
 })
+
+import { buildPomodoroPayload } from '../lib/widgetData'
+import type { PomodoroTimer } from '../lib/pomodoro'
+
+describe('buildWidgetPayload multi-day lookahead & buildPomodoroPayload', () => {
+  it('populates days lookahead buckets across midnight for 4 local days', () => {
+    const now = new Date(2026, 8, 18, 22, 30, 0) // 2026-09-18 22:30 local
+    const lToday = new Date(2026, 8, 18, 14, 0, 0).toISOString()
+    const lTodayEnd = new Date(2026, 8, 18, 16, 0, 0).toISOString()
+    const lTomorrow = new Date(2026, 8, 19, 10, 15, 0).toISOString()
+    const lTomorrowEnd = new Date(2026, 8, 19, 12, 0, 0).toISOString()
+    const lDay3 = new Date(2026, 8, 21, 9, 0, 0).toISOString()
+    const lDay3End = new Date(2026, 8, 21, 10, 30, 0).toISOString()
+    const lDay4 = new Date(2026, 8, 22, 9, 0, 0).toISOString()
+    const lDay4End = new Date(2026, 8, 22, 10, 30, 0).toISOString()
+
+    const p = buildWidgetPayload(
+      [
+        { id: '0', source: 'manual', title: 'Today Past', code: 'TODAY', start: lToday, end: lTodayEnd },
+        { id: '1', source: 'manual', title: 'Tomorrow Class', code: 'TMR', start: lTomorrow, end: lTomorrowEnd, location: '1324' },
+        { id: '2', source: 'manual', title: 'Day3 Class', code: 'D3', start: lDay3, end: lDay3End },
+        { id: '3', source: 'manual', title: 'Outside Lookahead', code: 'OUT', start: lDay4, end: lDay4End },
+      ],
+      now,
+    )
+
+    expect(p.date).toBe('2026-09-18')
+    expect(Object.keys(p.days ?? {})).toEqual(['2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21'])
+    expect(p.days?.['2026-09-18'].items).toHaveLength(1)
+    expect(p.days?.['2026-09-18'].weekCount).toBe(2)
+    expect(p.days?.['2026-09-18'].next).toBeNull()
+    expect(p.days?.['2026-09-19'].items.map((i) => i.name)).toEqual(['TMR'])
+    expect(p.days?.['2026-09-21'].weekCount).toBe(2) // Mon 21 + Tue 22 roll into next week!
+    expect(p.days?.['2026-09-19'].next).toEqual({ name: 'TMR', room: '1324', at: '10:15' })
+    expect(p.days?.['2026-09-19'].nextStartMs).toBe(new Date(lTomorrow).getTime())
+    expect(p.days?.['2026-09-20'].items).toEqual([])
+    expect(p.days?.['2026-09-21'].items.map((i) => i.name)).toEqual(['D3'])
+    expect(p.days?.['2026-09-22']).toBeUndefined()
+  })
+
+  it('serializes active running, paused, and idle pomodoro states', () => {
+    const now = new Date('2026-09-18T10:00:00.000Z')
+    const idle = buildPomodoroPayload(null, 2, now)
+    expect(idle).toEqual({
+      updatedAt: now.getTime(),
+      active: false,
+      phase: null,
+      running: false,
+      endsAt: null,
+      pausedRemainingMs: null,
+      roundsToday: 2,
+      courseCode: null,
+      label: null,
+    })
+
+    const runningTimer: PomodoroTimer = {
+      phase: 'focus',
+      totalMs: 25 * 60_000,
+      endsAt: now.getTime() + 18 * 60_000,
+      pausedRemainingMs: null,
+      completedRounds: 1,
+      studyBlockId: null,
+      courseCode: 'CT30A2910',
+      label: 'Read chapter 4',
+    }
+    const running = buildPomodoroPayload(runningTimer, 1, now)
+    expect(running.active).toBe(true)
+    expect(running.running).toBe(true)
+    expect(running.phase).toBe('focus')
+    expect(running.endsAt).toBe(now.getTime() + 18 * 60_000)
+    expect(running.courseCode).toBe('CT30A2910')
+    expect(running.label).toBe('Read chapter 4')
+
+    const pausedTimer: PomodoroTimer = {
+      phase: 'short',
+      totalMs: 5 * 60_000,
+      endsAt: null,
+      pausedRemainingMs: 180_000,
+      completedRounds: 2,
+      studyBlockId: null,
+      courseCode: null,
+      label: null,
+    }
+    const paused = buildPomodoroPayload(pausedTimer, 2, now)
+    expect(paused.active).toBe(true)
+    expect(paused.running).toBe(false)
+    expect(paused.pausedRemainingMs).toBe(180_000)
+  })
+})

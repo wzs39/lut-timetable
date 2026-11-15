@@ -33,6 +33,7 @@ import {
   type PomodoroTimerMeta,
 } from '../lib/pomodoro'
 import { loadStudyBlocks, setStudyBlockCompleted, subscribeStudyBlocks, type StudyBlock } from '../lib/studyBlocks'
+import { pushPomodoroData } from '../lib/widgetData'
 
 /** tick 周期：1s 只影响指针的观感，真实剩余按 endsAt 算，差一秒也不会漂移 */
 const TICK_MS = 1_000
@@ -94,6 +95,12 @@ function usePomodoroStandalone(enabled = true): PomodoroController {
     if (!enabled) return
     savePomodoroState(state)
   }, [state, enabled])
+
+  // 番茄钟阶段/起停/绑定变化时推送到原生 4x2 小组件
+  useEffect(() => {
+    if (!enabled) return
+    void pushPomodoroData(timer, state.roundsToday)
+  }, [enabled, timer, state.roundsToday])
 
   const finishPhase = useCallback((finished: PomodoroTimer, now: number) => {
     const current = stateRef.current

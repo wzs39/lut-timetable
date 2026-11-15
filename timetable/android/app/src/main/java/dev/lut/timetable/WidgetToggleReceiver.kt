@@ -27,6 +27,11 @@ import android.widget.Toast
 class WidgetToggleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val appCtx = context.applicationContext ?: return
+        if (intent.action == ACTION_REFRESH) {
+            BaseWidgetProvider.renderAll(appCtx, android.appwidget.AppWidgetManager.getInstance(appCtx))
+            Toast.makeText(appCtx, appCtx.getString(R.string.widget_refreshed), Toast.LENGTH_SHORT).show()
+            return
+        }
         if (intent.action == ACTION_OPEN_LESSON) {
             // Tap baris pelajaran: bila payload membawa courseid Moodle (tabel
             // identitas) langsung buka course page di browser — tanpa app.
@@ -101,6 +106,8 @@ class WidgetToggleReceiver : BroadcastReceiver() {
         const val ACTION_TOGGLE = "dev.lut.timetable.WIDGET_TOGGLE_TASK"
         /** Tap baris pelajaran (widget hari ini): buka Moodle course page / app. */
         const val ACTION_OPEN_LESSON = "dev.lut.timetable.WIDGET_OPEN_LESSON"
+        /** Manual widget refresh trigger from widget header button. */
+        const val ACTION_REFRESH = "dev.lut.timetable.WIDGET_REFRESH"
         const val EXTRA_ID = "taskId"
         const val EXTRA_MOODLE_ID = "moodleId"
         const val EXTRA_COMPLETED = "completed"
@@ -133,6 +140,13 @@ class WidgetToggleReceiver : BroadcastReceiver() {
                 context, 3002,
                 Intent(context, WidgetToggleReceiver::class.java).setAction(ACTION_OPEN_LESSON),
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
+            )
+
+        fun refreshTemplate(context: Context): android.app.PendingIntent =
+            android.app.PendingIntent.getBroadcast(
+                context, 3003,
+                Intent(context, WidgetToggleReceiver::class.java).setAction(ACTION_REFRESH),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
             )
     }
 }

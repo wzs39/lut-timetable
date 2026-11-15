@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import type { Lesson } from '../types'
+import type { PomodoroPhase, PomodoroTimer } from './pomodoro'
 import type { Task } from './tasks'
 import { logError } from './errorLog'
 import { viewDeclForRoute } from './navigation'
@@ -19,8 +20,44 @@ import { viewDeclForRoute } from './navigation'
 export const PREF_KEY = 'widget_payload_v1'
 /** Tasks widget payload — TasksWidgetProvider.kt membaca key ini. */
 export const PREF_TASK_KEY = 'widget_tasks_payload_v1'
+/** Pomodoro live timer payload — WideWidgetProvider (4x2) membaca key ini. */
+export const PREF_POMODORO_KEY = 'widget_pomodoro_v1'
 /** Deep-link nav dari widget tap: MainActivity menulis, web boot mengonsumsi. */
 const PREF_NAV_KEY = 'widget_nav_v1'
+
+export interface WidgetLessonItem {
+  /** hh:mm mulai (tampilan) */
+  s: string
+  /** hh:mm selesai (tampilan) */
+  e: string
+  /** kode kursus, fallback judul */
+  name: string
+  /** nama kursus ringkas (segmen pertama judul SISU) */
+  title: string
+  room: string
+  /** epoch ms mulai — native menandai NOW bila now ∈ [sms, ems) */
+  sms: number
+  /** epoch ms selesai */
+  ems: number
+  /**
+   * courseid Moodle (tabel identitas kursus) — baris widget klik
+   * langsung membuka course page di browser; null = buka app biasa.
+   */
+  mid: number | null
+  /**
+   * Sesi ini terlibat dalam perubahan sinkron terakhir (waktu geser /
+   * ruang ganti / dibatalkan) — native menandai baris supaya perubahan
+   * tidak lewat begitu saja. Hanya diisi bila push membawa `marks`.
+   */
+  chg?: boolean
+}
+
+export interface WidgetDayBucket {
+  items: WidgetLessonItem[]
+  weekCount: number
+  next: { name: string; room: string; at: string } | null
+  nextStartMs: number | null
+}
 
 export interface WidgetPayload {
   /** epoch ms saat payload ditulis — widget menampilkan "usang" bila lama */
@@ -33,32 +70,12 @@ export interface WidgetPayload {
    * sama-sama ditampilkan. `sms/ems` (epoch ms) dipakai native untuk
    * menandai sesi yang sedang berlangsung saat render.
    */
-  items: {
-    /** hh:mm mulai (tampilan) */
-    s: string
-    /** hh:mm selesai (tampilan) */
-    e: string
-    /** kode kursus, fallback judul */
-    name: string
-    /** nama kursus ringkas (segmen pertama judul SISU) */
-    title: string
-    room: string
-    /** epoch ms mulai — native menandai NOW bila now ∈ [sms, ems) */
-    sms: number
-    /** epoch ms selesai */
-    ems: number
-    /**
-     * courseid Moodle (tabel identitas kursus) — baris widget klik
-     * langsung membuka course page di browser; null = buka app biasa.
-     */
-    mid: number | null
-    /**
-     * Sesi ini terlibat dalam perubahan sinkron terakhir (waktu geser /
-     * ruang ganti / dibatalkan) — native menandai baris supaya perubahan
-     * tidak lewat begitu saja. Hanya diisi bila push membawa `marks`.
-     */
-    chg?: boolean
-  }[]
+  items: WidgetLessonItem[]
+  /**
+   * 跨日预置桶（含今天及未来 3 个本地日）：零点过后若后台同步尚未跑，
+   * 原生小组件仍可直接按当日 yyyy-mm-dd 切换课表，不再继续显示昨天课表。
+   */
+  days?: Record<string, WidgetDayBucket>
   /** jumlah pelajaran minggu ini */
   weekCount: number
   /** judul pelajaran berikutnya yang belum selesai (opsional) */
@@ -80,6 +97,38 @@ function hm(iso: string): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+const LOOKAHEAD_DAYS = 4
+
+function toWidgetLessonItem(
+  l: Lesson,
+  moodleIdOf: ((code: string | undefined) => number | null) | undefined,
+  marked: Set<string> | null,
+): WidgetLessonItem {
+  return {
+    s: hm(l.start),
+    e: hm(l.end),
+    name: l.code || l.title,
+    title: (l.title || '').split(' · ')[0] || '',
+    room: l.location || '—',
+    sms: new Date(l.start).getTime(),
+    ems: new Date(l.end).getTime(),
+    mid: moodleIdOf ? moodleIdOf(l.code) : null,
+    ...(marked?.has(l.code || l.title) ? { chg: true } : {}),
+  }
+}
+
+function countWeekLessons(lessons: Lesson[], refDate: Date): number {
+  const weekStart = new Date(refDate)
+  weekStart.setDate(refDate.getDate() - ((refDate.getDay() + 6) % 7)) // Senin
+  weekStart.setHours(0, 0, 0, 0)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 7)
+  return lessons.filter((l) => {
+    const t = new Date(l.start)
+    return t >= weekStart && t < weekEnd
+  }).length
+}
+
 /** Bangun payload murni dari daftar pelajaran (dapat diuji, tanpa I/O).
  *  `moodleIdOf` opsional: kode kursus → courseid Moodle (tabel identitas).
  *  Dipisah agar builder tetap murni; pushWidgetData menyuntik resolver asli. */
@@ -90,46 +139,42 @@ export function buildWidgetPayload(
   marks?: { codes: string[]; n: number } | null,
 ): WidgetPayload {
   const day = localDate(now)
-  const today = lessons
-    .filter((l) => localDate(new Date(l.start)) === day)
-    .sort((a, b) => a.start.localeCompare(b.start))
-  const weekStart = new Date(now)
-  weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7)) // Senin
-  weekStart.setHours(0, 0, 0, 0)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 7)
-  const weekCount = lessons.filter((l) => {
-    const t = new Date(l.start)
-    return t >= weekStart && t < weekEnd
-  }).length
-  const upcoming = today.find((l) => new Date(l.end) > now)
   // 变动标记按「代码优先、无代码用标题」匹配，与 syncAudit 的 label 同口径
   const marked = marks ? new Set(marks.codes) : null
 
+  const days: Record<string, WidgetDayBucket> = {}
+  for (let offset = 0; offset < LOOKAHEAD_DAYS; offset++) {
+    const bucketDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset)
+    const key = localDate(bucketDate)
+    const cutoff = offset === 0 ? now : bucketDate
+    const dayLessons = lessons
+      .filter((l) => localDate(new Date(l.start)) === key)
+      .sort((a, b) => a.start.localeCompare(b.start))
+    const upcoming = dayLessons.find((l) => new Date(l.end) > cutoff)
+    days[key] = {
+      items: dayLessons.map((l) => toWidgetLessonItem(l, moodleIdOf, marked)),
+      weekCount: countWeekLessons(lessons, bucketDate),
+      next: upcoming
+        ? {
+            name: upcoming.code || upcoming.title,
+            room: upcoming.location || '—',
+            at: hm(upcoming.start),
+          }
+        : null,
+      nextStartMs: upcoming ? new Date(upcoming.start).getTime() : null,
+    }
+  }
+
+  const todayBucket = days[day]
   return {
     updatedAt: now.getTime(),
     date: day,
-    items: today.map((l) => ({
-      s: hm(l.start),
-      e: hm(l.end),
-      name: l.code || l.title,
-      title: (l.title || '').split(' · ')[0] || '',
-      room: l.location || '—',
-      sms: new Date(l.start).getTime(),
-      ems: new Date(l.end).getTime(),
-      mid: moodleIdOf ? moodleIdOf(l.code) : null,
-      ...(marked?.has(l.code || l.title) ? { chg: true } : {}),
-    })),
-    weekCount,
+    items: todayBucket.items,
+    days,
+    weekCount: todayBucket.weekCount,
     ...(marks && marks.n > 0 ? { chgN: marks.n } : {}),
-    next: upcoming
-      ? {
-          name: upcoming.code || upcoming.title,
-          room: upcoming.location || '—',
-          at: hm(upcoming.start),
-        }
-      : null,
-    nextStartMs: upcoming ? new Date(upcoming.start).getTime() : null,
+    next: todayBucket.next,
+    nextStartMs: todayBucket.nextStartMs,
   }
 }
 
@@ -306,5 +351,68 @@ export async function refreshWidgets(): Promise<void> {
     await plugins?.lutWidget?.refresh()
   } catch {
     // Widget adalah bonus.
+  }
+}
+
+export interface WidgetPomodoroPayload {
+  updatedAt: number
+  active: boolean
+  phase: PomodoroPhase | null
+  running: boolean
+  endsAt: number | null
+  pausedRemainingMs: number | null
+  roundsToday: number
+  courseCode: string | null
+  label: string | null
+}
+
+/** 构建番茄钟小组件实时状态载荷（纯函数，无 I/O）。 */
+export function buildPomodoroPayload(
+  timer: PomodoroTimer | null,
+  roundsToday: number,
+  now: Date = new Date(),
+): WidgetPomodoroPayload {
+  if (!timer) {
+    return {
+      updatedAt: now.getTime(),
+      active: false,
+      phase: null,
+      running: false,
+      endsAt: null,
+      pausedRemainingMs: null,
+      roundsToday,
+      courseCode: null,
+      label: null,
+    }
+  }
+  const running = timer.endsAt !== null && timer.pausedRemainingMs === null
+  return {
+    updatedAt: now.getTime(),
+    active: true,
+    phase: timer.phase,
+    running,
+    endsAt: timer.endsAt,
+    pausedRemainingMs: timer.pausedRemainingMs,
+    roundsToday,
+    courseCode: timer.courseCode ?? null,
+    label: timer.label ?? null,
+  }
+}
+
+/** 推送番茄钟状态到原生小组件（仅原生端运行，静默兜底）。 */
+export async function pushPomodoroData(
+  timer: PomodoroTimer | null,
+  roundsToday: number,
+): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try {
+    const { Preferences } = await import('@capacitor/preferences')
+    await Preferences.set({
+      key: PREF_POMODORO_KEY,
+      value: JSON.stringify(buildPomodoroPayload(timer, roundsToday)),
+    })
+    await refreshWidgets()
+  } catch {
+    // Widget 是加分项，不能阻塞番茄钟计时器状态流。
   }
 }

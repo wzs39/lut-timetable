@@ -916,11 +916,18 @@ html.light .app-card {
   display: flex;
   gap: 4px;
   padding: 3px;
+  padding-inline-end: 16px;
   border-radius: 0.5rem;
   background: var(--surface-1);
   border: 1px solid var(--line);
   overflow-x: auto;
   overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+}
+.app-rail::-webkit-scrollbar {
+  display: none;
 }
 .app-rail-item {
   display: flex;
@@ -965,6 +972,8 @@ html.light .app-card {
     background: var(--surface-1);
     padding: 0.35rem;
     box-shadow: none;
+    -webkit-mask-image: none;
+    mask-image: none;
   }
   .app-rail-item {
     width: 100%;

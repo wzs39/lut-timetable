@@ -14,6 +14,13 @@
     <string name="widget_changed">CHANGED</string>
     <string name="widget_in_hm">Next in %1$dh %2$02dm</string>
     <string name="widget_in_m">Next in %1$d min</string>
+    <string name="widget_stale_lessons">Data from %1$s — tap ↻ or open app</string>
+    <string name="widget_tap_refresh">Tap ↻ or open app to sync</string>
+    <string name="widget_refreshed">Widget refreshed</string>
+    <string name="widget_refresh_cd">Refresh widget</string>
+    <string name="widget_focus_running">Focus · %1$d min</string>
+    <string name="widget_focus_break">Break · %1$d min</string>
+    <string name="widget_focus_paused">Paused · %1$d min</string>
 
     <!-- Widget tugas -->
     <string name="widget_tasks_title">LUT Timetable · Tasks</string>

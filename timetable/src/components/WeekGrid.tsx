@@ -685,7 +685,7 @@ export default function WeekGrid({
               onChange={(e) =>
                 setSlotDraft((prev) => (prev ? { ...prev, courseCode: e.target.value } : prev))
               }
-              className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 font-mono text-[11px] text-[var(--text-1)]"
+              className="min-w-0 max-w-full truncate rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 font-mono text-[11px] text-[var(--text-1)]"
             >
               <option value="">{t('weekSlotCourseNone')}</option>
               {weekCourseOptions.map((c) => (

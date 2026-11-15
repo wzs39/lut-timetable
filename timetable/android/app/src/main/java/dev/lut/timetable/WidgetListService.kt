@@ -99,7 +99,7 @@ internal object WidgetRows {
         val prefs = ctx.getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE)
         val raw = prefs.getString("widget_payload_v1", null) ?: return emptyList()
         return try {
-            val arr = org.json.JSONObject(raw).optJSONArray("items") ?: return emptyList()
+            val arr = BaseWidgetProvider.resolveDay(org.json.JSONObject(raw)).items
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
                 LessonRow(

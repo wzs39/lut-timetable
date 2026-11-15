@@ -58,6 +58,7 @@ class TasksWidgetProvider : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             views.setOnClickPendingIntent(R.id.widget_root, openTasks)
+            views.setOnClickPendingIntent(R.id.widget_refresh, WidgetToggleReceiver.refreshTemplate(context))
 
             val payload = readPayload(context)
             if (payload == null) {
@@ -101,6 +102,7 @@ class TasksWidgetProvider : AppWidgetProvider() {
         /** Keyguard: teks putih kontras tinggi menimpa warna statis layout. */
         private fun applyKeyguardText(views: RemoteViews) {
             views.setTextColor(R.id.widget_title, Color.parseColor("#F4F5F7"))
+            views.setTextColor(R.id.widget_refresh, Color.parseColor("#B8BCC4"))
             views.setTextColor(R.id.widget_empty, Color.parseColor("#D9DBE0"))
             views.setTextColor(R.id.widget_meta, Color.parseColor("#B8BCC4"))
         }

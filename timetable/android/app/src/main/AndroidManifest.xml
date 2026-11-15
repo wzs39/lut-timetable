@@ -93,6 +93,7 @@
             <intent-filter>
                 <action android:name="dev.lut.timetable.WIDGET_TOGGLE_TASK" />
                 <action android:name="dev.lut.timetable.WIDGET_OPEN_LESSON" />
+                <action android:name="dev.lut.timetable.WIDGET_REFRESH" />
             </intent-filter>
         </receiver>
 
