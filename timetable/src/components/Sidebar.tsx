@@ -139,11 +139,12 @@ function SourcesPanel({
             >
               <div className="flex items-center justify-between">
                 <span className="min-w-0 truncate font-medium">
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex items-center gap-1.5">
                     <span
                       className={
-                        'inline-block h-2 w-2 rounded-full ' +
-                        (s.type === 'sisu' ? 'bg-[var(--info)]' : 'bg-[var(--violet)]')
+                        'led-dot ' +
+                        (s.type === 'sisu' ? 'led-info' : 'led-ok') +
+                        (syncing ? ' led-pulse' : '')
                       }
                     />{' '}
                     {s.type === 'sisu' ? 'SISU' : 'TimeEdit'}
@@ -161,7 +162,7 @@ function SourcesPanel({
               <div className="text-[10px] text-[var(--text-3)] mt-0.5 truncate" title={s.url}>
                 {s.url}
               </div>
-              <div className="mt-1 text-[10px] text-[var(--text-3)]">
+              <div className="num mt-1 text-[10px] text-[var(--text-3)]">
                 {t('lessonsN', { n: s.count })}
                 {s.lastSync ? ` · ${formatTime(s.lastSync)}` : ''}
               </div>
@@ -208,7 +209,7 @@ export default function Sidebar({
     // 宽度由外层容器决定（桌面可拖拽调宽；embedded = 移动端抽屉内占满剩余高度）
     <aside
       className={
-        'w-full min-w-0 shrink-0 bg-[var(--surface-1)] flex flex-col overflow-y-auto safe-bottom ' +
+        'instrument-dock w-full min-w-0 shrink-0 bg-[var(--surface-1)] flex flex-col overflow-y-auto safe-bottom ' +
         (embedded
           ? 'flex-1 min-h-0 border-t border-[var(--line)]'
           : 'h-full border-r border-[var(--line)]')

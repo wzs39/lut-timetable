@@ -9,11 +9,23 @@ import { TYPE_META } from '../lib/lessonTypes'
 import { displayTitle, buildingOf, roomOf } from '../lib/display'
 import { formatDay, formatTime } from '../lib/date'
 import { normalizeCourseCode } from '../lib/ics'
-import { scopeText } from '../lib/notes'
+import { loadNotes, scopeText, type NotesMap } from '../lib/notes'
 import { isOverdue, pendingTasks, type Task } from '../lib/tasks'
 import { openExternal } from '../lib/openExternal'
 import ExternalLink from './ExternalLink'
 import AttendanceControl from './AttendanceControl'
+import { loadAttendance } from '../lib/attendance'
+import {
+  buildCourseGraph,
+  findUnifiedCourse,
+  type CourseGraph,
+  type UnifiedCourseNode,
+} from '../lib/courseGraph'
+import { buildCourseDossier } from '../lib/courseDossier'
+import { loadGradesSnapshot, type CourseGrades } from '../lib/grades'
+import type { CourseSection } from '../lib/contents'
+import type { LutGradeLevel } from '../lib/gradeCalc'
+import { usePomodoro } from '../hooks/usePomodoro'
 
 /** 同一天内的翻课导航（App 用 date.sameDayQueue 算出位置后传入） */
 export interface LessonNav {
@@ -25,15 +37,23 @@ export interface LessonNav {
 }
 
 interface Props {
-  lesson: Lesson
-  onSave: (id: string, patch: Partial<Lesson>) => void
-  onDelete: (id: string) => void
+  lesson?: Lesson | null
+  /** 支持无课表 Lesson 对象时直接按课程代码或 UnifiedCourseNode 打开右侧全景档案 */
+  courseCode?: string | null
+  courseNode?: UnifiedCourseNode | null
+  courseGraph?: CourseGraph
+  grades?: CourseGrades[] | null
+  sections?: CourseSection[]
+  notesMap?: NotesMap
+  onToggleTask?: (task: Task, completed: boolean) => void
+  onSave?: (id: string, patch: Partial<Lesson>) => void
+  onDelete?: (id: string) => void
   /** 同一天的上一节/下一节（不传则不显示翻课按钮） */
   nav?: LessonNav
   /** URL halaman TimeEdit sumber lesson ini (bila ada) */
   timeEditUrl?: string
   /** Sembunyikan tanpa menghapus (tanpa tombstone) */
-  onHide: (id: string) => void
+  onHide?: (id: string) => void
   onClose: () => void
   /** Catatan kursus (berlaku untuk semua pelajaran dengan kode+jenis yang sama) */
   note?: string
@@ -61,6 +81,13 @@ function toTimeInput(iso: string): string {
 
 export default function LessonDetail({
   lesson,
+  courseCode,
+  courseNode,
+  courseGraph,
+  grades,
+  sections,
+  notesMap,
+  onToggleTask,
   onSave,
   onDelete,
   nav,
@@ -77,58 +104,118 @@ export default function LessonDetail({
   allLessons,
 }: Props) {
   const { t, locale } = useI18n()
+  const pomodoro = usePomodoro()
   const [editing, setEditing] = useState(false)
-  const [title, setTitle] = useState(lesson.title)
-  const [code, setCode] = useState(lesson.code || '')
-  const [location, setLocation] = useState(lesson.location || '')
-  const [date, setDate] = useState(lesson.start.slice(0, 10))
-  const [start, setStart] = useState(toTimeInput(lesson.start))
-  const [end, setEnd] = useState(toTimeInput(lesson.end))
+  const [title, setTitle] = useState(lesson?.title ?? courseNode?.title ?? courseCode ?? '')
+  const [code, setCode] = useState(lesson?.code || courseNode?.code || courseCode || '')
+  const [location, setLocation] = useState(lesson?.location || '')
+  const [date, setDate] = useState(lesson ? lesson.start.slice(0, 10) : '')
+  const [start, setStart] = useState(lesson ? toTimeInput(lesson.start) : '08:00')
+  const [end, setEnd] = useState(lesson ? toTimeInput(lesson.end) : '10:00')
   const [error, setError] = useState<string | null>(null)
   const [sisuState, setSisuState] = useState<'idle' | 'loading' | 'notfound'>('idle')
   const [noteEdit, setNoteEdit] = useState(false)
   const [noteText, setNoteText] = useState('')
+  const [targetGrade, setTargetGrade] = useState<LutGradeLevel>(4)
 
-  // Tabel identitas: kode jadwal → courseid Moodle (tulis saat enrol sync).
-  // Ada barisnya → tautan langsung ke halaman kursus, tanpa pencarian SISU.
-  const moodleCourseId = useMemo(
-    () => (lesson.code ? loadIdentityIndex().idForCode(lesson.code) : null),
-    [lesson.code],
+  // 解析统一课程节点（支持传入 courseNode、courseGraph 或自动从当前上下文构建）
+  const resolvedNode = useMemo<UnifiedCourseNode>(() => {
+    if (courseNode) return courseNode
+    const targetCode = lesson?.code || courseCode || ''
+    const targetTitle = lesson ? displayTitle(lesson) : courseCode || ''
+    if (courseGraph) {
+      const found = findUnifiedCourse(courseGraph, {
+        code: targetCode || undefined,
+        title: targetTitle || undefined,
+      })
+      if (found) return found
+    }
+    const effectiveLessons = allLessons && allLessons.length > 0 ? allLessons : lesson ? [lesson] : []
+    const effectiveGrades = grades ?? loadGradesSnapshot()?.courses ?? []
+    const g = buildCourseGraph({
+      lessons: effectiveLessons,
+      tasks: assignments ?? [],
+      grades: effectiveGrades,
+    })
+    const matched = findUnifiedCourse(g, {
+      code: targetCode || undefined,
+      title: targetTitle || undefined,
+    })
+    if (matched) return matched
+    const normCode = targetCode ? normalizeCourseCode(targetCode) : ''
+    return {
+      key: normCode || targetTitle || 'course',
+      code: normCode,
+      title: targetTitle || normCode || 'Course',
+      sources: lesson ? [lesson.source] : ['sisu'],
+      periods: [],
+      lessons: lesson ? [lesson] : [],
+      teachers: [],
+      locations: lesson?.location ? [lesson.location] : [],
+      tasks: [],
+      pendingTaskCount: 0,
+      studyBlocks: [],
+      discrepancies: [],
+    }
+  }, [courseNode, courseGraph, lesson, courseCode, allLessons, assignments, grades])
+
+  const dossier = useMemo(
+    () =>
+      buildCourseDossier(resolvedNode, {
+        attendanceLog: loadAttendance(),
+        notesMap: notesMap ?? loadNotes(),
+        sections,
+        targetGradeLevel: targetGrade,
+        focusMinutesByCourse: pomodoro.focusMinutesByCourse,
+      }),
+    [resolvedNode, notesMap, sections, targetGrade, pomodoro.focusMinutesByCourse],
   )
 
-  const isMerged = (lesson.mergedSources?.length ?? 0) > 1
-  const sourceNote = isMerged
-    ? t('mergedNote')
-    : lesson.source === 'sisu'
-      ? t('sisuNote')
-      : lesson.source === 'timeedit'
-        ? t('timeeditNote')
-        : t('manualNote')
+  const effectiveCode = lesson?.code || resolvedNode.code || courseCode || ''
 
-  // Buka lesson lain: kembali ke mode lihat + reset form
+  // Tabel identitas: kode jadwal → courseid Moodle (tulis saat enrol sync).
+  const moodleCourseId = useMemo(
+    () =>
+      resolvedNode.moodleCourseId ??
+      (effectiveCode ? loadIdentityIndex().idForCode(effectiveCode) : null),
+    [resolvedNode.moodleCourseId, effectiveCode],
+  )
+
+  const isMerged = (lesson?.mergedSources?.length ?? 0) > 1
+  const sourceNote = lesson
+    ? isMerged
+      ? t('mergedNote')
+      : lesson.source === 'sisu'
+        ? t('sisuNote')
+        : lesson.source === 'timeedit'
+          ? t('timeeditNote')
+          : t('manualNote')
+    : t('dossierTriSource')
+
+  // Buka lesson/course lain: kembali ke mode lihat + reset form
   useEffect(() => {
     setEditing(false)
-    setTitle(lesson.title)
-    setCode(lesson.code || '')
-    setLocation(lesson.location || '')
-    setDate(lesson.start.slice(0, 10))
-    setStart(toTimeInput(lesson.start))
-    setEnd(toTimeInput(lesson.end))
+    setTitle(lesson?.title ?? resolvedNode.title)
+    setCode(lesson?.code || resolvedNode.code || '')
+    setLocation(lesson?.location || '')
+    setDate(lesson ? lesson.start.slice(0, 10) : '')
+    setStart(lesson ? toTimeInput(lesson.start) : '08:00')
+    setEnd(lesson ? toTimeInput(lesson.end) : '10:00')
     setError(null)
     setSisuState('idle')
     setNoteEdit(false)
     setNoteText(note || '')
-  }, [lesson, note])
+  }, [lesson, resolvedNode.title, resolvedNode.code, note])
 
   const startEdit = () => {
-    // Init from the RAW stored title, not the display-cleaned one, so
-    // entering edit mode can never rewrite stored data on save.
+    if (!lesson) return
     setTitle(lesson.title)
     setEditing(true)
     setError(null)
   }
 
   const handleSave = () => {
+    if (!lesson || !onSave) return
     const startDt = new Date(`${date}T${start}:00`)
     const endDt = new Date(`${date}T${end}:00`)
     if (!title.trim()) return setError(t('errNameRequired'))
@@ -146,6 +233,7 @@ export default function LessonDetail({
   }
 
   const handleDelete = () => {
+    if (!lesson || !onDelete) return
     if (confirm(t('deleteConfirm', { t: lesson.title }))) {
       onDelete(lesson.id)
       requestClose()
@@ -153,10 +241,10 @@ export default function LessonDetail({
   }
 
   const openSisu = async () => {
-    if (!lesson.code) return
+    if (!effectiveCode) return
     setSisuState('loading')
     try {
-      const url = await resolveSisuCourseUrl(lesson.code)
+      const url = await resolveSisuCourseUrl(effectiveCode)
       openExternal(url)
       setSisuState('idle')
     } catch {
@@ -168,7 +256,6 @@ export default function LessonDetail({
   const [closing, requestClose] = useExitAnimation(onClose)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // 同一天内前后翻课：输入框内自行退出（不抢编辑光标）
     const inField =
       e.target instanceof HTMLElement &&
       (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)
@@ -187,21 +274,20 @@ export default function LessonDetail({
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && editing) handleSave()
   }
 
-  const inputCls =
-    'mt-0.5 app-input'
+  const inputCls = 'mt-0.5 app-input'
 
-  const startD = new Date(lesson.start)
-  const endD = new Date(lesson.end)
-  const durMin = Math.max(0, Math.round((endD.getTime() - startD.getTime()) / 60000))
+  const startD = lesson ? new Date(lesson.start) : null
+  const endD = lesson ? new Date(lesson.end) : null
+  const durMin =
+    startD && endD ? Math.max(0, Math.round((endD.getTime() - startD.getTime()) / 60000)) : 0
   const durText =
     durMin < 60
       ? t('durationM', { m: durMin })
       : t('durationHM', { h: Math.floor(durMin / 60), m: durMin % 60 })
 
-  // Ruang lingkup catatan: kode kursus (ternormalisasi) + jenis sesi
   const noteScope = scopeText(
-    lesson.code ? normalizeCourseCode(lesson.code) : displayTitle(lesson),
-    lesson.type && TYPE_META[lesson.type]
+    effectiveCode ? normalizeCourseCode(effectiveCode) : lesson ? displayTitle(lesson) : resolvedNode.title,
+    lesson?.type && TYPE_META[lesson.type]
       ? t(TYPE_META[lesson.type].key)
       : t('noteScopeAny'),
   )
@@ -219,17 +305,21 @@ export default function LessonDetail({
       tabIndex={-1}
     >
       <div
+        data-testid="course-dossier-drawer"
         className={
           (closing ? 'animate-sheet-out ' : 'animate-sheet-in ') +
-          'w-full max-h-[86vh] overflow-y-auto rounded-t-2xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl ' +
-          'md:h-full md:max-h-none md:max-w-[420px] md:rounded-none md:rounded-l-2xl'
+          'dossier-drawer w-full max-h-[86vh] overflow-y-auto rounded-t-2xl border border-[var(--line)] bg-[var(--surface-1)] p-4 shadow-2xl ' +
+          'md:h-full md:max-h-none md:max-w-[440px] md:rounded-none md:rounded-l-2xl'
         }
         style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">
-            {editing ? t('editTitle') : t('detailTitle')}
-          </h3>
+          <div className="flex items-center gap-2">
+            <span className="led-dot led-info" aria-hidden="true" />
+            <h3 className="text-sm font-semibold">
+              {editing ? t('editTitle') : lesson ? t('detailTitle') : t('dossierTitle')}
+            </h3>
+          </div>
           <div className="flex items-center gap-1.5">
             {!editing && nav && nav.total > 1 && (
               <>
@@ -351,65 +441,159 @@ export default function LessonDetail({
           </>
         ) : (
           <>
-            {/* --- Mode lihat: info lengkap, hanya-baca --- */}
-            <div className="space-y-2.5 text-xs">
-              <div className="text-[11px] text-[var(--text-3)]">
-                {sourceNote}
-                {lesson.type && TYPE_META[lesson.type] && (
-                  <span className="ml-1">
-                    · {<Icon name={TYPE_META[lesson.type].icon} size={11} />} {t(TYPE_META[lesson.type].key)}
-                  </span>
+            {/* --- Mode lihat: Unified Course Dossier + Lesson Detail --- */}
+            <div className="space-y-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] text-[var(--text-3)]">
+                <div>
+                  {sourceNote}
+                  {lesson?.type && TYPE_META[lesson.type] && (
+                    <span className="ml-1">
+                      · {<Icon name={TYPE_META[lesson.type].icon} size={11} />} {t(TYPE_META[lesson.type].key)}
+                    </span>
+                  )}
+                </div>
+                {/* 1. Tri-source identity badges (SISU · TimeEdit · Moodle) */}
+                <div className="flex items-center gap-1" data-testid="dossier-source-badges">
+                  {(
+                    [
+                      ['sisu', 'SISU'],
+                      ['timeedit', 'TimeEdit'],
+                      ['moodle', 'Moodle'],
+                    ] as const
+                  ).map(([src, label]) => {
+                    const active = resolvedNode.sources.includes(src)
+                    return (
+                      <span
+                        key={src}
+                        className={
+                          'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] ' +
+                          (active
+                            ? 'border-[var(--line-info)] bg-[var(--tint-info)] text-[var(--text-1)]'
+                            : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-3)] opacity-60')
+                        }
+                      >
+                        <span className={'led-dot ' + (active ? 'led-ok' : '')} />
+                        {label}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2">
+                <div className="text-sm font-medium leading-snug text-[var(--text-1)]">
+                  {lesson ? displayTitle(lesson) : resolvedNode.title}
+                </div>
+                {resolvedNode.nameFi && (
+                  <div className="mt-0.5 text-[11px] text-[var(--text-3)]">{resolvedNode.nameFi}</div>
+                )}
+                {(resolvedNode.credits != null || resolvedNode.periods.length > 0) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-2)]">
+                    {resolvedNode.credits != null && (
+                      <span className="num font-mono tabular-nums">
+                        {t('dossierCreditsHours', {
+                          credits: resolvedNode.credits,
+                          hours: resolvedNode.totalStudyHours ?? Math.round(resolvedNode.credits * 27),
+                        })}
+                      </span>
+                    )}
+                    {resolvedNode.periods.length > 0 && (
+                      <span className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-1.5 py-0.5 font-mono text-[10px]">
+                        {t('dossierPeriods', { periods: resolvedNode.periods.join(' · ') })}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
 
-              <div
-                className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2 text-sm font-medium leading-snug"
-                style={{ color: lesson.code ? undefined : undefined }}
-              >
-                {displayTitle(lesson)}
-              </div>
+              {/* Cross-source discrepancy alerts */}
+              {resolvedNode.discrepancies.length > 0 && (
+                <div
+                  data-testid="dossier-discrepancies"
+                  className="rounded-md border border-[var(--line-due)] bg-[var(--tint-due)] px-2.5 py-2 space-y-1"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--due)]">
+                    {t('dossierDiscrepancyTitle')}
+                  </div>
+                  {resolvedNode.discrepancies.map((d, idx) => (
+                    <div key={`${d.kind}-${idx}`} className="flex items-center gap-1.5 text-[11px] text-[var(--due)]">
+                      <span className="led-dot led-warn" />
+                      <span>{t(d.messageKey as Parameters<typeof t>[0], d.meta)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <dl className="space-y-1.5">
-                {lesson.code && (
+                {effectiveCode && (
                   <div className="flex gap-2">
                     <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('code')}</dt>
-                    <dd className="font-mono">{lesson.code}</dd>
+                    <dd className="num font-mono tabular-nums">{effectiveCode}</dd>
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('date')}</dt>
-                  <dd>{formatDay(startD, locale)}</dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('time')}</dt>
-                  <dd>
-                    {formatTime(lesson.start, locale)} –{' '}
-                    {formatTime(lesson.end, locale)}
-                    <span className="ml-1 text-[var(--text-3)]">({durText})</span>
-                  </dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="w-14 shrink-0 text-[var(--text-3)]">
-                    {t('location')}
-                  </dt>
-                  <dd className={lesson.location ? '' : 'text-[var(--text-3)]'}>
-                    {lesson.location || '—'}
-                  </dd>
-                </div>
-                {buildingOf(lesson.location) && (
-                  <div className="flex gap-2">
-                    <dt className="w-14 shrink-0 text-[var(--text-3)] inline-flex"><Icon name="compass" size={12} className="mt-0.5" /></dt>
-                    <dd>
-                      <span className="font-medium inline-flex items-center gap-1"><Icon name="building" size={12} /> {buildingOf(lesson.location)}</span>
-                      <span className="ml-2 text-[var(--text-2)]">
-                        {t('room')}: {roomOf(lesson.location as string)}
-                      </span>
-                    </dd>
-                  </div>
+                {lesson && startD && (
+                  <>
+                    <div className="flex gap-2">
+                      <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('date')}</dt>
+                      <dd>{formatDay(startD, locale)}</dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="w-14 shrink-0 text-[var(--text-3)]">{t('time')}</dt>
+                      <dd className="num tabular-nums">
+                        {formatTime(lesson.start, locale)} –{' '}
+                        {formatTime(lesson.end, locale)}
+                        <span className="ml-1 text-[var(--text-3)]">({durText})</span>
+                      </dd>
+                    </div>
+                    <div className="flex gap-2">
+                      <dt className="w-14 shrink-0 text-[var(--text-3)]">
+                        {t('location')}
+                      </dt>
+                      <dd className={lesson.location ? '' : 'text-[var(--text-3)]'}>
+                        {lesson.location || '—'}
+                      </dd>
+                    </div>
+                    {buildingOf(lesson.location) && (
+                      <div className="flex gap-2">
+                        <dt className="w-14 shrink-0 text-[var(--text-3)] inline-flex"><Icon name="compass" size={12} className="mt-0.5" /></dt>
+                        <dd>
+                          <span className="font-medium inline-flex items-center gap-1"><Icon name="building" size={12} /> {buildingOf(lesson.location)}</span>
+                          <span className="ml-2 text-[var(--text-2)]">
+                            {t('room')}: {roomOf(lesson.location as string)}
+                          </span>
+                        </dd>
+                      </div>
+                    )}
+                  </>
                 )}
               </dl>
 
-              <AttendanceControl lesson={lesson} lessons={allLessons} />
+              {/* 2. Attendance rate & AttendanceControl + upcoming/past sessions */}
+              {lesson && <AttendanceControl lesson={lesson} lessons={allLessons} />}
+              {(dossier.recentAndUpcomingLessons.upcoming.length > 0 ||
+                dossier.recentAndUpcomingLessons.past.length > 0) && (
+                <div className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2">
+                  <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                    <span>{t('dossierScheduleTitle')}</span>
+                    <span className="num font-mono tabular-nums text-[var(--text-2)]">
+                      {t('dossierUpcomingSessions', { n: dossier.recentAndUpcomingLessons.upcoming.length })} ·{' '}
+                      {t('dossierPastSessions', { n: dossier.recentAndUpcomingLessons.past.length })}
+                    </span>
+                  </div>
+                  {dossier.recentAndUpcomingLessons.upcoming.length > 0 && (
+                    <div className="mt-1.5 space-y-1">
+                      {dossier.recentAndUpcomingLessons.upcoming.slice(0, 3).map((s) => (
+                        <div key={s.id} className="flex items-center justify-between text-[11px] text-[var(--text-2)]">
+                          <span className="num font-mono tabular-nums">
+                            {formatDay(new Date(s.start), locale)} {formatTime(s.start, locale)}
+                          </span>
+                          <span className="truncate text-[var(--text-3)]">{s.location || '—'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {moodleCourseId && (
                 <>
@@ -419,7 +603,6 @@ export default function LessonDetail({
                   >
                     {t('viewMoodleCourse')}
                   </ExternalLink>
-                  {/* Tautan langsung laporan nilai kursus ini (grade report). */}
                   <ExternalLink
                     href={`https://moodle.lut.fi/grade/report/user/index.php?id=${moodleCourseId}`}
                     className="block text-[11px] text-[var(--info)] hover:text-[var(--info)] hover:underline"
@@ -428,7 +611,7 @@ export default function LessonDetail({
                   </ExternalLink>
                 </>
               )}
-              {lesson.code && (
+              {effectiveCode && (
                 <button
                   onClick={openSisu}
                   className="text-[11px] text-[var(--info)] hover:text-[var(--info)] hover:underline"
@@ -449,43 +632,201 @@ export default function LessonDetail({
                 </ExternalLink>
               )}
 
-              {/* Tugas/assignment milik kode kursus ini */}
-              {assignments && onOpenAssignments && (() => {
-                const code = lesson.code ? normalizeCourseCode(lesson.code) : null
-                const related = code
-                  ? pendingTasks(assignments).filter(
-                      (task) =>
-                        task.course &&
-                        (task.course.toUpperCase().includes(code) ||
-                          normalizeCourseCode(task.course) === code),
-                    )
-                  : []
+              {/* 3. Pending assignments with inline completion checkboxes */}
+              {(assignments || dossier.tasks.pending.length > 0) && (() => {
+                const codeNorm = effectiveCode ? normalizeCourseCode(effectiveCode) : null
+                const related =
+                  dossier.tasks.pending.length > 0
+                    ? dossier.tasks.pending
+                    : codeNorm && assignments
+                      ? pendingTasks(assignments).filter(
+                          (task) =>
+                            task.course &&
+                            (task.course.toUpperCase().includes(codeNorm) ||
+                              normalizeCourseCode(task.course) === codeNorm),
+                        )
+                      : []
+                if (!onOpenAssignments && related.length === 0) return null
                 return (
-                  <button
-                    onClick={onOpenAssignments}
-                    className="block w-full rounded-md border border-[var(--line-ok)] bg-[var(--tint-ok)] px-2.5 py-2 text-left hover:bg-[var(--tint-ok)]"
-                  >
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ok)]">
-                      <span className="inline-flex items-center gap-1.5"><Icon name="graduation" size={12} /> {related.length > 0
-                        ? t('lessonAssignments', { n: related.length })
-                        : t('lessonAssignmentsEmpty')}</span>
+                  <div className="rounded-md border border-[var(--line-ok)] bg-[var(--tint-ok)] px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={onOpenAssignments}
+                        className="text-left text-[10px] font-semibold uppercase tracking-wider text-[var(--ok)] hover:underline"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <Icon name="graduation" size={12} />{' '}
+                          {related.length > 0
+                            ? t('lessonAssignments', { n: related.length })
+                            : t('lessonAssignmentsEmpty')}
+                        </span>
+                      </button>
                     </div>
                     {related.length > 0 && (
-                      <ul className="mt-1 space-y-0.5">
-                        {related.slice(0, 3).map((task) => (
-                          <li key={task.id} className="truncate text-[11px] text-[var(--ok)]">
-                            · {task.title}
-                            {isOverdue(task) && <span className="ml-1 text-[var(--danger)]">· {t('taskOverdue')}</span>}
+                      <ul className="mt-1.5 space-y-1">
+                        {related.slice(0, 5).map((task) => (
+                          <li key={task.id} className="flex items-center gap-2 text-[11px] text-[var(--ok)]">
+                            {onToggleTask ? (
+                              <input
+                                type="checkbox"
+                                data-testid={`dossier-task-checkbox-${task.id}`}
+                                checked={!!task.completed}
+                                aria-label={task.title}
+                                onChange={(e) => onToggleTask(task, e.target.checked)}
+                                className="accent-[var(--ok)]"
+                              />
+                            ) : (
+                              <span>·</span>
+                            )}
+                            <span className="min-w-0 flex-1 truncate">
+                              {task.title}
+                              {isOverdue(task) && (
+                                <span className="ml-1 text-[var(--danger)]">· {t('taskOverdue')}</span>
+                              )}
+                            </span>
                           </li>
                         ))}
-                        {related.length > 3 && (
+                        {related.length > 5 && (
                           <li className="text-[10px] text-[var(--ok)]">…</li>
                         )}
                       </ul>
                     )}
-                  </button>
+                  </div>
                 )
               })()}
+
+              {/* 4. Direct courseware & resource links */}
+              {dossier.resources.flatFiles.length > 0 && (
+                <div
+                  data-testid="dossier-resources"
+                  className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                    {t('dossierResourcesTitle', { n: dossier.resources.flatFiles.length })}
+                  </div>
+                  <div className="mt-1.5 space-y-1">
+                    {dossier.resources.flatFiles.slice(0, 6).map((res) => (
+                      <ExternalLink
+                        key={`${res.courseId}:${res.id}`}
+                        href={res.url ?? '#'}
+                        className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-[11px] text-[var(--info)] hover:bg-[var(--hover-1)] hover:underline"
+                      >
+                        <span className="truncate">{res.name}</span>
+                        <span className="shrink-0 font-mono text-[10px] text-[var(--text-3)]">↗</span>
+                      </ExternalLink>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 5. Real-time weighted grade projection & LUT 1–5 Grade Target Reverse Solver */}
+              {dossier.gradeAnalysis.projection && (
+                <div
+                  data-testid="dossier-grade-solver"
+                  className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2 space-y-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                      {t('dossierGradesTitle')}
+                    </span>
+                    <span className="num font-mono text-[11px] font-semibold tabular-nums text-[var(--text-1)]">
+                      {t('dossierCurrentProjected', {
+                        cur: Math.round(dossier.gradeAnalysis.projection.current ?? 0),
+                        proj: Math.round(
+                          dossier.gradeAnalysis.projection.coveredAvg ??
+                            dossier.gradeAnalysis.projection.current ??
+                            0,
+                        ),
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {([1, 2, 3, 4, 5] as const).map((lvl) => (
+                      <button
+                        key={lvl}
+                        type="button"
+                        onClick={() => setTargetGrade(lvl)}
+                        className={
+                          'num flex-1 rounded border py-0.5 font-mono text-[10px] tabular-nums ' +
+                          (targetGrade === lvl
+                            ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-text)] font-semibold'
+                            : 'border-[var(--line)] bg-[var(--surface-1)] text-[var(--text-2)]')
+                        }
+                      >
+                        G{lvl}
+                      </button>
+                    ))}
+                  </div>
+                  {dossier.gradeAnalysis.itemMinimumsForTarget.length > 0 && (
+                    <div className="space-y-1">
+                      {dossier.gradeAnalysis.itemMinimumsForTarget.slice(0, 4).map((req) => (
+                        <div
+                          key={req.itemIndex}
+                          className="flex items-center justify-between text-[11px] text-[var(--text-2)]"
+                        >
+                          <span className="truncate">{req.itemName}</span>
+                          <span
+                            className={
+                              'num font-mono text-[10px] tabular-nums ' +
+                              (req.feasible ? 'text-[var(--ok)]' : 'text-[var(--danger)]')
+                            }
+                          >
+                            ≥{Math.round(req.minPercentBalanced)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 6. Course-linked Focus Cockpit progress bar */}
+              <div
+                data-testid="dossier-focus-cockpit"
+                className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-2 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-3)]">
+                    {t('dossierFocusTitle')}
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="dossier-start-focus-btn"
+                    onClick={() =>
+                      pomodoro.startForCourse(effectiveCode || resolvedNode.title, {
+                        label: effectiveCode || resolvedNode.title,
+                      })
+                    }
+                    className="app-btn px-2 py-0.5 text-[10px]"
+                  >
+                    {t('dossierStartCourseFocus')}
+                  </button>
+                </div>
+                <div className="num text-[11px] tabular-nums text-[var(--text-2)]">
+                  {dossier.focus.sisuTotalHours
+                    ? t('dossierFocusProgress', {
+                        focus: dossier.focus.focusHours,
+                        attended: dossier.focus.attendedLectureHours,
+                        total: dossier.focus.sisuTotalHours,
+                        pct: Math.round((dossier.focus.completionRatio ?? 0) * 100),
+                      })
+                    : t('dossierFocusNoTarget', {
+                        focus: dossier.focus.focusHours,
+                        attended: dossier.focus.attendedLectureHours,
+                      })}
+                </div>
+                {dossier.focus.sisuTotalHours && (
+                  <div className="micro-scale">
+                    <span
+                      className="micro-scale-fill"
+                      style={{
+                        width: `${Math.min(100, Math.round((dossier.focus.completionRatio ?? 0) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
 
               {/* 订阅式提醒：这门课一有变动（时间/教室/取消）就推一条 */}
               {onWatch && (
@@ -507,7 +848,7 @@ export default function LessonDetail({
                 </button>
               )}
 
-              {/* Catatan kursus: berlaku untuk semua pelajaran dengan kode+jenis sama */}
+              {/* 7. Class quick notes */}
               {onSaveNote && (
                 <div className="rounded-md border border-[var(--line-due)] bg-[var(--tint-due)] px-2.5 py-2">
                   {noteEdit ? (
@@ -584,30 +925,32 @@ export default function LessonDetail({
               )}
             </div>
 
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={startEdit}
-                className="app-fill-info flex-[2] rounded-md px-3 py-1.5 text-xs"
-              >
-                <span className="inline-flex items-center gap-1.5"><Icon name="pencil" size={12} /> {t('edit')}</span>
-              </button>
-              <button
-                onClick={() => {
-                  onHide(lesson.id)
-                  requestClose()
-                }}
-                title={t('batchHideHint')}
-                className="rounded-md border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]"
-              >
-                <Icon name="eye-off" size={13} />
-              </button>
-              <button
-                onClick={handleDelete}
-                className="flex-1 rounded-md border border-[var(--danger)] px-3 py-1.5 text-xs font-medium text-[var(--danger)] hover:bg-[var(--tint-danger)] hover:text-[var(--danger)]"
-              >
-                {t('delete')}
-              </button>
-            </div>
+            {lesson && onSave && onDelete && onHide && (
+              <div className="mt-4 flex gap-2">
+                <button
+                  onClick={startEdit}
+                  className="app-fill-info flex-[2] rounded-md px-3 py-1.5 text-xs"
+                >
+                  <span className="inline-flex items-center gap-1.5"><Icon name="pencil" size={12} /> {t('edit')}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    onHide(lesson.id)
+                    requestClose()
+                  }}
+                  title={t('batchHideHint')}
+                  className="rounded-md border border-[var(--line)] px-3 py-1.5 text-xs font-medium text-[var(--text-2)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)]"
+                >
+                  <Icon name="eye-off" size={13} />
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 rounded-md border border-[var(--danger)] px-3 py-1.5 text-xs font-medium text-[var(--danger)] hover:bg-[var(--tint-danger)] hover:text-[var(--danger)]"
+                >
+                  {t('delete')}
+                </button>
+              </div>
+            )}
           </>
         )}
       </div>

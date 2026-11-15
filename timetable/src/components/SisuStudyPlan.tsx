@@ -12,6 +12,7 @@ import { DEFAULT_MAX_WEEKLY_HOURS } from '../lib/sisuWorkload'
 import ExternalLink from './ExternalLink'
 import Icon from './Icon'
 import PomodoroCard from './PomodoroCard'
+import PrereqGraphSvg from './moodle/PrereqGraphSvg'
 
 const KINDS: SisuPlanKind[] = ['course', 'registration', 'exam', 'milestone']
 const CATEGORIES: PlanCategory[] = ['general', 'language', 'intermediate', 'minor', 'elective']
@@ -90,10 +91,18 @@ function OptionalCard({ recommendation, onAdd, onSwap }: {
   )
 }
 
-export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSettings }: {
+export default function SisuStudyPlan({
+  lessons = [],
+  enrolled = [],
+  onOpenSettings,
+  onInspectCourse,
+  embedded = false,
+}: {
   lessons?: Lesson[]
   enrolled?: EnrolledCourse[]
   onOpenSettings?: () => void
+  onInspectCourse?: (code: string) => void
+  embedded?: boolean
 } = {}) {
   const { t, lang } = useI18n()
   const {
@@ -122,7 +131,9 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
    */
   const [tab, setTab] = useState<'overview' | 'plan' | 'tools'>('overview')
   const tabCls = (value: 'overview' | 'plan' | 'tools') =>
-    value === tab ? 'animate-view-in space-y-3' : 'hidden'
+    embedded || value === tab ? 'animate-view-in space-y-3' : 'hidden'
+  const panelProps = (key: 'overview' | 'plan' | 'tools') =>
+    embedded ? {} : ({ role: 'tabpanel', 'aria-labelledby': `sisu-tab-${key}` } as const)
   const planDate = PERSONAL_PLAN_DATE.split('-').reverse().join('.')
   const visibleWarnings = useMemo(() => [...scenario.warnings]
     .sort((a, b) => (WARNING_ORDER[a.kind] ?? 9) - (WARNING_ORDER[b.kind] ?? 9))
@@ -155,31 +166,32 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
     // 容器查询而非视口断点：计划页在「已连接」下宽 896，在未连接卡片里只有 576，
     // 同一个 xl 断点会两种宽度走同一个分支（576 时两栏只剩 184px）。
     <section className="@container space-y-3">
-      <div className="app-rail" role="tablist" aria-label={t('sisuPlanTitle')}>
-        {([
-          ['overview', 'sisuTabOverview', 'graduation'],
-          ['plan', 'sisuTabPlan', 'note'],
-          ['tools', 'sisuTabTools', 'book'],
-        ] as const).map(([key, labelKey, icon]) => (
-          <button
-            key={key}
-            id={`sisu-tab-${key}`}
-            role="tab"
-            aria-selected={tab === key}
-            aria-controls={`sisu-panel-${key}`}
-            onClick={() => setTab(key)}
-            className="app-rail-item"
-          >
-            <Icon name={icon} size={13} />
-            <span className="min-w-0 flex-1 truncate">{t(labelKey)}</span>
-          </button>
-        ))}
-      </div>
+      {!embedded && (
+        <div className="app-rail" role="tablist" aria-label={t('sisuPlanTitle')}>
+          {([
+            ['overview', 'sisuTabOverview', 'graduation'],
+            ['plan', 'sisuTabPlan', 'note'],
+            ['tools', 'sisuTabTools', 'book'],
+          ] as const).map(([key, labelKey, icon]) => (
+            <button
+              key={key}
+              id={`sisu-tab-${key}`}
+              role="tab"
+              aria-selected={tab === key}
+              aria-controls={`sisu-panel-${key}`}
+              onClick={() => setTab(key)}
+              className="app-rail-item"
+            >
+              <Icon name={icon} size={13} />
+              <span className="min-w-0 flex-1 truncate">{t(labelKey)}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div
         id="sisu-panel-overview"
-        role="tabpanel"
-        aria-labelledby="sisu-tab-overview"
+        {...panelProps('overview')}
         className={tabCls('overview')}
       >
       {/* 概览：学分、分类最低要求、目标年限与预计毕业 */}
@@ -443,12 +455,13 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
       )}
         </div>
       </div>
+      {/* 先修课 DAG 依赖图（点击节点可高亮依赖链并打开 Course Dossier） */}
+      <PrereqGraphSvg items={plan.items} onInspectCourse={onInspectCourse} />
       </div>
 
       <div
         id="sisu-panel-tools"
-        role="tabpanel"
-        aria-labelledby="sisu-tab-tools"
+        {...panelProps('tools')}
         className={tabCls('tools')}
       >
       {/* 可选课程：只推荐，不自动加入 */}
@@ -557,8 +570,7 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
 
       <div
         id="sisu-panel-plan"
-        role="tabpanel"
-        aria-labelledby="sisu-tab-plan"
+        {...panelProps('plan')}
         className={tabCls('plan')}
       >
       {/* 计划本体 */}
@@ -781,9 +793,8 @@ export default function SisuStudyPlan({ lessons = [], enrolled = [], onOpenSetti
         </div>
       </div>
 
-      {/* 番茄钟：与上面那块共用 `blocks`（已确认的学习时段），
-          一轮专注结束可以把绑定块标完成——单向依赖，关掉不影响排程。 */}
-      <PomodoroCard />
+      {/* 番茄钟：独立模式展示，嵌入 MoodleView 时复用 Workbench 悬浮 HUD。 */}
+      {!embedded && <PomodoroCard />}
       </div>
     </section>
   )

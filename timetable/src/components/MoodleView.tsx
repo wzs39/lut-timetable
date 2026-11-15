@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Lesson } from '../types'
+import type { StudyBlock } from '../lib/studyBlocks'
 import { timelineBuckets, type Task } from '../lib/tasks'
 import { useI18n } from '../i18n'
 import { useMoodleData } from '../hooks/useMoodleData'
@@ -14,26 +15,22 @@ import {
   GradesSection,
   CoursesSection,
   NotificationsSection,
-  NotConnectedCard,
 } from './moodle'
 
 /**
- * Halaman Moodle — CANGKANG ORKESTRASI SAJA: tab section + pengambilan data
- * lazy per tab. Setiap seksi tinggal di filenya sendiri (components/moodle/);
- * state koneksi/nilai/notifikasi dimiliki MoodleProvider, bukan di sini.
- *
- * 【2026-09-26】作业模块并入时间线分区：独立的 assign 视图已删除，
- * TimelineSection（官方时间线的四桶卡片）下面直接内嵌 AssignmentsView。
- * 跳转点（成绩卡未评项/今日页横幅/课程详情）带预置筛选导航到这里。
+ * 学术驾驶舱（MoodleView）— 三大扁平工作区（任务与雷达 / 成绩与培养 / 课程与资料）：
+ * - 未连接 Moodle 时不再整页阻塞，展示紧凑横幅并开放本地 SISU 培养方案、DDL 雷达、三源课程图谱与排程；
+ * - 删除原 6 个碎片分区，避免 `MoodleView -> SisuStudyPlan` 三层嵌套标签。
  */
-type Section = 'timeline' | 'grades' | 'courses' | 'resources' | 'studyplan' | 'notif'
+type Workspace = 'tasks' | 'grades' | 'courses'
 const SECTION_KEY = KEYS.moodleSection
 
-/** Baca section tersimpan; nilai tak dikenal → 'timeline'. */
-function loadSection(): Section {
+/** 读取已保存的工作区；兼容旧 6 分区 key 映射到三大扁平工作区。 */
+function loadWorkspace(): Workspace {
   const raw = readString(SECTION_KEY)
-  const valid: Section[] = ['timeline', 'grades', 'courses', 'resources', 'studyplan', 'notif']
-  return (valid as string[]).includes(raw ?? '') ? (raw as Section) : 'timeline'
+  if (raw === 'grades' || raw === 'studyplan') return 'grades'
+  if (raw === 'courses' || raw === 'resources') return 'courses'
+  return 'tasks'
 }
 
 export type AssignPreset = { filter: 'overdue' | 'due7' | 'later' | null; query?: string } | null
@@ -41,8 +38,10 @@ export type AssignPreset = { filter: 'overdue' | 'due7' | 'later' | null; query?
 export default function MoodleView({
   tasks,
   lessons,
+  studyBlocks,
   onTasks,
   onJumpToCourse,
+  onInspectCourse,
   assignPreset,
   onOpenAssignments,
   onClearAssignPreset,
@@ -51,11 +50,12 @@ export default function MoodleView({
 }: {
   tasks: Task[]
   lessons: Lesson[]
+  studyBlocks?: StudyBlock[]
   /** 作业模块的写操作（带删除撤销），由 App 的 applyTasks 提供 */
   onTasks: (tasks: Task[]) => void
   onJumpToCourse?: (code: string) => void
-  /** 跳转点预置的筛选/搜索词（App 级 state，按值 memo：空 = null）。
-   *  非空 = 有真实跳转（成绩卡未评项、命令面板任务项等），effect 切到时间线。 */
+  onInspectCourse?: (code: string) => void
+  /** 跳转点预置的筛选/搜索词（App 级 state，按值 memo：空 = null）。 */
   assignPreset?: AssignPreset
   /** 成绩分区等跳转点的统一出口：写 App 级预置并导航（含 setView('moodle')）。 */
   onOpenAssignments: (filter: 'overdue' | 'due7' | 'later' | null, query?: string) => void
@@ -67,71 +67,58 @@ export default function MoodleView({
 }) {
   const { t } = useI18n()
   const md = useMoodleData()
-  // Section dipertahankan antar kunjungan/reload (pola useCollapse yang sama:
-  // baca saat mount, tulis saat berubah).
-  const [section, setSectionState] = useState<Section>(loadSection)
-  const setSection = (s: Section) => {
-    setSectionState(s)
-    writeString(SECTION_KEY, s)
+  const [workspace, setWorkspaceState] = useState<Workspace>(loadWorkspace)
+  const setWorkspace = (w: Workspace) => {
+    setWorkspaceState(w)
+    writeString(SECTION_KEY, w)
   }
-  // 跳转点带预置进入时强制切到时间线（成绩卡未评项、命令面板任务项等）。
-  // assignPreset 由 App 按值 memo（空 = null），只在真实跳转时变引用——
-  // 不能收内联对象，否则每次 App 重渲染这里都会把用户拽回时间线。
+
   useEffect(() => {
-    if (assignPreset != null) setSection('timeline')
+    if (assignPreset != null) setWorkspace('tasks')
   }, [assignPreset])
+
   const [enrolled, setEnrolled] = useState<EnrolledCourse[] | null>(() => loadEnrolledCourses())
   const [enrolledLoading, setEnrolledLoading] = useState(false)
 
-  // Load enrolments on any section that displays course planning/resources.
   useEffect(() => {
-    if (!['courses', 'resources', 'studyplan'].includes(section) || enrolled || !md.token || enrolledLoading) return
+    if ((workspace !== 'courses' && workspace !== 'grades') || enrolled || !md.token || enrolledLoading) return
     setEnrolledLoading(true)
     fetchEnrolledCourses(md.token, lessons)
       .then((c) => setEnrolled(c))
       .catch(() => setEnrolled(null))
       .finally(() => setEnrolledLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, enrolled, md.token, lessons])
+  }, [workspace, enrolled, md.token, lessons])
 
-  // Hook 必须在提前返回之前：未连接时也要走同一条 hook 序列。
-  // 「一眼概览」的四个数字只依赖已加载数据，与连接状态无关。
   const buckets = useMemo(() => timelineBuckets(tasks, Date.now()), [tasks])
 
-  if (!md.connected) {
-    return <NotConnectedCard onOpenSettings={onOpenSettings} lessons={lessons} enrolled={enrolled ?? []} sisuPrefsRevision={sisuPrefsRevision} />
-  }
-
-  // ---- 一眼概览：四个数字回答「现在该看什么」，点一下就到对应分区 ----
   const pendingCount = tasks.filter((task) => !task.completed).length
-  const unreadCount = md.unread
+  const unreadCount = md.unread ?? 0
   const gradedCourses = md.grades?.filter((c) => c.average != null) ?? []
   const averageOfAverages = gradedCourses.length > 0
     ? Math.round(gradedCourses.reduce((sum, c) => sum + (c.average ?? 0), 0) / gradedCourses.length)
     : null
+
   const glance: Array<{
-    key: Section
+    key: Workspace
     label: string
     value: string
     tone: 'info' | 'due' | 'danger' | 'ok'
     hint: string
   }> = [
-    { key: 'timeline', label: t('moodleGlancePending'), value: String(pendingCount), tone: 'info', hint: t('moodleSectionTimeline') },
-    { key: 'timeline', label: t('moodleGlanceOverdue'), value: String(buckets.overdue), tone: buckets.overdue > 0 ? 'danger' : 'ok', hint: t('assignOverdue') },
-    { key: 'notif', label: t('moodleGlanceUnread'), value: String(unreadCount), tone: unreadCount > 0 ? 'due' : 'ok', hint: t('notifSection') },
-    { key: 'grades', label: t('moodleGlanceAverage'), value: averageOfAverages != null ? `${averageOfAverages}%` : t('moodleGlanceNone'), tone: 'ok', hint: t('moodleSectionGrades') },
+    { key: 'tasks', label: t('moodleGlancePending'), value: String(pendingCount), tone: 'info', hint: t('moodleWorkspaceTasks') },
+    { key: 'tasks', label: t('moodleGlanceOverdue'), value: String(buckets.overdue), tone: buckets.overdue > 0 ? 'danger' : 'ok', hint: t('assignOverdue') },
+    { key: 'tasks', label: t('moodleGlanceUnread'), value: String(unreadCount), tone: unreadCount > 0 ? 'due' : 'ok', hint: t('notifSection') },
+    { key: 'grades', label: t('moodleGlanceAverage'), value: averageOfAverages != null ? `${averageOfAverages}%` : t('moodleGlanceNone'), tone: 'ok', hint: t('moodleWorkspaceGrades') },
   ]
-  // 分区导轨的单一声明（顺序 / 图标 / 可选计数）：手机横滑与桌面竖排共用。
-  const sections: Array<{ key: Section; labelKey: string; icon: IconName; badge?: number }> = [
-    { key: 'timeline', labelKey: 'moodleSectionTimeline', icon: 'clock' },
-    { key: 'grades', labelKey: 'moodleSectionGrades', icon: 'graduation', badge: md.grades?.length },
-    { key: 'courses', labelKey: 'moodleSectionCourses', icon: 'book' },
-    { key: 'resources', labelKey: 'courseResourcesTitle', icon: 'note' },
-    { key: 'studyplan', labelKey: 'sisuPlanShortTitle', icon: 'compass' },
-    { key: 'notif', labelKey: 'notifSection', icon: 'megaphone', badge: unreadCount || undefined },
+
+  const workspaces: Array<{ key: Workspace; labelKey: string; icon: IconName; badge?: number }> = [
+    { key: 'tasks', labelKey: 'moodleWorkspaceTasks', icon: 'clock', badge: (pendingCount + (md.unread ?? 0)) || undefined },
+    { key: 'grades', labelKey: 'moodleWorkspaceGrades', icon: 'graduation', badge: md.grades?.length },
+    { key: 'courses', labelKey: 'moodleWorkspaceCourses', icon: 'book' },
   ]
-  const currentSectionLabel = t(
-    sections.find((entry) => entry.key === section)?.labelKey ?? 'moodleSectionTimeline',
+  const currentLabel = t(
+    workspaces.find((entry) => entry.key === workspace)?.labelKey ?? 'moodleWorkspaceTasks',
   )
 
   return (
@@ -144,26 +131,36 @@ export default function MoodleView({
                 <Icon name="graduation" size={13} /> {t('moodleGlanceTitle')}
               </h2>
               <p className="mt-1 text-[11px] text-[var(--text-3)]">
-                {t('moodleNav')} · {currentSectionLabel}
+                {t('moodleNav')} · {currentLabel}
               </p>
             </div>
-            <button
-              onClick={() => void md.syncNow()}
-              disabled={md.busy !== 'idle' || !md.token}
-              className="app-btn shrink-0 px-2 py-1 text-[11px] disabled:opacity-50"
-              title={t('syncNow')}
-            >
-              <span className="inline-flex items-center gap-1.5">
-                <Icon name="sync" size={11} className={md.busy !== 'idle' ? 'animate-spin' : ''} />
-                {t('syncNow')}
-              </span>
-            </button>
+            {md.connected ? (
+              <button
+                onClick={() => void md.syncNow()}
+                disabled={md.busy !== 'idle' || !md.token}
+                className="app-btn shrink-0 px-2 py-1 text-[11px] disabled:opacity-50"
+                title={t('syncNow')}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon name="sync" size={11} className={md.busy !== 'idle' ? 'animate-spin' : ''} />
+                  {t('syncNow')}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="app-btn-primary shrink-0 px-2.5 py-1 text-[11px]"
+              >
+                {t('openSettings')}
+              </button>
+            )}
           </div>
           <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
             {glance.map((item, index) => (
               <button
                 key={`${item.key}-${index}`}
-                onClick={() => setSection(item.key)}
+                onClick={() => setWorkspace(item.key)}
                 data-tone={item.tone}
                 data-interactive="true"
                 title={item.hint}
@@ -176,59 +173,106 @@ export default function MoodleView({
           </div>
         </section>
 
-        {/* 分区导轨：手机横滑 chip，≥768px 变左侧竖排（同一份按钮，不复制 DOM）。 */}
-        <div className="grid gap-3 md:grid-cols-[168px_minmax(0,1fr)] md:items-start">
-        <div role="tablist" aria-label={t('moodleNav')} className="app-rail md:sticky md:top-0">
-          {sections.map((entry) => (
+        {!md.connected && (
+          <div
+            data-testid="moodle-disconnected-banner"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-1)]/90 px-3 py-2 text-[11px]"
+          >
+            <div className="flex items-center gap-2 text-[var(--text-2)]">
+              <span className="led-dot" data-tone="due" />
+              <span>{t('moodleDisconnectedHint')}</span>
+            </div>
             <button
-              key={entry.key}
-              id={`moodle-tab-${entry.key}`}
-              role="tab"
-              aria-controls="moodle-panel"
-              aria-selected={section === entry.key}
-              onClick={() => setSection(entry.key)}
-              className="app-rail-item"
-              title={t(entry.labelKey)}
+              type="button"
+              onClick={onOpenSettings}
+              className="app-btn-ghost shrink-0 px-2 py-1 text-[11px] text-[var(--info)]"
             >
-              <Icon name={entry.icon} size={13} />
-              <span className="min-w-0 flex-1 truncate">{t(entry.labelKey)}</span>
-              {entry.badge ? (
-                <span className="app-badge px-1.5 py-0 text-[9px] tabular-nums">{entry.badge}</span>
-              ) : null}
+              {t('openSettings')}
             </button>
-          ))}
-        </div>
+          </div>
+        )}
 
-        <div id="moodle-panel" key={section} className="section-panel animate-view-in min-w-0 space-y-3" role="tabpanel" aria-labelledby={`moodle-tab-${section}`}>
-          {section === 'timeline' && (
-            <TimelineSection
-              tasks={tasks}
-              lessons={lessons}
-              onTasks={onTasks}
-              onJumpToCourse={onJumpToCourse}
-              assignPreset={assignPreset}
-              onClearAssignPreset={onClearAssignPreset}
-            />
-          )}
-          {section === 'grades' && <GradesSection onJumpToCourse={onJumpToCourse} onOpenAssignments={onOpenAssignments} />}
-          {section === 'courses' && (
-            <CoursesSection
-              enrolled={enrolled}
-              loading={enrolledLoading && !enrolled}
-              lessons={lessons}
-              tasks={tasks}
-              grades={md.grades}
-              onJumpToCourse={onJumpToCourse}
-              token={md.token}
-            />
-          )}
-          {section === 'resources' && (enrolledLoading && !enrolled
-            ? <p className="py-8 text-center text-xs text-[var(--text-3)]">{t('coursesLoading')}</p>
-            : <CourseResourcesSection enrolled={enrolled} token={md.token} />)}
-          {section === 'studyplan' && <SisuStudyPlan key={sisuPrefsRevision} lessons={lessons} enrolled={enrolled ?? []} onOpenSettings={onOpenSettings} />}
-          {section === 'notif' && <NotificationsSection />}
-          {(section === 'courses' || section === 'resources') && <HebutCard />}
-        </div>
+        {/* 三大扁平工作区导轨：手机横滑，≥768px 左侧吸顶竖排 */}
+        <div className="grid gap-3 md:grid-cols-[176px_minmax(0,1fr)] md:items-start">
+          <div role="tablist" aria-label={t('moodleNav')} className="app-rail md:sticky md:top-0">
+            {workspaces.map((entry) => (
+              <button
+                key={entry.key}
+                id={`moodle-tab-${entry.key}`}
+                role="tab"
+                aria-controls="moodle-panel"
+                aria-selected={workspace === entry.key}
+                onClick={() => setWorkspace(entry.key)}
+                className="app-rail-item"
+                title={t(entry.labelKey)}
+              >
+                <Icon name={entry.icon} size={13} />
+                <span className="min-w-0 flex-1 truncate">{t(entry.labelKey)}</span>
+                {entry.badge ? (
+                  <span className="app-badge px-1.5 py-0 text-[9px] tabular-nums">{entry.badge}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+
+          <div
+            id="moodle-panel"
+            key={workspace}
+            className="section-panel animate-view-in min-w-0 space-y-3"
+            role="tabpanel"
+            aria-labelledby={`moodle-tab-${workspace}`}
+          >
+            {workspace === 'tasks' && (
+              <>
+                <TimelineSection
+                  tasks={tasks}
+                  lessons={lessons}
+                  studyBlocks={studyBlocks}
+                  grades={md.grades ?? undefined}
+                  onTasks={onTasks}
+                  onJumpToCourse={onJumpToCourse}
+                  onInspectCourse={onInspectCourse}
+                  assignPreset={assignPreset}
+                  onClearAssignPreset={onClearAssignPreset}
+                />
+                {md.connected && <NotificationsSection />}
+              </>
+            )}
+
+            {workspace === 'grades' && (
+              <>
+                <GradesSection onJumpToCourse={onJumpToCourse} onOpenAssignments={onOpenAssignments} />
+                <SisuStudyPlan
+                  key={sisuPrefsRevision}
+                  lessons={lessons}
+                  enrolled={enrolled ?? []}
+                  onOpenSettings={onOpenSettings}
+                  onInspectCourse={onInspectCourse}
+                  embedded
+                />
+              </>
+            )}
+
+            {workspace === 'courses' && (
+              <>
+                <CoursesSection
+                  enrolled={enrolled}
+                  loading={enrolledLoading && !enrolled}
+                  lessons={lessons}
+                  tasks={tasks}
+                  grades={md.grades}
+                  studyBlocks={studyBlocks}
+                  onJumpToCourse={onJumpToCourse}
+                  onInspectCourse={onInspectCourse}
+                  token={md.token}
+                />
+                {(md.connected || (enrolled && enrolled.length > 0)) && (
+                  <CourseResourcesSection enrolled={enrolled} token={md.token} />
+                )}
+                <HebutCard />
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

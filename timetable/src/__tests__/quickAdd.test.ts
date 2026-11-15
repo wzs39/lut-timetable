@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseQuickAdd } from '../lib/quickAdd'
+import { parseOmniQuickAdd, parseQuickAdd } from '../lib/quickAdd'
 
 // 【快速录入契约】必须带触发词（否则退回普通搜索）；日期/时刻解析要准；
 // 认不出的部分原样留在标题里，绝不静默丢字。
@@ -92,5 +92,39 @@ describe('times', () => {
     expect(local(parseQuickAdd('作业 23:00 交报告', NOW)?.dueAt)).toBe('2026-09-23 23:00')
     // 09:00 已经过了（现在是 10:00）→ 明天
     expect(local(parseQuickAdd('作业 09:00 交报告', NOW)?.dueAt)).toBe('2026-09-24 09:00')
+  })
+})
+
+describe('parseOmniQuickAdd (Omni-Command Bar 2.0)', () => {
+  it('parses prefix-free study block scheduling with weekday, start time, duration, and course code', () => {
+    const res1 = parseOmniQuickAdd('周四 15:00 算法复习 90m', NOW)
+    expect(res1?.kind).toBe('study-block')
+    expect(res1?.title).toBe('算法复习')
+    expect(res1?.durationMin).toBe(90)
+    expect(local(res1?.startOrDueAt)).toBe('2026-09-24 15:00')
+    expect(local(res1?.endAt)).toBe('2026-09-24 16:30')
+
+    const res2 = parseOmniQuickAdd('明天 14:00 CT60A2411 刷题 2h', NOW)
+    expect(res2?.kind).toBe('study-block')
+    expect(res2?.course).toBe('CT60A2411')
+    expect(res2?.title).toBe('刷题')
+    expect(res2?.durationMin).toBe(120)
+    expect(local(res2?.startOrDueAt)).toBe('2026-09-24 14:00')
+    expect(local(res2?.endAt)).toBe('2026-09-24 16:00')
+
+    const res3 = parseOmniQuickAdd('Thu 15:00 #BM20A9200 Algo review 1.5h', NOW)
+    expect(res3?.kind).toBe('study-block')
+    expect(res3?.course).toBe('BM20A9200')
+    expect(res3?.title).toBe('Algo review')
+    expect(res3?.durationMin).toBe(90)
+  })
+
+  it('parses task deadlines and returns null for plain search queries', () => {
+    expect(parseOmniQuickAdd('Data structures', NOW)).toBeNull()
+    const taskRes = parseOmniQuickAdd('ddl 周五 18:00 CT60A2411 提交实验报告', NOW)
+    expect(taskRes?.kind).toBe('task')
+    expect(taskRes?.course).toBe('CT60A2411')
+    expect(taskRes?.title).toBe('提交实验报告')
+    expect(local(taskRes?.startOrDueAt)).toBe('2026-09-25 18:00')
   })
 })

@@ -23,6 +23,7 @@ export interface AttendanceRecord {
 }
 
 export type AttendanceMap = Record<string, AttendanceRecord>
+export type AttendanceLog = AttendanceMap
 
 /** 出勤率低于这个值就提示（LUT 不少课要求 80%） */
 export const ATTENDANCE_WARN_RATE = 0.8
@@ -37,6 +38,8 @@ export interface CourseAttendance {
   rate: number | null
   warn: boolean
 }
+
+export type CourseAttendanceStats = CourseAttendance
 
 /** 一次课程发生的稳定键；无效输入返回 ''。 */
 export function lessonOccurrenceKey(lesson: Lesson): string {

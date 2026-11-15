@@ -2,8 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import AppHeader from '../../components/AppHeader'
+import BottomNav from '../../components/BottomNav'
 import { I18nProvider, translate } from '../../i18n'
 import { MoodleProvider } from '../../hooks/useMoodleData'
+import { PomodoroProvider, usePomodoro } from '../../hooks/usePomodoro'
 import { VIEWS, WEEK_NAV } from '../../lib/navigation'
 
 /**
@@ -79,5 +81,81 @@ describe('header week navigation', () => {
     renderHeader('week', { isCurrentWeek: true })
     expect(screen.getByRole('button', { name: translate('zh', WEEK_NAV.prev.labelKey) })).toBeTruthy()
     expect(screen.queryByRole('button', { name: translate('zh', WEEK_NAV.this.labelKey) })).toBeNull()
+  })
+})
+
+describe('Spatial Workbench Floating Instrument Dock & Mini HUD', () => {
+  it('renders Tri-Source sync pulse LEDs (SISU · TimeEdit · Moodle) and Omni-Command trigger', () => {
+    const { container } = renderHeader('today')
+    expect(container.querySelector('header.instrument-dock')).toBeTruthy()
+    const leds = screen.getByTestId('tri-source-leds')
+    expect(leds.textContent).toContain('SISU')
+    expect(leds.textContent).toContain('TimeEdit')
+    expect(leds.textContent).toContain('Moodle')
+    expect(screen.getByTestId('omni-command-trigger')).toBeTruthy()
+  })
+
+  it('displays the persistent Course-Linked Focus Mini HUD when a Pomodoro session is active', () => {
+    const onInspectCourse = vi.fn()
+    function TriggerBind() {
+      const { startForCourse } = usePomodoro()
+      return (
+        <button
+          type="button"
+          data-testid="test-start-course-focus"
+          onClick={() => startForCourse('CT60A2411')}
+        >
+          bind
+        </button>
+      )
+    }
+    render(
+      <I18nProvider>
+        <PomodoroProvider>
+          <MoodleProvider tasks={[]} lessons={[]} onTasks={() => {}}>
+            <TriggerBind />
+            <AppHeader
+              view="today"
+              onView={() => {}}
+              lessonCount={4}
+              sourceCount={2}
+              pendingTaskCount={1}
+              weekNum={42}
+              weekRangeText="10月12日 – 10月18日"
+              isCurrentWeek={true}
+              onWeekNav={() => {}}
+              onOpenPalette={() => {}}
+              menuOpen={false}
+              onToggleMenu={() => {}}
+              onCloseMenu={() => {}}
+              menuCommands={[]}
+              onInspectCourse={onInspectCourse}
+            />
+          </MoodleProvider>
+        </PomodoroProvider>
+      </I18nProvider>,
+    )
+
+    fireEvent.click(screen.getByTestId('test-start-course-focus'))
+    const hud = screen.getByTestId('focus-mini-hud')
+    expect(hud.textContent).toContain('CT60A2411')
+    fireEvent.click(screen.getByText('CT60A2411'))
+    expect(onInspectCourse).toHaveBeenCalledWith('CT60A2411')
+    localStorage.clear()
+  })
+
+  it('renders mobile BottomNav floating instrument dock capsule and switches views', () => {
+    const onView = vi.fn()
+    const { container } = render(
+      <I18nProvider>
+        <MoodleProvider tasks={[]} lessons={[]} onTasks={() => {}}>
+          <BottomNav view="today" pendingTaskCount={3} onView={onView} onOpenSheet={() => {}} />
+        </MoodleProvider>
+      </I18nProvider>,
+    )
+    expect(container.querySelector('nav.instrument-dock')).toBeTruthy()
+    const navButtons = [...container.querySelectorAll('.app-nav-item')]
+    fireEvent.click(navButtons[1])
+    expect(onView).toHaveBeenCalledWith('week')
   })
 })

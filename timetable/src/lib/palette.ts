@@ -1,7 +1,9 @@
 import type { IconName } from '../components/Icon'
 import type { Lesson } from '../types'
 import { formatDateTime } from './date'
+import { roomTimelinesForDay } from './freeRooms'
 import { VIEWS, WEEK_NAV, WEEK_NAV_ORDER, type ViewRoute } from './navigation'
+import { parseOmniQuickAdd } from './quickAdd'
 import { pendingTasks, type Task } from './tasks'
 
 /**
@@ -20,11 +22,26 @@ export type PaletteAction =
   | { kind: 'week'; delta: -1 | 0 | 1 }
   /** code 为空 = 无代码的手动课，App 回退到按 title 跳转 */
   | { kind: 'course'; code: string; title: string }
+  /** 打开课程全景作战室抽屉 (Course Dossier) */
+  | { kind: 'dossier'; courseKey: string; code: string; title: string }
   | { kind: 'task'; taskId: string }
   /** 应用动作：真正做什么由 lib/commands 的注册表决定，App 只查 id */
   | { kind: 'command'; id: string }
   /** 命令面板自然语言录入的作业（由 CommandPalette 解析后交给 App 落库） */
-  | { kind: 'quickAddTask'; title: string; dueAt?: string }
+  | { kind: 'quickAddTask'; title: string; dueAt?: string; course?: string }
+  /** 命令面板自然语言排入学习时间块 */
+  | {
+      kind: 'quickAddStudyBlock'
+      title: string
+      course: string
+      start: string
+      end: string
+      durationMin: number
+    }
+  /** 教室今日空置时间轴查询 */
+  | { kind: 'roomStatus'; room: string }
+  /** 面板内联成绩目标速算结果 */
+  | { kind: 'gradeCalcResult'; expression: string; resultText: string; courseCode?: string }
 
 /** 分组顺序 = 面板展示顺序（无查询时按此浏览） */
 export type PaletteGroup = 'views' | 'actions' | 'courses' | 'tasks'
@@ -64,7 +81,13 @@ export interface PaletteInput {
   tasks: Task[]
   /** 应用动作（顺序即面板里的动作顺序） */
   commands: PaletteCommand[]
+  /** 已知课程代码列表（可选，供 Omni-Command Bar 识别课程码） */
+  knownCourseCodes?: string[]
+  /** 当前时间（可选，供测试注入） */
+  now?: Date
 }
+
+export type PaletteContext = PaletteInput
 
 /** 视图 / 操作 / 课程 / 作业 → 面板清单（顺序即默认展示顺序） */
 export function buildPalette({ t, locale, lessons, tasks, commands }: PaletteInput): PaletteItem[] {
@@ -213,4 +236,127 @@ export function filterPalette(
     out.push(...scored)
   }
   return q === '' ? out : out.slice(0, limit)
+}
+
+export interface OmniExtrasContext {
+  lessons?: Lesson[]
+  knownCourseCodes?: string[]
+  now?: Date
+  locale?: string
+}
+
+/**
+ * Omni-Command Bar 2.0 动态增强条目构建器：
+ * - 自然语言创建学习块 (`quickAddStudyBlock`) 或作业 (`quickAddTask`)
+ * - 教室空置查询 (`room 1314` / `教室 1314` -> `roomStatus`)
+ * - 成绩目标内联速算 (`grade 80` / `= ...` -> `gradeCalcResult`)
+ */
+export function buildOmniExtras(
+  query: string,
+  ctx: OmniExtrasContext = {},
+): PaletteItem[] {
+  const q = query.trim()
+  if (!q) return []
+
+  const now = ctx.now ?? new Date()
+  const locale = ctx.locale ?? 'zh-CN'
+  const items: PaletteItem[] = []
+
+  // 1. 教室空置时间轴查询 (`room 1314`, `教室 1314`, `free room`)
+  const roomMatch = q.match(/^(?:room|rooms|教室|空教室)\s*(.*)$/i)
+  if (roomMatch && ctx.lessons && ctx.lessons.length > 0) {
+    const roomQuery = roomMatch[1].trim()
+    const timelines = roomTimelinesForDay(ctx.lessons, now, roomQuery)
+    for (const tl of timelines.slice(0, 6)) {
+      const stateLabel = tl.currentStatus.state === 'free' ? '空闲' : '占用中'
+      const untilStr = tl.currentStatus.until
+        ? formatDateTime(tl.currentStatus.until, locale)
+        : '今日结束'
+      items.push({
+        id: `omni:room:${tl.room}`,
+        group: 'actions',
+        label: `${tl.room} · ${stateLabel}`,
+        sub: `至 ${untilStr} · 今日剩余空闲 ${tl.freeMinutesRemainingToday} 分钟`,
+        icon: 'building',
+        keywords: `room 教室 ${tl.room}`,
+        action: { kind: 'roomStatus', room: tl.room },
+      })
+    }
+  }
+
+  // 2. 成绩目标内联速算 (`grade CT60A2411 4` / `目标 80`)
+  const gradeMatch = q.match(/^(?:grade|目标|算分)\s+([A-Za-z0-9_-]+)?\s*(\d+(?:\.\d+)?)$/i)
+  if (gradeMatch) {
+    const courseCode = gradeMatch[1]?.toUpperCase()
+    const targetVal = Number(gradeMatch[2])
+    if (Number.isFinite(targetVal)) {
+      const pct = targetVal <= 5 && targetVal >= 1 ? 40 + targetVal * 10 : targetVal
+      const resultText = courseCode
+        ? `${courseCode} 目标 ${targetVal} 需总评 ≥ ${pct}%`
+        : `目标 ${targetVal} 需总评 ≥ ${pct}%`
+      items.push({
+        id: `omni:grade:${courseCode ?? 'any'}:${targetVal}`,
+        group: 'actions',
+        label: resultText,
+        sub: '点击打开成绩反推模拟器查看各分项最低分',
+        icon: 'graduation',
+        keywords: q,
+        action: {
+          kind: 'gradeCalcResult',
+          expression: q,
+          resultText,
+          courseCode,
+        },
+      })
+    }
+  }
+
+  // 3. 自然语言排块 / 任务录入 (`parseOmniQuickAdd`)
+  const omni = parseOmniQuickAdd(q, now, ctx.knownCourseCodes ?? [])
+  if (omni) {
+    if (omni.kind === 'study-block' && omni.startOrDueAt && omni.endAt && omni.durationMin) {
+      const subParts = [
+        omni.course || undefined,
+        formatDateTime(omni.startOrDueAt, locale),
+        `${omni.durationMin} 分钟`,
+      ].filter(Boolean)
+      items.push({
+        id: `omni:study-block:${omni.title}`,
+        group: 'actions',
+        label: `排入学习块：${omni.title}`,
+        sub: subParts.join(' · '),
+        icon: 'clock',
+        keywords: q,
+        action: {
+          kind: 'quickAddStudyBlock',
+          title: omni.title,
+          course: omni.course,
+          start: omni.startOrDueAt,
+          end: omni.endAt,
+          durationMin: omni.durationMin,
+        },
+      })
+    } else if (omni.kind === 'task') {
+      const subParts = [
+        omni.course || undefined,
+        omni.startOrDueAt ? formatDateTime(omni.startOrDueAt, locale) : undefined,
+      ].filter(Boolean)
+      items.push({
+        id: `omni:task:${omni.title}`,
+        group: 'tasks',
+        label: omni.title,
+        sub: subParts.join(' · ') || undefined,
+        icon: 'plus',
+        keywords: q,
+        action: {
+          kind: 'quickAddTask',
+          title: omni.title,
+          dueAt: omni.startOrDueAt,
+          course: omni.course || undefined,
+        },
+      })
+    }
+  }
+
+  return items
 }

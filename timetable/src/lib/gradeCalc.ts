@@ -150,16 +150,18 @@ export function getFinalCourseGrade(
  * `coveredAvg` = rata-rata berbobot item tercover saja (kualitas pekerjaan
  * yang sudah dinilai) — ditampilkan sekunder.
  */
-export function courseProjection(
-  c: CourseGrades,
-  overrides: Record<number, number> = {},
-): {
+export interface CourseProjection {
   current: number | null
   coveredAvg: number | null
   coveredWeight: number
   ungraded: number
   gradedWeight: number
-} {
+}
+
+export function courseProjection(
+  c: CourseGrades,
+  overrides: Record<number, number> = {},
+): CourseProjection {
   const { value: coveredAvg, coveredWeight } = weightedEstimate(c.items, overrides)
   return {
     current: getFinalCourseGrade(c.items, c.officialTotal, overrides),
@@ -240,6 +242,130 @@ export function gradeTargetPlan(
     maxFinal: Math.min(100, earned + remainingWeight),
     status,
   }
+}
+
+/* ---------------- LUT 1–5 Grade Target Reverse Solver ---------------- */
+
+export type LutGradeLevel = 1 | 2 | 3 | 4 | 5
+
+export const DEFAULT_LUT_GRADE_THRESHOLDS: Record<LutGradeLevel, number> = {
+  1: 50,
+  2: 60,
+  3: 70,
+  4: 80,
+  5: 90,
+}
+
+export interface GradeLevelPlan {
+  grade: LutGradeLevel
+  thresholdPercent: number
+  plan: GradeTargetPlan
+}
+
+export interface ItemMinimumRequirement {
+  itemIndex: number
+  itemName: string
+  weight: number
+  rangeMax: number
+  /** Required score if all other remaining items score 100% */
+  minPercentOptimistic: number
+  minRawOptimistic: number
+  /** Required score if all other remaining items score requiredAvgOnRemaining */
+  minPercentBalanced: number
+  minRawBalanced: number
+  feasible: boolean
+}
+
+function normalizeOfficialTotalInput(
+  officialTotal?: { currentPercent: number } | number | null,
+): number | null {
+  if (typeof officialTotal === 'number') return officialTotal
+  if (officialTotal && typeof officialTotal.currentPercent === 'number') {
+    return officialTotal.currentPercent
+  }
+  return null
+}
+
+export function solveGradeTargetsByLevel(
+  items: GradeItem[],
+  overrides: Record<number, number> = {},
+  officialTotal?: { currentPercent: number } | number | null,
+  thresholds: Record<LutGradeLevel, number> = DEFAULT_LUT_GRADE_THRESHOLDS,
+): GradeLevelPlan[] {
+  const official = normalizeOfficialTotalInput(officialTotal)
+  const levels: LutGradeLevel[] = [1, 2, 3, 4, 5]
+  return levels.map((grade) => {
+    const thresholdPercent = thresholds[grade] ?? DEFAULT_LUT_GRADE_THRESHOLDS[grade]
+    return {
+      grade,
+      thresholdPercent,
+      plan: gradeTargetPlan(items, overrides, thresholdPercent, official),
+    }
+  })
+}
+
+export function solveItemMinimumsForTarget(
+  items: GradeItem[],
+  targetPercent: number,
+  overrides: Record<number, number> = {},
+  officialTotal?: { currentPercent: number } | number | null,
+): ItemMinimumRequirement[] {
+  const official = normalizeOfficialTotalInput(officialTotal)
+  const plan = gradeTargetPlan(items, overrides, targetPercent, official)
+  const out: ItemMinimumRequirement[] = []
+
+  // When items lack explicit weights, distribute remaining 100% equally across ungraded items
+  const hasExplicitWeights = items.some((it) => it.weight != null && it.weight > 0)
+  const ungradedIndices: number[] = []
+  for (let i = 0; i < items.length; i++) {
+    const known = items[i].grade != null || overrides[i] != null
+    if (!known && (hasExplicitWeights ? (items[i].weight ?? 0) > 0 : true)) {
+      ungradedIndices.push(i)
+    }
+  }
+  if (ungradedIndices.length === 0) return out
+
+  const equalWeight = !hasExplicitWeights ? 100 / items.length : 0
+  const totalRemainingWeight = hasExplicitWeights
+    ? plan.remainingWeight
+    : ungradedIndices.length * equalWeight
+  const earnedPoints = hasExplicitWeights
+    ? plan.earned
+    : items.reduce((acc, it, idx) => {
+        const g = effectiveGrade(it, overrides[idx])
+        return g != null ? acc + (equalWeight * g) / 100 : acc
+      }, 0)
+
+  const balancedAvg = totalRemainingWeight > 0
+    ? ((targetPercent - earnedPoints) / totalRemainingWeight) * 100
+    : 0
+
+  for (const idx of ungradedIndices) {
+    const it = items[idx]
+    const w = hasExplicitWeights ? (it.weight ?? 0) : equalWeight
+    if (w <= 0) continue
+    const rangeMax = it.max != null && it.max > 0 ? it.max : 100
+    const otherRemainingWeight = Math.max(0, totalRemainingWeight - w)
+    const neededPointsWithOthersFull = targetPercent - earnedPoints - otherRemainingWeight
+    const rawOptimisticPct = (neededPointsWithOthersFull / w) * 100
+    const feasible = rawOptimisticPct <= 100
+    const minPercentOptimistic = Math.max(0, Math.round(rawOptimisticPct * 100) / 100)
+    const minPercentBalanced = Math.max(0, Math.round(balancedAvg * 100) / 100)
+
+    out.push({
+      itemIndex: idx,
+      itemName: it.name,
+      weight: Math.round(w * 100) / 100,
+      rangeMax,
+      minPercentOptimistic,
+      minRawOptimistic: Math.round(((minPercentOptimistic / 100) * rangeMax) * 100) / 100,
+      minPercentBalanced,
+      minRawBalanced: Math.round(((minPercentBalanced / 100) * rangeMax) * 100) / 100,
+      feasible,
+    })
+  }
+
+  return out
 }
 
 /* ------------------------- sorting & filtering ------------------------- */

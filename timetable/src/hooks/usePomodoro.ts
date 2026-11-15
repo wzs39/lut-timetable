@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   advancePhase,
   emptyPomodoroState,
@@ -9,14 +18,19 @@ import {
   pauseTimer,
   phaseDone,
   playPomodoroChime,
+  recordFocusRound,
   remainingMs,
   resumeTimer,
   savePomodoroState,
+  startFocusForBlock,
+  startFocusSession,
   startTimer,
   type PomodoroConfig,
   type PomodoroPhase,
+  type PomodoroSessionRecord,
   type PomodoroState,
   type PomodoroTimer,
+  type PomodoroTimerMeta,
 } from '../lib/pomodoro'
 import { loadStudyBlocks, setStudyBlockCompleted, subscribeStudyBlocks, type StudyBlock } from '../lib/studyBlocks'
 
@@ -24,13 +38,19 @@ import { loadStudyBlocks, setStudyBlockCompleted, subscribeStudyBlocks, type Stu
 const TICK_MS = 1_000
 
 export interface PomodoroController {
+  state: PomodoroState
   timer: PomodoroTimer | null
   config: PomodoroConfig
   roundsToday: number
+  focusMinutesByCourse: Record<string, number>
+  recentSessions: PomodoroSessionRecord[]
   /** 上一轮刚结束的阶段；供 UI 弹提示或播放动画，用户调 acknowledgeFinish 关掉 */
   justFinished: PomodoroPhase | null
   blocks: StudyBlock[]
-  start: (phase?: PomodoroPhase, studyBlockId?: string | null) => void
+  start: (phase?: PomodoroPhase, studyBlockId?: string | null, meta?: PomodoroTimerMeta) => void
+  startForCourse: (courseCode: string, opts?: { taskId?: string | null; studyBlockId?: string | null; label?: string | null }) => void
+  startForBlock: (block: StudyBlock) => void
+  bindContext: (meta: PomodoroTimerMeta) => void
   pause: () => void
   resume: () => void
   reset: () => void
@@ -39,13 +59,9 @@ export interface PomodoroController {
   acknowledgeFinish: () => void
 }
 
-/**
- * 番茄钟控制器：**状态机全部在 `lib/pomodoro.ts`**，这里只负责：
- * - 内部把 `now` 喂给 `phaseDone`，把阶段结束的副作用收拢（发声 + 标记学习块完成）
- * - 网页标签页标题动态倒计时展示
- * - 本地持久化与跨组件订阅
- */
-export function usePomodoro(): PomodoroController {
+const PomodoroContext = createContext<PomodoroController | null>(null)
+
+function usePomodoroStandalone(enabled = true): PomodoroController {
   const [state, setState] = useState<PomodoroState>(() => loadPomodoroState())
   const [timer, setTimer] = useState<PomodoroTimer | null>(null)
   const [justFinished, setJustFinished] = useState<PomodoroPhase | null>(null)
@@ -54,6 +70,7 @@ export function usePomodoro(): PomodoroController {
   // 状态机在 interval 回调里要读最新 timer，用 ref 镜像避免把 interval 反复重建
   const timerRef = useRef<PomodoroTimer | null>(null)
   const stateRef = useRef(state)
+  const blocksRef = useRef(blocks)
 
   useEffect(() => {
     timerRef.current = timer
@@ -63,10 +80,20 @@ export function usePomodoro(): PomodoroController {
     stateRef.current = state
   }, [state])
 
-  useEffect(() => subscribeStudyBlocks(() => setBlocks(loadStudyBlocks())), [])
+  useEffect(() => {
+    blocksRef.current = blocks
+  }, [blocks])
+
+  useEffect(() => {
+    if (!enabled) return
+    return subscribeStudyBlocks(() => setBlocks(loadStudyBlocks()))
+  }, [enabled])
 
   // 配置变化立即落盘；timer 本身不持久化
-  useEffect(() => savePomodoroState(state), [state])
+  useEffect(() => {
+    if (!enabled) return
+    savePomodoroState(state)
+  }, [state, enabled])
 
   const finishPhase = useCallback((finished: PomodoroTimer, now: number) => {
     const current = stateRef.current
@@ -78,7 +105,21 @@ export function usePomodoro(): PomodoroController {
     playPomodoroChime(result.finishedPhase)
 
     if (result.countedRound) {
-      setState((prev) => ({ ...prev, roundsToday: prev.roundsToday + 1 }))
+      const linkedBlock = finished.studyBlockId
+        ? blocksRef.current.find((b) => b.id === finished.studyBlockId)
+        : undefined
+      const resolvedCourse = finished.courseCode ?? linkedBlock?.courseCode ?? null
+      const resolvedTask =
+        finished.taskId ?? (linkedBlock?.sourceKind === 'task' ? linkedBlock.sourceId : null)
+      const finishedMinutes = Math.max(1, Math.round(finished.totalMs / 60_000))
+      setState((prev) =>
+        recordFocusRound(prev, new Date(now), {
+          courseCode: resolvedCourse,
+          taskId: resolvedTask,
+          studyBlockId: finished.studyBlockId,
+          minutes: finishedMinutes,
+        }),
+      )
     }
     // 专注轮结束时把绑定的学习块标完成
     if (result.finishedPhase === 'focus' && finished.studyBlockId) {
@@ -88,7 +129,7 @@ export function usePomodoro(): PomodoroController {
   }, [])
 
   useEffect(() => {
-    if (!timer || !isRunning(timer)) return
+    if (!enabled || !timer || !isRunning(timer)) return
     const tick = () => {
       const live = timerRef.current
       if (!live) return
@@ -97,11 +138,11 @@ export function usePomodoro(): PomodoroController {
     }
     const handle = setInterval(tick, TICK_MS)
     return () => clearInterval(handle)
-  }, [timer, finishPhase])
+  }, [enabled, timer, finishPhase])
 
   // 标签页标题倒计时同步
   useEffect(() => {
-    if (typeof document === 'undefined') return
+    if (!enabled || typeof document === 'undefined') return
     if (!timer || !isRunning(timer)) {
       document.title = 'LUT Timetable'
       return
@@ -117,12 +158,71 @@ export function usePomodoro(): PomodoroController {
       clearInterval(handle)
       document.title = 'LUT Timetable'
     }
-  }, [timer])
+  }, [enabled, timer])
 
-  const start = useCallback((phase: PomodoroPhase = 'focus', studyBlockId: string | null = null) => {
+  const start = useCallback(
+    (
+      phase: PomodoroPhase = 'focus',
+      studyBlockId: string | null = null,
+      meta?: PomodoroTimerMeta,
+    ) => {
+      const current = stateRef.current
+      const linkedBlock = studyBlockId
+        ? blocksRef.current.find((b) => b.id === studyBlockId)
+        : undefined
+      const mergedMeta: PomodoroTimerMeta | undefined =
+        meta || linkedBlock
+          ? {
+              courseCode: meta?.courseCode ?? linkedBlock?.courseCode ?? null,
+              taskId:
+                meta?.taskId ??
+                (linkedBlock?.sourceKind === 'task' ? linkedBlock.sourceId : null),
+              label: meta?.label ?? linkedBlock?.title ?? null,
+            }
+          : undefined
+      setJustFinished(null)
+      setTimer(
+        startTimer(
+          current.config,
+          phase,
+          Date.now(),
+          current.roundsToday,
+          studyBlockId,
+          mergedMeta,
+        ),
+      )
+    },
+    [],
+  )
+
+  const startForCourse = useCallback(
+    (
+      courseCode: string,
+      opts?: { taskId?: string | null; studyBlockId?: string | null; label?: string | null },
+    ) => {
+      const current = stateRef.current
+      setJustFinished(null)
+      setTimer(
+        startFocusSession(current.config, Date.now(), {
+          completedRounds: current.roundsToday,
+          courseCode,
+          taskId: opts?.taskId ?? null,
+          studyBlockId: opts?.studyBlockId ?? null,
+          label: opts?.label ?? courseCode,
+        }),
+      )
+    },
+    [],
+  )
+
+  const startForBlock = useCallback((block: StudyBlock) => {
     const current = stateRef.current
     setJustFinished(null)
-    setTimer(startTimer(current.config, phase, Date.now(), current.roundsToday, studyBlockId))
+    setTimer(startFocusForBlock(current.config, block, Date.now(), current.roundsToday))
+  }, [])
+
+  const bindContext = useCallback((meta: PomodoroTimerMeta) => {
+    setTimer((prev) => (prev ? { ...prev, ...meta } : prev))
   }, [])
 
   const pause = useCallback(() => {
@@ -144,7 +244,13 @@ export function usePomodoro(): PomodoroController {
     if (!live) return
     const current = stateRef.current
     const next: PomodoroPhase = live.phase === 'focus' ? 'short' : 'focus'
-    setTimer(startTimer(current.config, next, Date.now(), current.roundsToday, null))
+    setTimer(
+      startTimer(current.config, next, Date.now(), current.roundsToday, null, {
+        courseCode: live.courseCode,
+        taskId: live.taskId,
+        label: live.label,
+      }),
+    )
   }, [])
 
   const updateConfig = useCallback((patch: Partial<PomodoroConfig>) => {
@@ -157,12 +263,18 @@ export function usePomodoro(): PomodoroController {
   const acknowledgeFinish = useCallback(() => setJustFinished(null), [])
 
   return {
+    state,
     timer,
     config: state.config,
     roundsToday: state.roundsToday,
+    focusMinutesByCourse: state.focusMinutesByCourse ?? {},
+    recentSessions: state.recentSessions ?? [],
     justFinished,
     blocks,
     start,
+    startForCourse,
+    startForBlock,
+    bindContext,
     pause,
     resume,
     reset,
@@ -170,6 +282,22 @@ export function usePomodoro(): PomodoroController {
     updateConfig,
     acknowledgeFinish,
   }
+}
+
+export function PomodoroProvider({ children }: { children: ReactNode }) {
+  const controller = usePomodoroStandalone(true)
+  return createElement(PomodoroContext.Provider, { value: controller }, children)
+}
+
+/**
+ * 番茄钟控制器：
+ * - 若外层挂载了 `PomodoroProvider`（根组件跨视图保活），直接共享同一份计时会话
+ * - 若独立渲染（如单测直接挂载 `PomodoroCard`），自动回退到本地控制器实例
+ */
+export function usePomodoro(): PomodoroController {
+  const ctx = useContext(PomodoroContext)
+  const fallback = usePomodoroStandalone(ctx === null)
+  return ctx ?? fallback
 }
 
 /** 测试与「恢复出厂」共用：不读 localStorage 的干净状态。 */

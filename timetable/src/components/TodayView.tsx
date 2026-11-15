@@ -21,11 +21,12 @@ import { freeRoomsNow } from '../lib/freeRooms'
 import LessonNote from './LessonNote'
 import Icon from './Icon'
 import CollapsiblePanel from './CollapsiblePanel'
-import { KEYS, readString, writeString } from '../lib/storage'
+import { KEYS } from '../lib/storage'
 import { useCollapse } from '../lib/useCollapse'
 import { loadCachedNotifications, notificationsAsAlertSources } from '../lib/notificationsFeed'
 import { noticesForLessons, type LessonNotice } from '../lib/lessonAlerts'
 import { studyBlocksOnDay, type StudyBlock } from '../lib/studyBlocks'
+import { usePomodoro } from '../hooks/usePomodoro'
 import SemesterStrip from './SemesterStrip'
 import WeekInsights from './WeekInsights'
 import PomodoroCard from './PomodoroCard'
@@ -35,6 +36,10 @@ interface Props {
   onSelect: (id: string) => void
   /** Catatan kursus: kode+jenis -> teks */
   notes?: NotesMap
+  /** 保存课堂随手记笔记 */
+  onSaveNote?: (lesson: Pick<Lesson, 'code' | 'type' | 'title'>, text: string) => void
+  /** 打开课程全景档案 */
+  onInspectCourse?: (code: string) => void
   /** Semua tugas/assignment — 今日截止 + 逾期 显示 */
   tasks?: Task[]
   /** 跳转到该课程的日历位置 */
@@ -54,15 +59,6 @@ interface Props {
   studyBlocks?: StudyBlock[]
   /** 学期全景带点某一周 → App 切到那一周的周视图 */
   onOpenWeek?: (weekStart: Date) => void
-}
-
-/** Dua tab 今日视图: 课程 (jadwal + navigasi) / 动态 (tugas, ujian, ruangan). */
-type TodayTab = 'lessons' | 'feed'
-
-const TAB_KEY = KEYS.todayTab
-
-function loadTab(): TodayTab {
-  return readString(TAB_KEY) === 'feed' ? 'feed' : 'lessons'
 }
 
 /** "1 小时 25 分" / "45 分钟" */
@@ -104,18 +100,33 @@ function LessonNoticeChip({ notice }: { notice?: LessonNotice }) {
  *  - 动态: ruangan kosong, ujian, pengumuman, tugas jatuh tempo.
  * Tab terakhir dipakai kembali saat buka (persisten).
  */
-export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], onJumpToCourse, onToggleTask, onOpenAssignments, onOpenSettings, hasSources = true, subscriptions = [], onWatchRoom, studyBlocks = [], onOpenWeek }: Props) {
+export default function TodayView({
+  lessons,
+  onSelect,
+  notes = {},
+  onSaveNote,
+  onInspectCourse,
+  tasks = [],
+  onJumpToCourse,
+  onToggleTask,
+  onOpenAssignments,
+  onOpenSettings,
+  hasSources = true,
+  subscriptions = [],
+  onWatchRoom,
+  studyBlocks = [],
+  onOpenWeek,
+}: Props) {
   const { t, locale } = useI18n()
   const now = useNow()
   const nowDate = useNowDate()
-  const [tab, setTab] = useState<TodayTab>(loadTab)
+  const pomodoro = usePomodoro()
   // 任务区折叠（逾期横幅 + 今日截止），持久化到 localStorage
   const [tasksOpen, toggleTasks] = useCollapse(KEYS.todayTasksOpen)
-
-  const switchTab = (next: TodayTab) => {
-    setTab(next)
-    writeString(TAB_KEY, next)
-  }
+  const [roomHorizon, setRoomHorizon] = useState<60 | 120>(60)
+  const [roomBuilding, setRoomBuilding] = useState<string>('all')
+  const [quickNoteOpen, setQuickNoteOpen] = useState(false)
+  const [quickNoteDraft, setQuickNoteDraft] = useState('')
 
   const today = useMemo(() => {
     const nowDate = new Date(now)
@@ -190,11 +201,53 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
     () => upcomingExams(lessons, new Date(now)),
     [lessons, now],
   )
-  // 空闲教室：根据已知教室占用推算，未来 1 小时内无课
-  const freeRooms = useMemo(
-    () => freeRoomsNow(lessons, new Date(now)),
-    [lessons, now],
+  // 空闲教室：根据已知教室占用推算，支持 1h / 2h 时长与楼栋筛选
+  const freeRoomsAll = useMemo(
+    () => freeRoomsNow(lessons, new Date(now), roomHorizon),
+    [lessons, now, roomHorizon],
   )
+  const freeRoomBuildings = useMemo(
+    () => [...new Set(freeRoomsAll.map((r) => r.building))].sort((a, b) => a.localeCompare(b)),
+    [freeRoomsAll],
+  )
+  const freeRooms = useMemo(
+    () => (roomBuilding === 'all' ? freeRoomsAll : freeRoomsAll.filter((r) => r.building === roomBuilding)),
+    [freeRoomsAll, roomBuilding],
+  )
+  const pomodoroCourses = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const l of lessons) {
+      if (l.code && !seen.has(l.code)) {
+        seen.set(l.code, displayTitle(l))
+      }
+    }
+    return [...seen.entries()].map(([code, title]) => ({ code, title }))
+  }, [lessons])
+
+  const hasPastToday = useMemo(
+    () => today.some((l) => new Date(l.end).getTime() <= now),
+    [today, now],
+  )
+  const stageMode: 'in-class' | 'between-classes' | 'before-class' | 'after-hours' = ongoing
+    ? 'in-class'
+    : next
+      ? hasPastToday
+        ? 'between-classes'
+        : 'before-class'
+      : 'after-hours'
+  const ongoingProgress = ongoing
+    ? (() => {
+        const s = new Date(ongoing.start).getTime()
+        const e = new Date(ongoing.end).getTime()
+        const total = Math.max(1, e - s)
+        const pct = Math.max(0, Math.min(100, Math.round(((now - s) / total) * 100)))
+        const left = Math.max(1, Math.round((e - now) / 60000))
+        return { pct, left }
+      })()
+    : null
+  const nextMinutesLeft = next
+    ? Math.max(1, Math.round((new Date(next.start).getTime() - now) / 60000))
+    : null
 
   // Navigasi internal: kelompokkan pelajaran hari ini per gedung.
   const buildings = useMemo(() => {
@@ -212,9 +265,6 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
     }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [today, now, locale])
-
-  // Feed tab badge: ada sesuatu yang perlu dilihat?
-  const feedCount = freeRooms.length + exams.length + overdueTasks.length + dueToday.length
 
   // 明日预览卡片：今日课已全部结束，或空课日（today 为空但有下一节课日）时内嵌展示，
   // 取代空课日「只有横幅一句话」的空态。两处共用同一个 JSX，避免双份维护。
@@ -237,17 +287,42 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
 
   return (
     <div className="flex-1 overflow-y-auto p-4 safe-bottom">
-      {/* ≥1280px：课程与动态并排（两栏信息密度更高，不用来回切 tab）；
-          窄屏保持单栏 + tab 切换。 */}
-      <div className="mx-auto max-w-xl space-y-3 xl:grid xl:max-w-5xl xl:grid-cols-[minmax(0,1fr)_380px] xl:items-start xl:gap-5 xl:space-y-0">
-        {/* 首屏英雄卡：日期 + 当前/下一节 + 三个数字。最该看的信息在同一块，
-            下面才是完整课表与动态；不在首屏再堆一行标题和一条独立横幅。 */}
-        <div className="xl:col-span-2">
-          <section className="app-hero p-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="app-card-label">{todayLabel}</p>
-                <h2 className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-base font-semibold tracking-tight text-[var(--text-1)]">
+      {/* 非对称 Bento 布局：情境感知 Live Stage 置顶，下方 7:5 桌面不对称双栏 / 移动流式直出 */}
+      <div className="mx-auto max-w-xl space-y-3 xl:grid xl:max-w-6xl xl:grid-cols-12 xl:items-start xl:gap-4 xl:space-y-0">
+        {/* 情境感知 Live Stage（四态：课前准备 / 上课中 / 课间换场 / 收官夜览） */}
+        <div className="xl:col-span-12">
+          <section
+            data-testid="today-live-stage"
+            data-stage-mode={stageMode}
+            className="app-hero p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={
+                      'led-dot ' +
+                      (stageMode === 'in-class'
+                        ? 'led-ok led-pulse'
+                        : stageMode === 'between-classes' || stageMode === 'before-class'
+                          ? 'led-info'
+                          : '')
+                    }
+                    aria-hidden="true"
+                  />
+                  <p className="app-card-label">{todayLabel}</p>
+                  <span className="text-[11px] font-mono text-[var(--text-3)]">
+                    {stageMode === 'in-class' && ongoingProgress
+                      ? t('todayStageInClass', { pct: ongoingProgress.pct, m: ongoingProgress.left })
+                      : stageMode === 'between-classes' && next && nextMinutesLeft != null
+                        ? t('todayStageBetween', { code: next.code || displayTitle(next), m: nextMinutesLeft })
+                        : stageMode === 'before-class' && nextMinutesLeft != null
+                          ? t('todayStageBefore', { m: nextMinutesLeft })
+                          : t('todayStageAfterHours')}
+                  </span>
+                </div>
+
+                <h2 className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-base font-semibold tracking-tight text-[var(--text-1)]">
                   {banner.lesson ? (
                     <>
                       {banner.tone === 'ongoing' && (
@@ -265,42 +340,108 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                     <span>{banner.text}</span>
                   )}
                 </h2>
+
                 <p className="mt-1 text-[11px] text-[var(--text-2)]">
                   {banner.lesson ? (
                     <span className="tabular-nums font-mono">
                       {formatTime(banner.lesson.start, locale)} – {formatTime(banner.lesson.end, locale)}
                       {banner.lesson.location ? ` · ${banner.lesson.location}` : ''}
-                      <span className="text-[var(--text-3)] font-sans"> · {banner.text}</span>
+                      <span className="font-sans text-[var(--text-3)]"> · {banner.text}</span>
+                    </span>
+                  ) : nextDayLessons[0] ? (
+                    <span className="tabular-nums font-mono text-[var(--text-3)]">
+                      {t('nextDayPreview')}: {nextDayLessons[0].code ? `${nextDayLessons[0].code} ` : ''}
+                      {formatTime(nextDayLessons[0].start, locale)}
                     </span>
                   ) : (
-                    <span className="text-[var(--text-3)]">{t('todayTabLessons')} · {t('todayTabFeed')}</span>
+                    <span className="text-[var(--text-3)]">{t('todayBentoSchedule')} · {t('todayBentoPulse')}</span>
                   )}
                 </p>
+
+                {ongoingProgress && (
+                  <div className="mt-2 max-w-md">
+                    <div className="micro-scale">
+                      <span className="micro-scale-fill" style={{ width: `${ongoingProgress.pct}%` }} />
+                    </div>
+                  </div>
+                )}
+
+                {ongoing && onSaveNote && quickNoteOpen && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      if (!quickNoteDraft.trim()) return
+                      onSaveNote(ongoing, quickNoteDraft.trim())
+                      setQuickNoteDraft('')
+                      setQuickNoteOpen(false)
+                    }}
+                    className="mt-2 flex max-w-md items-center gap-1.5"
+                  >
+                    <input
+                      type="text"
+                      value={quickNoteDraft}
+                      onChange={(e) => setQuickNoteDraft(e.target.value)}
+                      placeholder={t('todayStageNotePh')}
+                      className="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-1 text-xs text-[var(--text-1)] placeholder:text-[var(--text-3)] focus:border-[var(--focus-line)] focus:outline-none"
+                    />
+                    <button type="submit" className="app-btn-primary px-2.5 py-1 text-[11px]">
+                      {t('save')}
+                    </button>
+                  </form>
+                )}
               </div>
-              <div className="app-seg xl:hidden" role="tablist">
-                <button role="tab" aria-selected={tab === 'lessons'} onClick={() => switchTab('lessons')} className="px-2.5 py-1 text-[11px]">
-                  {t('todayTabLessons')}
-                </button>
-                <button role="tab" aria-selected={tab === 'feed'} onClick={() => switchTab('feed')} className="px-2.5 py-1 text-[11px]">
-                  {t('todayTabFeed')}
-                  {feedCount > 0 && <span className="ml-1 font-mono text-[var(--text-3)]">{feedCount}</span>}
-                </button>
-              </div>
+
+              {banner.lesson && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {banner.lesson.code && onInspectCourse && (
+                    <button
+                      type="button"
+                      onClick={() => onInspectCourse(banner.lesson!.code!)}
+                      className="app-btn px-2.5 py-1 text-[11px]"
+                    >
+                      {t('todayStageActionInspect')}
+                    </button>
+                  )}
+                  {banner.lesson.code && (
+                    <button
+                      type="button"
+                      onClick={() => pomodoro.startForCourse(banner.lesson!.code!, { label: displayTitle(banner.lesson!) })}
+                      className="app-btn-primary px-2.5 py-1 text-[11px]"
+                    >
+                      {t('todayStageActionFocus')}
+                    </button>
+                  )}
+                  {ongoing && onSaveNote && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const existing = noteForLesson(notes, ongoing)
+                        setQuickNoteDraft(existing ?? '')
+                        setQuickNoteOpen((v) => !v)
+                      }}
+                      className="app-btn-ghost px-2 py-1 text-[11px]"
+                    >
+                      + {t('edit')}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
+
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
               <div data-tone="info" className="stat-tile px-2.5 py-1.5">
-                <span className="stat-value text-base font-semibold font-mono tabular-nums">{today.length}</span>
+                <span className="stat-value font-mono text-base font-semibold tabular-nums">{today.length}</span>
                 <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceLessons')}</span>
               </div>
               {dueToday.length > 0 && (
                 <div data-tone="due" className="stat-tile px-2.5 py-1.5">
-                  <span className="stat-value text-base font-semibold font-mono tabular-nums">{dueToday.length}</span>
+                  <span className="stat-value font-mono text-base font-semibold tabular-nums">{dueToday.length}</span>
                   <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceDue')}</span>
                 </div>
               )}
               {overdueTasks.length > 0 && (
                 <div data-tone="danger" className="stat-tile px-2.5 py-1.5">
-                  <span className="stat-value text-base font-semibold font-mono tabular-nums">{overdueTasks.length}</span>
+                  <span className="stat-value font-mono text-base font-semibold tabular-nums">{overdueTasks.length}</span>
                   <span className="ml-1.5 text-[10px] text-[var(--text-3)]">{t('todayGlanceOverdue')}</span>
                 </div>
               )}
@@ -318,7 +459,8 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
           </section>
         </div>
 
-        <div className={'space-y-3' + (tab === 'lessons' ? '' : ' hidden xl:block')}>
+        {/* Bento 主列：今日课序 + 已确认学习块 + 本周洞察 + 室内导航 */}
+        <div className="space-y-3 xl:col-span-7">
             {/* 今日课程安排（置顶首位） */}
             {today.length === 0 ? (
               nextDayPreview || (banner.tone !== 'empty' ? (
@@ -382,9 +524,12 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                 </div>
               </CollapsiblePanel>
             )}
+            {/* 本周提示（空档 / 赶场 / 满课）置入主列形成非对称 Bento */}
+            <WeekInsights lessons={lessons} onSelect={onSelect} />
         </div>
 
-        <div className={'space-y-3' + (tab === 'feed' ? '' : ' hidden xl:block')}>
+        {/* Bento 次列：逾期与今日截止 + 课程专注 + 互动空闲教室 + 考试倒计时（全视口直出，无 tab 折叠隐藏） */}
+        <div className="space-y-3 xl:col-span-5">
             {/* 1. 紧急与截止：逾期任务警示横幅 */}
             {overdueTasks.length > 0 && (
               <section className="animate-modal-in app-card border border-[var(--danger)]/40 bg-[var(--tint-danger)]/10">
@@ -531,14 +676,11 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
               </CollapsiblePanel>
             )}
 
-            {/* 4. 番茄钟专注 / 课间减压（紧凑可折叠） */}
-            <PomodoroCard />
+            {/* 4. 番茄钟课程联动专注舱 */}
+            <PomodoroCard courses={pomodoroCourses} />
 
-            {/* 5. 本周提示：空档 / 赶场 / 满课 */}
-            <WeekInsights lessons={lessons} onSelect={onSelect} />
-
-            {/* 6. 空闲教室自习查询 */}
-            {freeRooms.length > 0 && (
+            {/* 5. 互动式空闲教室查询（支持楼栋与可用时长筛选） */}
+            {(freeRoomsAll.length > 0 || lessons.some((l) => !!l.location)) && (
               <CollapsiblePanel
                 storageKey={KEYS.todayRoomsOpen}
                 label={
@@ -547,54 +689,115 @@ export default function TodayView({ lessons, onSelect, notes = {}, tasks = [], o
                   </span>
                 }
               >
-                <div className="space-y-1">
-                  {freeRooms.map((r) => {
-                    const key = `${r.building}_${r.room}`
-                    const watched = isSubscribed(subscriptions, 'room-free', key)
-                    return (
-                      <div key={key} className="flex items-center gap-2 text-[11px]">
-                        <span className="min-w-0 flex-1 truncate">
-                          <span className="font-semibold text-[var(--text-1)] inline-flex items-center gap-1"><Icon name="building" size={12} /> {r.building}</span>
-                          <span className="ml-2 text-[var(--text-2)]">
-                            {r.room}
-                            {r.nextBusyAt && (
-                              <span className="ml-1.5 text-[var(--text-3)]">
-                                · {t('freeUntil', { time: formatBusyAt(r.nextBusyAt, locale) })}
-                              </span>
-                            )}
-                          </span>
-                        </span>
-                        {/* 订阅：这间教室空出来就推一条（再点取消） */}
+                <div className="space-y-2">
+                  <div
+                    data-testid="free-room-filters"
+                    className="flex flex-wrap items-center justify-between gap-1.5"
+                  >
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setRoomBuilding('all')}
+                        aria-pressed={roomBuilding === 'all'}
+                        className={
+                          'rounded border px-1.5 py-0.5 text-[10px] transition ' +
+                          (roomBuilding === 'all'
+                            ? 'border-[var(--accent)] bg-[var(--surface-3)] text-[var(--text-1)] font-medium'
+                            : 'border-[var(--line)] text-[var(--text-3)] hover:text-[var(--text-1)]')
+                        }
+                      >
+                        {t('freeRoomsAllBuildings')}
+                      </button>
+                      {freeRoomBuildings.map((b) => (
                         <button
-                          onClick={() =>
-                            onWatchRoom?.(
-                              key,
-                              // 展示用：楼号与房间号相同时（数据里常这么写）不重复一遍
-                              r.building === r.room ? r.room : `${r.building} ${r.room}`,
-                              !watched,
-                            )
-                          }
-                          aria-pressed={watched}
+                          key={b}
+                          type="button"
+                          onClick={() => setRoomBuilding(b)}
+                          aria-pressed={roomBuilding === b}
                           className={
-                            'shrink-0 rounded px-1.5 py-0.5 text-[10px] transition ' +
-                            (watched
-                              ? 'bg-[var(--tint-info)] text-[var(--info)]'
-                              : 'text-[var(--text-3)] hover:bg-[var(--hover-1)]')
+                            'rounded border px-1.5 py-0.5 text-[10px] font-mono transition ' +
+                            (roomBuilding === b
+                              ? 'border-[var(--accent)] bg-[var(--surface-3)] text-[var(--text-1)] font-medium'
+                              : 'border-[var(--line)] text-[var(--text-3)] hover:text-[var(--text-1)]')
                           }
-                          title={t('subRoomHint')}
                         >
-                          {watched ? t('subOn') : t('subRoomWatch')}
+                          {b}
                         </button>
-                      </div>
-                    )
-                  })}
+                      ))}
+                    </div>
+                    <div className="app-seg" role="group">
+                      {([60, 120] as const).map((h) => (
+                        <button
+                          key={h}
+                          type="button"
+                          aria-pressed={roomHorizon === h}
+                          onClick={() => setRoomHorizon(h)}
+                          className="px-1.5 py-0.5 text-[10px] font-mono"
+                        >
+                          {h === 60 ? '≥1h' : '≥2h'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {freeRooms.length === 0 ? (
+                    <p className="py-1 text-[11px] text-[var(--text-3)]">
+                      {t('freeRoomsNoneMatching')}
+                    </p>
+                  ) : (
+                    <div className="space-y-1">
+                      {freeRooms.map((r) => {
+                        const key = `${r.building}_${r.room}`
+                        const watched = isSubscribed(subscriptions, 'room-free', key)
+                        return (
+                          <div key={key} className="flex items-center gap-2 text-[11px]">
+                            <span className="min-w-0 flex-1 truncate">
+                              <span className="inline-flex items-center gap-1 font-semibold text-[var(--text-1)]">
+                                <Icon name="building" size={12} /> {r.building}
+                              </span>
+                              <span className="ml-2 text-[var(--text-2)]">
+                                {r.room}
+                                {r.nextBusyAt && (
+                                  <span className="ml-1.5 text-[var(--text-3)]">
+                                    · {t('freeUntil', { time: formatBusyAt(r.nextBusyAt, locale) })}
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                            {/* 订阅：这间教室空出来就推一条（再点取消） */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onWatchRoom?.(
+                                  key,
+                                  // 展示用：楼号与房间号相同时（数据里常这么写）不重复一遍
+                                  r.building === r.room ? r.room : `${r.building} ${r.room}`,
+                                  !watched,
+                                )
+                              }
+                              aria-pressed={watched}
+                              className={
+                                'shrink-0 rounded px-1.5 py-0.5 text-[10px] transition ' +
+                                (watched
+                                  ? 'bg-[var(--tint-info)] text-[var(--info)]'
+                                  : 'text-[var(--text-3)] hover:bg-[var(--hover-1)]')
+                              }
+                              title={t('subRoomHint')}
+                            >
+                              {watched ? t('subOn') : t('subRoomWatch')}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </CollapsiblePanel>
             )}
         </div>
 
-        {/* 宏观全景：学期进度全景带（底置，保持首屏核心日程精简） */}
-        <div className="xl:col-span-2 pt-1">
+        {/* 宏观全景：学期进度全景带（横跨双列底置） */}
+        <div className="xl:col-span-12 pt-1">
           <SemesterStrip lessons={lessons} tasks={tasks} onOpenWeek={onOpenWeek} />
         </div>
       </div>

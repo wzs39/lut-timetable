@@ -9,7 +9,9 @@
  * - 不自己维护「还剩几秒」：剩余量由 `endsAt - now` 推出来，所以后台被节流、
  *   手机息屏、应用被挂起都不会漂——漂的是 tick，不是真相。
  */
+import { normalizeCourseCode } from './ics'
 import { KEYS, readJson, writeJson } from './storage'
+import type { StudyBlock } from './studyBlocks'
 
 export type PomodoroPhase = 'focus' | 'short' | 'long'
 
@@ -80,6 +82,18 @@ export interface PomodoroTimer {
   completedRounds: number
   /** 绑定的学习块 id（可选）：一轮专注结束后可以把块标成完成 */
   studyBlockId: string | null
+  /** 绑定的课程代码（可选）：一轮专注结束后累加到课程专注时长账本 */
+  courseCode?: string | null
+  /** 绑定的任务 id（可选） */
+  taskId?: string | null
+  /** 绑定的可读标签（可选，用于悬浮胶囊或标题展示） */
+  label?: string | null
+}
+
+export interface PomodoroTimerMeta {
+  courseCode?: string | null
+  taskId?: string | null
+  label?: string | null
 }
 
 export function startTimer(
@@ -88,9 +102,10 @@ export function startTimer(
   now: number,
   completedRounds = 0,
   studyBlockId: string | null = null,
+  meta?: PomodoroTimerMeta,
 ): PomodoroTimer {
   const totalMs = phaseMinutes(config, phase) * 60_000
-  return {
+  const timer: PomodoroTimer = {
     phase,
     totalMs,
     endsAt: now + totalMs,
@@ -98,6 +113,50 @@ export function startTimer(
     completedRounds,
     studyBlockId,
   }
+  if (meta?.courseCode !== undefined) timer.courseCode = meta.courseCode
+  if (meta?.taskId !== undefined) timer.taskId = meta.taskId
+  if (meta?.label !== undefined) timer.label = meta.label
+  return timer
+}
+
+export function startFocusSession(
+  config: PomodoroConfig,
+  now: number,
+  opts: {
+    completedRounds?: number
+    studyBlockId?: string | null
+    courseCode?: string | null
+    taskId?: string | null
+    label?: string | null
+  } = {},
+): PomodoroTimer {
+  return startTimer(
+    config,
+    'focus',
+    now,
+    opts.completedRounds ?? 0,
+    opts.studyBlockId ?? null,
+    {
+      courseCode: opts.courseCode ? normalizeCourseCode(opts.courseCode) || opts.courseCode : null,
+      taskId: opts.taskId ?? null,
+      label: opts.label ?? null,
+    },
+  )
+}
+
+export function startFocusForBlock(
+  config: PomodoroConfig,
+  block: Pick<StudyBlock, 'id' | 'title' | 'courseCode' | 'sourceKind' | 'sourceId'>,
+  now: number,
+  completedRounds = 0,
+): PomodoroTimer {
+  return startFocusSession(config, now, {
+    completedRounds,
+    studyBlockId: block.id,
+    courseCode: block.courseCode ?? null,
+    taskId: block.sourceKind === 'task' ? block.sourceId : null,
+    label: block.title,
+  })
 }
 
 export function isRunning(timer: PomodoroTimer): boolean {
@@ -162,16 +221,34 @@ export function advancePhase(config: PomodoroConfig, timer: PomodoroTimer, now: 
   const timerNext: PomodoroTimer = config.autoAdvance
     ? { phase: nextPhase, totalMs, endsAt: now + totalMs, pausedRemainingMs: null, completedRounds, studyBlockId: keepBlock }
     : { phase: nextPhase, totalMs, endsAt: null, pausedRemainingMs: totalMs, completedRounds, studyBlockId: keepBlock }
+  if (timer.courseCode !== undefined) timerNext.courseCode = timer.courseCode
+  if (timer.taskId !== undefined) timerNext.taskId = timer.taskId
+  if (timer.label !== undefined) timerNext.label = timer.label
   return { timer: timerNext, finishedPhase, countedRound, nextPhase }
 }
 
 /* ------------------------------ 持久化 ------------------------------ */
+
+export interface PomodoroSessionRecord {
+  id: string
+  courseCode: string
+  taskId?: string
+  studyBlockId?: string
+  completedAt: string
+  minutes: number
+}
 
 export interface PomodoroState {
   config: PomodoroConfig
   /** 当日已完成的专注轮数；`day` 是本地日期键，跨天自动归零 */
   day: string
   roundsToday: number
+  /** 按课程代码累计的专注分钟数（跨天持久保存，对标 SISU 27h/ECTS 工作量） */
+  focusMinutesByCourse?: Record<string, number>
+  /** 按本地日期 YYYY-MM-DD 累计的专注分钟数 */
+  focusMinutesByDay?: Record<string, number>
+  /** 最近完成的专注会话记录（最多保留 100 条） */
+  recentSessions?: PomodoroSessionRecord[]
 }
 
 const localDayKey = (date: Date): string => {
@@ -182,7 +259,14 @@ const localDayKey = (date: Date): string => {
 }
 
 export function emptyPomodoroState(now = new Date()): PomodoroState {
-  return { config: { ...DEFAULT_POMODORO_CONFIG }, day: localDayKey(now), roundsToday: 0 }
+  return {
+    config: { ...DEFAULT_POMODORO_CONFIG },
+    day: localDayKey(now),
+    roundsToday: 0,
+    focusMinutesByCourse: {},
+    focusMinutesByDay: {},
+    recentSessions: [],
+  }
 }
 
 export function loadPomodoroState(now = new Date()): PomodoroState {
@@ -193,11 +277,84 @@ export function loadPomodoroState(now = new Date()): PomodoroState {
   const rounds = typeof raw.roundsToday === 'number' && Number.isFinite(raw.roundsToday)
     ? Math.max(0, Math.trunc(raw.roundsToday))
     : 0
+  const byCourse: Record<string, number> = {}
+  if (raw.focusMinutesByCourse && typeof raw.focusMinutesByCourse === 'object') {
+    for (const [k, v] of Object.entries(raw.focusMinutesByCourse)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+        byCourse[k] = v
+      }
+    }
+  }
+  const byDay: Record<string, number> = {}
+  if (raw.focusMinutesByDay && typeof raw.focusMinutesByDay === 'object') {
+    for (const [k, v] of Object.entries(raw.focusMinutesByDay)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+        byDay[k] = v
+      }
+    }
+  }
+  const recentSessions = Array.isArray(raw.recentSessions)
+    ? raw.recentSessions.filter(
+        (s): s is PomodoroSessionRecord =>
+          Boolean(s && typeof s === 'object' && typeof s.id === 'string' && typeof s.minutes === 'number'),
+      )
+    : []
   return {
     config: normalizePomodoroConfig(raw.config),
     day: typeof raw.day === 'string' ? raw.day : today,
     // 跨天归零：昨天攒的轮数不该算进今天的长休息节奏
     roundsToday: raw.day === today ? rounds : 0,
+    focusMinutesByCourse: byCourse,
+    focusMinutesByDay: byDay,
+    recentSessions,
+  }
+}
+
+export function recordFocusRound(
+  state: PomodoroState,
+  now: Date = new Date(),
+  opts?: {
+    courseCode?: string | null
+    taskId?: string | null
+    studyBlockId?: string | null
+    minutes?: number
+  },
+): PomodoroState {
+  const today = localDayKey(now)
+  const baseRounds = state.day === today ? state.roundsToday : 0
+  const minutes = Math.max(
+    1,
+    Math.round(opts?.minutes ?? state.config.focusMinutes ?? DEFAULT_POMODORO_CONFIG.focusMinutes),
+  )
+  const rawCourse = opts?.courseCode?.trim() ?? ''
+  const courseKey = (rawCourse ? normalizeCourseCode(rawCourse) || rawCourse.toUpperCase() : '') || 'UNASSIGNED'
+
+  const nextByCourse: Record<string, number> = { ...(state.focusMinutesByCourse ?? {}) }
+  if (rawCourse) {
+    nextByCourse[courseKey] = (nextByCourse[courseKey] ?? 0) + minutes
+  }
+
+  const nextByDay: Record<string, number> = { ...(state.focusMinutesByDay ?? {}) }
+  nextByDay[today] = (nextByDay[today] ?? 0) + minutes
+
+  const record: PomodoroSessionRecord = {
+    id: `pomo_${now.getTime()}_${baseRounds + 1}`,
+    courseCode: courseKey,
+    ...(opts?.taskId ? { taskId: opts.taskId } : {}),
+    ...(opts?.studyBlockId ? { studyBlockId: opts.studyBlockId } : {}),
+    completedAt: now.toISOString(),
+    minutes,
+  }
+
+  const nextSessions = [record, ...(state.recentSessions ?? [])].slice(0, 100)
+
+  return {
+    ...state,
+    day: today,
+    roundsToday: baseRounds + 1,
+    focusMinutesByCourse: nextByCourse,
+    focusMinutesByDay: nextByDay,
+    recentSessions: nextSessions,
   }
 }
 

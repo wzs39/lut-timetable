@@ -41,7 +41,15 @@ beforeEach(() => {
     token: { token: 'tok' },
     connected: true,
     grades: [
-      { course: 'CT60A4050', matched: false, average: 80, items: [] },
+    {
+      course: 'CT60A4050',
+      matched: false,
+      average: 80,
+      items: [
+        { name: 'Exam', grade: 80, max: 100, percentage: 80, weight: 50, graded: true },
+        { name: 'Project', grade: null, max: 100, percentage: null, weight: 50, graded: false },
+      ],
+    },
       { course: 'BM20A9200', matched: false, average: 60, items: [] },
     ],
     subStatus: new Map(),
@@ -87,13 +95,24 @@ const tasks: Task[] = [
   task({ id: 't3', title: 'Already done', completed: true, dueAt: iso(1) }),
 ]
 
-function mount() {
+function mount(extra?: { onInspectCourse?: (code: string) => void }) {
   return render(
     <I18nProvider>
       <MoodleView
         tasks={tasks}
-        lessons={[]}
+        lessons={[
+          {
+            id: 'l1',
+            title: 'CT60A2411 Software Engineering',
+            code: 'CT60A2411',
+            start: iso(1),
+            end: iso(1),
+            source: 'timeedit',
+            location: '1320',
+          },
+        ]}
         onTasks={() => {}}
+        onInspectCourse={extra?.onInspectCourse}
         onOpenAssignments={() => {}}
         onOpenSettings={() => {}}
       />
@@ -107,7 +126,7 @@ function tile(label: string): HTMLButtonElement {
   return within(hero as HTMLElement).getByText(label).closest('button') as HTMLButtonElement
 }
 
-describe('MoodleView — overview and section rail', () => {
+describe('MoodleView — overview and 3 flat workspaces', () => {
   it('summarises pending, overdue, unread and average in one glance block', () => {
     mount()
 
@@ -120,39 +139,60 @@ describe('MoodleView — overview and section rail', () => {
     expect(tile('当前均分').textContent).toContain('70%')
   })
 
-  it('renders the six sections as one rail and keeps tab/panel aria wiring', () => {
+  it('renders the three flat workspaces as one rail and keeps tab/panel aria wiring', () => {
     mount()
 
     const rail = screen.getByRole('tablist', { name: 'Moodle' })
     const tabs = [...rail.querySelectorAll('[role="tab"]')]
-    expect(tabs).toHaveLength(6)
+    expect(tabs).toHaveLength(3)
     expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual([
       'true',
       'false',
       'false',
-      'false',
-      'false',
-      'false',
     ])
-    // 导轨是一份 DOM：第 6 个分区不再需要「下一页」才能触达
-    expect(screen.getByRole('tab', { name: /通知/ })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('tab', { name: /成绩/ }))
     const panel = document.getElementById('moodle-panel')!
     expect(panel.getAttribute('aria-labelledby')).toBe('moodle-tab-grades')
     expect(screen.getByRole('tab', { name: /成绩/ }).getAttribute('aria-selected')).toBe('true')
+    // 内嵌 SISU 培养方案不再二次嵌套 tablist，并展示先修课 DAG 图；成绩卡片支持 LUT 1-5 反向求解
+    expect(screen.getByTestId('sisu-prereq-graph')).toBeTruthy()
+    expect(panel.querySelector('#sisu-tab-overview')).toBeNull()
+    fireEvent.click(screen.getAllByRole('button', { name: /预估总分|What-if/i })[0])
+    expect(screen.getByTestId('grade-lut-solver')).toBeTruthy()
+    expect(screen.getByTestId('grade-lut-level-3')).toBeTruthy()
   })
 
-  it('lets the glance tiles jump straight to the matching section', () => {
+  it('lets the glance tiles jump to matching workspaces and supports Crunch Radar & Kanban', () => {
     mount()
 
+    expect(screen.getByTestId('crunch-radar-chart')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('tasks-mode-kanban'))
+    expect(screen.getByTestId('tasks-kanban-board')).toBeTruthy()
+
+    fireEvent.click(tile('当前均分'))
+    expect(document.getElementById('moodle-tab-grades')!.getAttribute('aria-selected')).toBe('true')
+
     fireEvent.click(tile('未读通知'))
-    expect(document.getElementById('moodle-tab-notif')!.getAttribute('aria-selected')).toBe('true')
-    // 通知分区确实挂载（内容来自 mock 的 notifications）
+    expect(document.getElementById('moodle-tab-tasks')!.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('Week 3 notes')).toBeTruthy()
   })
 
-  it('refreshes through the single hero action', () => {
+  it('unlocks all workspaces offline when Moodle is disconnected and supports course graph dossier inspection', () => {
+    mockMd = { ...mockMd, connected: false, token: null, grades: null }
+    const inspect = vi.fn()
+    mount({ onInspectCourse: inspect })
+
+    expect(screen.getByTestId('moodle-disconnected-banner')).toBeTruthy()
+    expect(screen.getByTestId('crunch-radar-chart')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('tab', { name: /课程/ }))
+    expect(screen.getByTestId('courses-tri-source-list')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('course-dossier-btn-CT60A2411'))
+    expect(inspect).toHaveBeenCalledWith('CT60A2411')
+  })
+
+  it('refreshes through the single hero action when connected', () => {
     mount()
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
     expect(syncNow).toHaveBeenCalledTimes(1)

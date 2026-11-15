@@ -16,6 +16,7 @@ const lessons: Lesson[] = [
     source: 'sisu',
     title: 'Software Engineering',
     code: 'CT60A4050',
+    location: '1325',
     start: '2026-09-21T08:00:00.000Z',
     end: '2026-09-21T10:00:00.000Z',
   },
@@ -48,7 +49,7 @@ function Harness({
     tasks,
     commands: [{ id: 'settings', label: t('settingsTitle'), icon: 'settings' as const }],
   })
-  return <CommandPalette items={items} onRun={onRun} onClose={onClose} />
+  return <CommandPalette items={items} lessons={lessons} onRun={onRun} onClose={onClose} />
 }
 
 function mount() {
@@ -130,5 +131,56 @@ describe('CommandPalette', () => {
     expect(screen.getByText('没有匹配项')).toBeTruthy()
     fireEvent.keyDown(input(), { key: 'Enter' })
     expect(onRun).not.toHaveBeenCalled()
+  })
+
+  it('parses natural-language study block creation (Omni-Command 2.0)', () => {
+    const { onRun } = mount()
+    fireEvent.change(input(), { target: { value: '周四 15:00 算法复习 90m' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onRun).toHaveBeenCalledTimes(1)
+    const action = onRun.mock.calls[0][0] as PaletteAction
+    expect(action.kind).toBe('quickAddStudyBlock')
+    if (action.kind === 'quickAddStudyBlock') {
+      expect(action.title).toContain('算法复习')
+      expect(action.durationMin).toBe(90)
+    }
+  })
+
+  it('renders classroom full-day 08:00-20:00 occupancy visual timeline on room query', () => {
+    const { onRun } = mount()
+    fireEvent.change(input(), { target: { value: 'room 1325' } })
+    expect(screen.getByTestId('room-timeline-1325')).toBeTruthy()
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'roomStatus',
+        room: '1325',
+      }),
+    )
+  })
+
+  it('computes inline grade target reverse calculation in one step', () => {
+    const { onRun } = mount()
+    fireEvent.change(input(), { target: { value: 'grade CT60A4050 4' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'gradeCalcResult',
+        courseCode: 'CT60A4050',
+        resultText: expect.stringContaining('80%'),
+      }),
+    )
+  })
+
+  it('dispatches Unified Course Dossier inspection via dossier query or inline button', () => {
+    const { onRun } = mount()
+    fireEvent.change(input(), { target: { value: 'dossier CT60A4050' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(onRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'dossier',
+        code: 'CT60A4050',
+      }),
+    )
   })
 })

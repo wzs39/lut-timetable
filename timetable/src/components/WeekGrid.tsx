@@ -26,6 +26,11 @@ import { WEEK_NAV, weekNavForDelta, type WeekNavId } from '../lib/navigation'
 import { studyBlocksOnDay, type StudyBlock } from '../lib/studyBlocks'
 import { WEEK_DENSITIES, hourPxOf, type WeekDensity } from '../lib/uiPrefs'
 import { noteForLesson, type NotesMap } from '../lib/notes'
+import { normalizeCourseCode } from '../lib/ics'
+import type { Task } from '../lib/tasks'
+import { isOverdue } from '../lib/tasks'
+import type { CourseGrades } from '../lib/grades'
+import SemesterStrip from './SemesterStrip'
 import LessonNote from './LessonNote'
 import Icon from './Icon'
 
@@ -39,9 +44,12 @@ const LOCATION_MIN_PX = 84
 const COMPACT_MAX_PX = 50
 /** Tinggi header hari (text-xs + py-1.5) — garis "sekarang" harus melewatinya */
 const DAY_HEADER_PX = 28
+const DAY_HEADER_WITH_DDL_PX = 50
 
 interface Props {
   lessons: Lesson[]
+  /** 全部课程（用于嵌入周视图顶部的学期全景条；不传则回退为 lessons） */
+  allLessons?: Lesson[]
   weekStart: Date
   onSelect: (id: string) => void
   /** Catatan kursus: kode+jenis -> teks */
@@ -59,6 +67,21 @@ interface Props {
    * 冲突组 / 便签 / 订阅 / ICS 导出，也不拿课程色板，不传时行为与以前完全一样。
    */
   studyBlocks?: StudyBlock[]
+  /** 待办任务：用于顶部 Moodle DDL 图钉与跨课聚光灯联动 HUD */
+  tasks?: Task[]
+  /** 课程成绩：用于在跨课聚光灯迷你 HUD 中展示当前加权成绩 */
+  grades?: CourseGrades[]
+  /** 跳转指定周（来自顶部嵌入式学期全景条） */
+  onOpenWeek?: (weekStart: Date) => void
+  /** 打开课程全景档案（来自 DDL 图钉或跨课聚光灯 HUD） */
+  onInspectCourse?: (code: string) => void
+  /** 点击或拖拽空白时段快速创建学习时段 */
+  onCreateStudyBlock?: (draft: {
+    title: string
+    startAt: string
+    endAt: string
+    courseCode?: string
+  }) => void
 }
 
 const LS_DISMISS = KEYS.conflictDismissed
@@ -79,6 +102,7 @@ function useIsWideScreen(): boolean {
 
 export default function WeekGrid({
   lessons,
+  allLessons,
   weekStart,
   onSelect,
   notes = {},
@@ -86,6 +110,11 @@ export default function WeekGrid({
   density = 'standard',
   onDensity,
   studyBlocks = [],
+  tasks = [],
+  grades = [],
+  onOpenWeek,
+  onInspectCourse,
+  onCreateStudyBlock,
 }: Props) {
   const { lang, t, locale } = useI18n()
   const isWide = useIsWideScreen()
@@ -114,6 +143,64 @@ export default function WeekGrid({
     [],
   )
 
+  const ddlsByDay = useMemo(
+    () =>
+      weekDays.map((day) =>
+        tasks
+          .filter((task) => !task.completed && !!task.dueAt && sameDay(new Date(task.dueAt), day))
+          .sort((a, b) => (a.dueAt ?? '').localeCompare(b.dueAt ?? '')),
+      ),
+    [tasks, weekDays],
+  )
+  const hasWeekDdls = ddlsByDay.some((list) => list.length > 0)
+  const dayHeaderPx = hasWeekDdls ? DAY_HEADER_WITH_DDL_PX : DAY_HEADER_PX
+
+  const [spotlightCourse, setSpotlightCourse] = useState<string | null>(null)
+  const spotlightMeta = useMemo(() => {
+    if (!spotlightCourse) return null
+    const sample = lessons.find(
+      (l) => normalizeCourseCode(l.code || l.title) === spotlightCourse,
+    )
+    const rawCode = sample?.code || spotlightCourse
+    const pendingCount = tasks.filter(
+      (task) =>
+        !task.completed &&
+        task.course &&
+        normalizeCourseCode(task.course) === spotlightCourse,
+    ).length
+    const gradeMatch = grades.find(
+      (g) => g.course && normalizeCourseCode(g.course) === spotlightCourse,
+    )
+    const gradeAvg = gradeMatch?.average != null ? Math.round(gradeMatch.average) : null
+    return { rawCode, pendingCount, gradeAvg }
+  }, [spotlightCourse, lessons, tasks, grades])
+
+  const weekCourseOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const l of lessons) {
+      if (l.code && !map.has(l.code)) map.set(l.code, displayTitle(l))
+    }
+    return [...map.entries()].map(([code, title]) => ({ code, title }))
+  }, [lessons])
+
+  const [slotDraft, setSlotDraft] = useState<{
+    dayIndex: number
+    startMin: number
+    endMin: number
+    title: string
+    courseCode: string
+  } | null>(null)
+  const dragSlotRef = useRef<{ dayIndex: number; startMin: number } | null>(null)
+
+  const snapMinFromY = (clientY: number, rectTop: number): number => {
+    const rawH = START_HOUR + Math.max(0, clientY - rectTop) / hourPx
+    const snapped = Math.round(rawH * 2) * 30
+    return Math.max(START_HOUR * 60, Math.min(END_HOUR * 60 - 30, snapped))
+  }
+
+  const fmtMin = (totalMin: number): string =>
+    `${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`
+
   const isCurrentWeek = useMemo(
     () => sameDay(startOfWeek(now), weekStart),
     [now, weekStart],
@@ -136,7 +223,7 @@ export default function WeekGrid({
   }/${weekDays[6].getDate()}`
   const nowH = now.getHours() + now.getMinutes() / 60
   // offset header hari agar garis sejajar persis dengan grid jam
-  const nowTop = DAY_HEADER_PX + (nowH - START_HOUR) * hourPx
+  const nowTop = dayHeaderPx + (nowH - START_HOUR) * hourPx
   const showNowLine = isCurrentWeek && nowH >= START_HOUR && nowH <= END_HOUR
   const todayIndex = (now.getDay() + 6) % 7
 
@@ -403,6 +490,11 @@ export default function WeekGrid({
             {weekStrip}
           </div>
         )}
+        {onOpenWeek && (
+          <div data-testid="week-semester-strip" className="px-3 pt-2">
+            <SemesterStrip lessons={allLessons ?? lessons} tasks={tasks} onOpenWeek={onOpenWeek} />
+          </div>
+        )}
         <div className="flex gap-1 px-3 pt-2 pb-1">
           {weekDays.map((d, i) => (
             <button
@@ -428,6 +520,31 @@ export default function WeekGrid({
           ))}
         </div>
         <div className="flex-1 space-y-2 overflow-y-auto px-3 pb-4 safe-bottom">
+          {ddlsByDay[mobileDay]?.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {ddlsByDay[mobileDay].map((task) => {
+                const overdue = isOverdue(task, now)
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    data-testid="week-ddl-pin"
+                    onClick={() => task.course && onInspectCourse?.(task.course)}
+                    className={
+                      'inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium ' +
+                      (overdue
+                        ? 'border-[var(--danger)]/40 bg-[var(--tint-danger)] text-[var(--danger)]'
+                        : 'border-[var(--line-due)] bg-[var(--tint-due)] text-[var(--due)]')
+                    }
+                  >
+                    <Icon name="pin" size={10} />
+                    <span className="max-w-[140px] truncate">{task.title}</span>
+                    {task.dueAt && <span className="font-mono">{formatTime(task.dueAt, locale)}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           {hiddenToday.length > 0 && (
             <div className="app-card flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] text-[var(--text-2)]">
               <span>{t('hiddenClashN', { n: hiddenToday.length })}</span>
@@ -476,7 +593,13 @@ export default function WeekGrid({
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* 工具条：本周量（左）+ 冲突摘要 + 密度切换（右）。 */}
+      {/* 嵌入式学期全景周条（仅多周数据自动显示，支持一键跳周） */}
+      {onOpenWeek && (
+        <div data-testid="week-semester-strip" className="px-4 pt-2 [&_.app-card]:p-2">
+          <SemesterStrip lessons={allLessons ?? lessons} tasks={tasks} onOpenWeek={onOpenWeek} />
+        </div>
+      )}
+      {/* 工具条：本周量 + 冲突摘要 + 跨课聚光灯迷你 HUD + 密度切换（右）。 */}
       <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--line)] px-4 pb-1.5 pt-2">
         <span className="app-badge shrink-0 tabular-nums" title={t('lessonsN', { n: weekLessonCount })}>
           {t('lessonsN', { n: weekLessonCount })}
@@ -485,7 +608,37 @@ export default function WeekGrid({
           <span className="app-badge shrink-0 tabular-nums">{weekContactHours} h</span>
         )}
         <div className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-2)]">
-          {weekStrip}
+          {spotlightMeta ? (
+            <div
+              data-testid="week-course-spotlight-hud"
+              className="inline-flex flex-wrap items-center gap-2 rounded-md border border-[var(--line-info)] bg-[var(--tint-info)] px-2 py-0.5 text-[11px] text-[var(--text-1)]"
+            >
+              <span className="font-mono font-semibold text-[var(--info)]">
+                {spotlightMeta.rawCode}
+              </span>
+              {spotlightMeta.pendingCount > 0 && (
+                <span className="font-mono text-[10px] text-[var(--due)]">
+                  {t('weekSpotlightPending', { n: spotlightMeta.pendingCount })}
+                </span>
+              )}
+              {spotlightMeta.gradeAvg !== null && (
+                <span className="font-mono text-[10px] text-[var(--ok)]">
+                  {spotlightMeta.gradeAvg}%
+                </span>
+              )}
+              {onInspectCourse && (
+                <button
+                  type="button"
+                  onClick={() => onInspectCourse(spotlightMeta.rawCode)}
+                  className="text-[10px] font-medium text-[var(--info)] hover:underline"
+                >
+                  {t('weekSpotlightViewDossier')}
+                </button>
+              )}
+            </div>
+          ) : (
+            weekStrip || (onCreateStudyBlock ? t('weekSlotClickHint') : null)
+          )}
         </div>
         {onDensity && (
           <div className="app-seg shrink-0" role="group" title={t('densityTitle')}>
@@ -509,11 +662,86 @@ export default function WeekGrid({
           </div>
         )}
       </div>
+      {/* 点击/拖拽空白格创建学习时段的内联浮层 */}
+      {slotDraft && onCreateStudyBlock && (
+        <div
+          data-testid="week-slot-popover"
+          className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--line-info)] bg-[var(--surface-2)] px-3 py-2 text-xs shadow-sm"
+        >
+          <span className="font-mono font-semibold text-[var(--info)]">
+            {formatDay(weekDays[slotDraft.dayIndex], locale)} {fmtMin(slotDraft.startMin)}–{fmtMin(slotDraft.endMin)}
+          </span>
+          <input
+            type="text"
+            autoFocus
+            value={slotDraft.title}
+            onChange={(e) => setSlotDraft((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
+            placeholder={t('weekSlotTitlePh')}
+            className="min-w-[180px] flex-1 rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 text-xs text-[var(--text-1)] focus:border-[var(--focus-line)] focus:outline-none"
+          />
+          {weekCourseOptions.length > 0 && (
+            <select
+              value={slotDraft.courseCode}
+              onChange={(e) =>
+                setSlotDraft((prev) => (prev ? { ...prev, courseCode: e.target.value } : prev))
+              }
+              className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 font-mono text-[11px] text-[var(--text-1)]"
+            >
+              <option value="">{t('weekSlotCourseNone')}</option>
+              {weekCourseOptions.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              const title = slotDraft.title.trim() || t('studyBlockPlanSource')
+              const baseDay = weekDays[slotDraft.dayIndex]
+              const startD = new Date(
+                baseDay.getFullYear(),
+                baseDay.getMonth(),
+                baseDay.getDate(),
+                Math.floor(slotDraft.startMin / 60),
+                slotDraft.startMin % 60,
+                0,
+              )
+              const endD = new Date(
+                baseDay.getFullYear(),
+                baseDay.getMonth(),
+                baseDay.getDate(),
+                Math.floor(slotDraft.endMin / 60),
+                slotDraft.endMin % 60,
+                0,
+              )
+              onCreateStudyBlock({
+                title,
+                startAt: startD.toISOString(),
+                endAt: endD.toISOString(),
+                courseCode: slotDraft.courseCode || undefined,
+              })
+              setSlotDraft(null)
+            }}
+            className="app-btn-primary px-2.5 py-1 text-[11px]"
+          >
+            {t('weekSlotSave')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSlotDraft(null)}
+            className="app-btn px-2 py-1 text-[11px]"
+          >
+            {t('cancel')}
+          </button>
+        </div>
+      )}
       <div ref={scrollRef} className="flex-1 overflow-auto px-4 pb-4">
         <div className="flex min-w-[720px]">
-          {/* 时间列：表头占位块与日期表头等高（h-7），随滚动一起吸顶 */}
+          {/* 时间列：表头占位块与日期表头等高（含 DDL 图钉行），随滚动一起吸顶 */}
           <div className="w-12 shrink-0">
-            <div className="sticky top-0 z-30 h-7 bg-[var(--surface-0)]" aria-hidden />
+            <div className="sticky top-0 z-30 bg-[var(--surface-0)]" style={{ height: dayHeaderPx }} aria-hidden />
             {hours.map((h) => (
               <div
                 key={h}
@@ -537,51 +765,113 @@ export default function WeekGrid({
               >
                 <div
                   className={
-                    // 表头吸顶：纵向滚动时日期/冲突徽标始终可见（外层统一 h-7 = 28px）
-                    'sticky top-0 z-30 bg-[var(--surface-0)] text-center text-xs py-1.5 ' +
+                    // 表头吸顶：纵向滚动时日期/冲突徽标与 DDL 图钉始终可见
+                    'sticky top-0 z-30 bg-[var(--surface-0)] text-center text-xs py-1 ' +
                     (sameDay(day, new Date())
                       ? 'text-[var(--text-1)] font-medium'
                       : 'text-[var(--text-3)]')
                   }
+                  style={{ height: dayHeaderPx }}
                 >
-                  <span
-                    className={
-                      sameDay(day, new Date())
-                        ? 'inline-flex items-center gap-1 rounded-full bg-[var(--tint-info)] px-2 py-0.5 text-[11px] font-semibold text-[var(--info)]'
-                        : ''
-                    }
-                  >
-                    {formatDay(day, locale)}
-                  </span>
-                  {(() => {
-                    const shown = shownGroupsOf(i)
-                    const hidden = hiddenGroupsOf(i)
-                    return (
-                      <>
-                        {shown.length > 0 && (
-                          <span
-                            role="img"
-                            aria-label={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
-                            title={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
-                            className="app-badge ml-1 px-1 font-semibold !text-[10px] text-[var(--text-2)] align-middle"
-                          >
-                            <Icon name="warn" size={11} />{shown.length}
-                          </span>
-                        )}
-                        {hidden.length > 0 && (
+                  <div className="flex items-center justify-center">
+                    <span
+                      className={
+                        sameDay(day, new Date())
+                          ? 'inline-flex items-center gap-1 rounded-full bg-[var(--tint-info)] px-2 py-0.5 text-[11px] font-semibold text-[var(--info)]'
+                          : ''
+                      }
+                    >
+                      {formatDay(day, locale)}
+                    </span>
+                    {(() => {
+                      const shown = shownGroupsOf(i)
+                      const hidden = hiddenGroupsOf(i)
+                      return (
+                        <>
+                          {shown.length > 0 && (
+                            <span
+                              role="img"
+                              aria-label={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
+                              title={`${t('dayConflictsTitle', { n: shown.length })} · ${t('blockDismissHint')}`}
+                              className="app-badge ml-1 px-1 font-semibold !text-[10px] text-[var(--text-2)] align-middle"
+                            >
+                              <Icon name="warn" size={11} />{shown.length}
+                            </span>
+                          )}
+                          {hidden.length > 0 && (
+                            <button
+                              className="app-badge ml-1 px-1 font-semibold !text-[10px] align-middle hover:text-[var(--text-1)]"
+                              title={t('dayHiddenRestore', { n: hidden.length })}
+                              onClick={() => restoreDay(i)}
+                            >
+                              <Icon name="restore" size={11} />{hidden.length}
+                            </button>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </div>
+                  {ddlsByDay[i].length > 0 && (
+                    <div className="mt-0.5 flex items-center justify-center gap-1 overflow-hidden px-1">
+                      {ddlsByDay[i].slice(0, 2).map((task) => {
+                        const overdue = isOverdue(task, now)
+                        return (
                           <button
-                            className="app-badge ml-1 px-1 font-semibold !text-[10px] align-middle hover:text-[var(--text-1)]"
-                            title={t('dayHiddenRestore', { n: hidden.length })}
-                            onClick={() => restoreDay(i)}
+                            key={task.id}
+                            type="button"
+                            data-testid="week-ddl-pin"
+                            title={`${task.title}${task.dueAt ? ` · ${formatTime(task.dueAt, locale)}` : ''}`}
+                            onClick={() => task.course && onInspectCourse?.(task.course)}
+                            className={
+                              'inline-flex max-w-[92px] items-center gap-0.5 truncate rounded border px-1 py-px text-[9px] font-medium ' +
+                              (overdue
+                                ? 'border-[var(--danger)]/40 bg-[var(--tint-danger)] text-[var(--danger)]'
+                                : 'border-[var(--line-due)] bg-[var(--tint-due)] text-[var(--due)]')
+                            }
                           >
-                            <Icon name="restore" size={11} />{hidden.length}
+                            <Icon name="pin" size={9} />
+                            <span className="truncate">{task.title}</span>
                           </button>
-                        )}
-                      </>
-                    )
-                  })()}
+                        )
+                      })}
+                      {ddlsByDay[i].length > 2 && (
+                        <span className="font-mono text-[9px] text-[var(--due)]">
+                          +{ddlsByDay[i].length - 2}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div
+                  data-day-canvas={i}
+                  onMouseDown={(e) => {
+                    if (!onCreateStudyBlock) return
+                    const target = e.target as HTMLElement
+                    if (target.closest('button') || target.closest('[data-study-block="true"]')) return
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    dragSlotRef.current = {
+                      dayIndex: i,
+                      startMin: snapMinFromY(e.clientY, rect.top),
+                    }
+                  }}
+                  onMouseUp={(e) => {
+                    if (!onCreateStudyBlock || !dragSlotRef.current) return
+                    const drag = dragSlotRef.current
+                    dragSlotRef.current = null
+                    if (drag.dayIndex !== i) return
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const endSnap = snapMinFromY(e.clientY, rect.top)
+                    const lo = Math.min(drag.startMin, endSnap)
+                    const hi = Math.max(drag.startMin, endSnap)
+                    const finalEnd = Math.min(END_HOUR * 60, hi - lo < 30 ? lo + 60 : hi + 30)
+                    setSlotDraft({
+                      dayIndex: i,
+                      startMin: lo,
+                      endMin: finalEnd,
+                      title: '',
+                      courseCode: weekCourseOptions[0]?.code ?? '',
+                    })
+                  }}
                   className="relative"
                   style={{ height: hours.length * hourPx }}
                 >
@@ -624,6 +914,7 @@ export default function WeekGrid({
                       return (
                         <div
                           key={block.id}
+                          data-study-block="true"
                           title={`${block.title} · ${formatTime(block.startAt, locale)}–${formatTime(block.endAt, locale)} · ${sourceLabel}`}
                           className="absolute left-1 right-1 overflow-hidden rounded-md border border-dashed border-[var(--line)] bg-[var(--surface-2)] px-1.5 py-1 text-[10px] leading-tight text-[var(--text-2)]"
                           style={{ top, height }}
@@ -675,16 +966,27 @@ export default function WeekGrid({
                       height >= TITLE_MIN_PX * r &&
                       titleText.toLowerCase() !== (l.code || '').toLowerCase()
                     const showLocation = height >= LOCATION_MIN_PX * r && !!l.location
+                    const cardCourseKey = normalizeCourseCode(l.code || l.title)
+                    const isSpotlit = spotlightCourse !== null && spotlightCourse === cardCourseKey
+                    const isDimmed = spotlightCourse !== null && spotlightCourse !== cardCourseKey
                     return (
                       <button
                         key={l.id}
+                        data-course-key={cardCourseKey}
+                        data-spotlight={isSpotlit ? 'active' : isDimmed ? 'dim' : undefined}
+                        onMouseEnter={() => setSpotlightCourse(cardCourseKey)}
+                        onMouseLeave={() => setSpotlightCourse(null)}
+                        onFocus={() => setSpotlightCourse(cardCourseKey)}
+                        onBlur={() => setSpotlightCourse(null)}
                         onClick={() => onSelect(l.id)}
                         title={`${visibleConflict ? `⚠ ${t('conflictSameTime')}\n${conflictTip}\n\n` : ''}${l.title}\n${formatTime(l.start, locale)}–${formatTime(l.end, locale)}\n${l.location || ''}\n${t('clickForDetail')}`}
                         className={
-                          'absolute rounded-md px-1.5 py-1 text-left overflow-hidden border ' +
+                          'absolute rounded-md px-1.5 py-1 text-left overflow-hidden border transition-opacity ' +
                           (visibleConflict
-                            ? 'outline outline-1 outline-zinc-400/80 shadow-[0_0_5px_rgba(0,0,0,0.4)]'
-                            : '')
+                            ? 'outline outline-1 outline-zinc-400/80 shadow-[0_0_5px_rgba(0,0,0,0.4)] '
+                            : '') +
+                          (isSpotlit ? 'ring-1 ring-[var(--accent)] shadow-md z-10 ' : '') +
+                          (isDimmed ? 'opacity-40' : '')
                         }
                         style={{
                           top,
@@ -780,21 +1082,30 @@ export default function WeekGrid({
               </div>
             ))}
 
-            {/* Garis waktu sekarang */}
+            {/* 激光实时时间游标：LED 脉动锚点 + 高光刻线 + 精确时间戳 */}
             {showNowLine && (
-              <>
+              <div data-testid="week-now-cursor" className="pointer-events-none">
                 <div
-                  className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-[var(--danger)] shadow-[0_0_6px_rgba(239,68,68,0.4)]"
+                  className="pointer-events-none absolute left-0 right-0 z-20 border-t-2 border-[var(--danger)] shadow-[0_0_8px_var(--danger)]"
                   style={{ top: nowTop }}
                 />
                 <div
-                  className="pointer-events-none absolute z-20 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[var(--danger)] ring-2 ring-[var(--surface-0)] shadow-sm"
+                  className="led-dot led-danger led-pulse pointer-events-none absolute z-20 h-2.5 w-2.5 -translate-y-1/2 rounded-full ring-2 ring-[var(--surface-0)]"
                   style={{
                     top: nowTop,
                     left: `calc(${(todayIndex * 100) / 7}% - 5px)`,
                   }}
                 />
-              </>
+                <span
+                  className="num pointer-events-none absolute z-20 -translate-y-1/2 rounded bg-[var(--danger)] px-1 py-px font-mono text-[9px] font-bold text-white shadow-sm"
+                  style={{
+                    top: nowTop,
+                    left: `calc(${(todayIndex * 100) / 7}% + 8px)`,
+                  }}
+                >
+                  {formatTime(now.toISOString(), locale)}
+                </span>
+              </div>
             )}
           </div>
         </div>

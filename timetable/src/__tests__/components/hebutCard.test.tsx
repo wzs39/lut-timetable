@@ -66,7 +66,7 @@ describe('HebutCard', () => {
       />,
     )
 
-    expect(screen.getByRole('tab', { name: '课程' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('tab', { name: /课程/ }).getAttribute('aria-selected')).toBe('true')
     expectOneHebutEntry()
   })
 })

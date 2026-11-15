@@ -3,7 +3,8 @@ import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { I18nProvider } from '../../i18n'
-import PomodoroCard from '../../components/PomodoroCard'
+import PomodoroCard, { FocusMiniHud } from '../../components/PomodoroCard'
+import { PomodoroProvider } from '../../hooks/usePomodoro'
 
 afterEach(() => {
   cleanup()
@@ -73,5 +74,36 @@ describe('PomodoroCard component', () => {
 
     expect(screen.getByRole('button', { name: /开始专注|Start focus/i })).toBeTruthy()
     expect(screen.getByText('25:00')).toBeTruthy()
+  })
+
+  it('binds a focus session to a specific course and shows SISU credit hours progress', () => {
+    render(
+      <I18nProvider>
+        <PomodoroProvider>
+          <PomodoroCard
+            courses={[
+              {
+                code: 'CT60A2411',
+                title: 'Data Structures and Algorithms',
+                credits: 6,
+                totalStudyHours: 162,
+              },
+            ]}
+          />
+          <FocusMiniHud />
+        </PomodoroProvider>
+      </I18nProvider>,
+    )
+
+    const select = screen.getByTestId('pomodoro-course-select') as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'CT60A2411' } })
+    expect(select.value).toBe('CT60A2411')
+    // SISU target hours comparison (6 ECTS * 27h = 162h)
+    expect(screen.getByText(/162h/)).toBeTruthy()
+
+    // Start focus from PomodoroCard (first button; second is inside FocusMiniHud)
+    fireEvent.click(screen.getAllByRole('button', { name: /开始专注|Start focus/i })[0])
+    const miniHud = screen.getByTestId('focus-mini-hud')
+    expect(miniHud.textContent).toContain('CT60A2411')
   })
 })

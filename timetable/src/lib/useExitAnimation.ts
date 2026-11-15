@@ -6,10 +6,11 @@ export const EXIT_MS = 220
 type Close = () => void
 
 /** Reduced-motion preference as a mutable probe (tests/edge runtimes override). */
-export const reducedMotionProbe: { get: () => boolean } = {
+export const reducedMotionProbe: { get: () => boolean; matches: () => boolean } = {
   get: () =>
     typeof window !== 'undefined' &&
     !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
+  matches: () => reducedMotionProbe.get(),
 }
 
 /**

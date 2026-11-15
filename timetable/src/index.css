@@ -11,6 +11,11 @@
   --dur-fast: 140ms;
   --dur-med: 220ms;
   --dur-slow: 260ms;
+
+  /* Nordic Precision Instrument spring physics curves */
+  --spring-snappy: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring-gentle: cubic-bezier(0.16, 1, 0.3, 1);
+  --spring-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 html,
@@ -80,6 +85,8 @@ body,
   --surface-0: #08090a; /* page background — Linear / Raycast deep void */
   --surface-1: #0e1013; /* cards / panels — 质感冷黑，冷色微阴影 */
   --surface-2: #16181d; /* raised: inputs, hover, subtle pills */
+  --surface-3: #1e2028; /* elevated instrument housing / active surface */
+  --specular-top: rgba(255, 255, 255, 0.07); /* 1px top inner specular highlight */
   --line: rgba(255, 255, 255, 0.06); /* hairline borders */
   --text-1: #f2f3f5; /* primary text */
   --text-2: #8f94a6; /* secondary text */
@@ -140,11 +147,14 @@ body,
 }
 
 /* Light theme: same tokens, crisp clean modern surface */
-:root[data-theme='light'] {
+:root[data-theme='light'],
+html.light {
   color-scheme: light;
   --surface-0: #f8fafc;
   --surface-1: #ffffff;
   --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --specular-top: rgba(255, 255, 255, 0.65);
   --line: #e2e8f0;
   --text-1: #0f172a;
   --text-2: #475569;
@@ -223,13 +233,97 @@ body {
 
 @layer components {
 
-/* Card: crisp hairline border, zero drop shadow */
+/* Card: crisp hairline border, 1px top inner specular highlight */
 .app-card {
   border: 1px solid var(--line);
   border-radius: 0.5rem;
   background: var(--surface-1);
-  box-shadow: none;
-  transition: border-color var(--dur-fast) ease;
+  box-shadow: inset 0 1px 0 0 var(--specular-top);
+  transition: border-color var(--dur-fast) var(--spring-snappy), transform var(--dur-fast) var(--spring-snappy);
+}
+
+/* Tabular monospaced numeric readout */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Physical LED status indicator dots */
+.led-dot {
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  background: var(--text-3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.led-ok {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--tint-ok), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.led-warn {
+  background: var(--due);
+  box-shadow: 0 0 6px var(--tint-due), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.led-danger {
+  background: var(--danger);
+  box-shadow: 0 0 6px var(--tint-danger), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.led-info {
+  background: var(--info);
+  box-shadow: 0 0 6px var(--tint-info), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+.led-pulse {
+  animation: led-pulse-anim 2s var(--spring-gentle) infinite;
+}
+@keyframes led-pulse-anim {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.88); }
+}
+
+/* Precision micro-scale bar */
+.micro-scale {
+  position: relative;
+  height: 0.25rem;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.micro-scale > span,
+.micro-scale-fill {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--accent);
+  transition: width var(--dur-med) var(--spring-snappy);
+}
+
+/* Spatial Workbench Architecture Zones */
+.instrument-dock {
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 0 var(--specular-top);
+  transition: transform var(--dur-med) var(--spring-snappy), border-color var(--dur-fast) ease;
+}
+.spatial-stage {
+  background: var(--surface-0);
+  box-shadow: inset 0 1px 0 0 var(--specular-top);
+}
+.dossier-drawer {
+  background: var(--surface-1);
+  border-left: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 0 var(--specular-top), -16px 0 40px rgba(0, 0, 0, 0.45);
+  transition: transform var(--dur-med) var(--spring-drawer);
+}
+.focus-mini-hud {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 0 var(--specular-top);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 语义字号阶 */
@@ -767,21 +861,22 @@ body {
    ============================================================ */
 
 .app-card {
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 0 var(--specular-top);
 }
 
-:root[data-theme='light'] .app-card {
-  box-shadow: none;
+:root[data-theme='light'] .app-card,
+html.light .app-card {
+  box-shadow: inset 0 1px 0 0 var(--specular-top);
 }
 
-/* 首屏英雄卡：高密度 Raycast HUD 样式，平整极简微边框，0 装饰性渐变 */
+/* 首屏英雄卡：高密度 Raycast HUD 样式，平整极简微边框，1px 顶部内高光 */
 .app-hero {
   position: relative;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
   background-color: var(--surface-1);
-  box-shadow: none;
+  box-shadow: inset 0 1px 0 0 var(--specular-top);
 }
 
 /* 统计小块：一个数字 + 一行标签，平整无渐变 */
@@ -936,6 +1031,14 @@ body {
 .animate-stagger > *:nth-child(12) { animation-delay: 205ms; }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --spring-snappy: linear;
+    --spring-gentle: linear;
+    --spring-drawer: linear;
+    --dur-fast: 0ms;
+    --dur-med: 0ms;
+    --dur-slow: 0ms;
+  }
   .app-header-btn,
   .app-menu-item,
   .animate-list-in > *,
@@ -950,7 +1053,8 @@ body {
   .animate-sheet-fall,
   .animate-view-in,
   .animate-sheet-in,
-  .animate-sheet-out {
+  .animate-sheet-out,
+  .led-pulse {
     animation: none;
   }
   .collapse-wrap,
@@ -965,7 +1069,11 @@ body {
   .app-nav-item,
   .stat-tile,
   .app-rail-item,
-  .sisu-progress > span {
+  .sisu-progress > span,
+  .instrument-dock,
+  .dossier-drawer,
+  .micro-scale > span,
+  .micro-scale-fill {
     transition: none;
   }
   .animate-stagger > * {

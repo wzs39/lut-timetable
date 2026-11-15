@@ -1,9 +1,12 @@
 import { useI18n } from '../i18n'
+import type { SyncSource } from '../types'
 import type { AppCommand } from '../lib/commands'
 import { VIEWS, WEEK_NAV, type AppView, type WeekNavId } from '../lib/navigation'
+import { runSharedTransition } from '../lib/motion'
 import { useMoodleData } from '../hooks/useMoodleData'
 import AppMenu from './AppMenu'
 import Icon from './Icon'
+import { FocusMiniHud } from './PomodoroCard'
 
 /** Moodle 未读徽标（挂在导航 tab 上；0 时不渲染）。 */
 function MoodleUnreadBadge() {
@@ -16,8 +19,49 @@ function MoodleUnreadBadge() {
   )
 }
 
+/** 三源同步物理状态 LED 指示灯（SISU · TimeEdit · Moodle） */
+function TriSourceLeds({
+  sources = [],
+  syncing = false,
+}: {
+  sources?: SyncSource[]
+  syncing?: boolean
+}) {
+  const { t } = useI18n()
+  const md = useMoodleData()
+  const hasSisu = sources.some((s) => s.type === 'sisu')
+  const hasTimeEdit = sources.some((s) => s.type === 'timeedit')
+  const moodleOk = Boolean(md.grades && md.grades.length > 0) || md.unread > 0
+  const pulse = syncing ? ' led-pulse' : ''
+
+  return (
+    <div
+      data-testid="tri-source-leds"
+      aria-label={t('dockTriSourceLabel')}
+      title={t('dockSyncReady')}
+      className="hidden sm:inline-flex items-center gap-2 rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-0.5 text-[10px] font-mono text-[var(--text-2)]"
+    >
+      <span className="inline-flex items-center gap-1">
+        <span className={`led-dot ${hasSisu ? 'led-ok' : 'led-info'}${pulse}`} />
+        <span>SISU</span>
+      </span>
+      <span className="text-[var(--text-3)]">·</span>
+      <span className="inline-flex items-center gap-1">
+        <span className={`led-dot ${hasTimeEdit ? 'led-ok' : 'led-info'}${pulse}`} />
+        <span>TimeEdit</span>
+      </span>
+      <span className="text-[var(--text-3)]">·</span>
+      <span className="inline-flex items-center gap-1">
+        <span className={`led-dot ${moodleOk ? 'led-ok' : 'led-warn'}`} />
+        <span>Moodle</span>
+      </span>
+    </div>
+  )
+}
+
 /**
- * 顶部栏：应用名 + 视图切换 + 周导航 + 搜索/⋯。
+ * 顶部栏 & 空间工作台仪器坞（Instrument Dock）：
+ * 应用名 + 三源同步状态 LED + 视图切换（带弹簧过渡） + 课程专注 Mini HUD + 周导航 + Omni-Command (Ctrl+K)/⋯。
  *
  * 视图与周导航的清单来自 `lib/navigation`（头部只是其中一种壳层），
  * 这里不再写死按钮——加视图只改声明表。状态全是受控的（App 独占
@@ -38,6 +82,9 @@ export default function AppHeader({
   onToggleMenu,
   onCloseMenu,
   menuCommands,
+  sources,
+  syncing,
+  onInspectCourse,
 }: {
   view: AppView
   onView: (v: AppView) => void
@@ -53,11 +100,14 @@ export default function AppHeader({
   onToggleMenu: () => void
   onCloseMenu: () => void
   menuCommands: AppCommand[]
+  sources?: SyncSource[]
+  syncing?: boolean
+  onInspectCourse?: (courseCode: string) => void
 }) {
   const { t } = useI18n()
   return (
-    <header className="app-header safe-top sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/95 px-4 py-2 backdrop-blur-md transition-all sm:px-6">
-      {/* 品牌与状态区 */}
+    <header className="app-header instrument-dock safe-top sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/95 px-4 py-2 backdrop-blur-md transition-all sm:px-6">
+      {/* 品牌与三源仪器状态区 */}
       <div className="flex items-center gap-3">
         <div className="flex h-7 w-7 items-center justify-center rounded border border-[var(--line)] bg-[var(--surface-2)] text-[11px] font-mono font-bold tracking-tight text-[var(--text-1)]">
           LUT
@@ -65,23 +115,26 @@ export default function AppHeader({
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-bold tracking-tight text-[var(--text-1)]">{t('appName')}</h1>
-            <span className="hidden items-center gap-1.5 rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-0.5 text-[10px] font-mono font-medium text-[var(--text-2)] sm:inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)]" />
+            <span className="num hidden items-center gap-1.5 rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-0.5 text-[10px] font-mono font-medium text-[var(--text-2)] sm:inline-flex">
+              <span className={`led-dot led-ok${syncing ? ' led-pulse' : ''}`} />
               {t('lessonsSources', { n: lessonCount, m: sourceCount })}
             </span>
+            <TriSourceLeds sources={sources} syncing={syncing} />
           </div>
         </div>
       </div>
 
-      {/* 视图切换：桌面端精致浮动分段胶囊 */}
+      {/* 视图切换 + Focus Mini HUD + 动作区 */}
       <div className="app-actions flex flex-1 flex-wrap items-center justify-end gap-2 text-xs">
+        <FocusMiniHud onInspectCourse={onInspectCourse} />
+
         <div className="app-seg hidden md:flex">
           {VIEWS.filter((decl) => decl.inHeader).map((decl) => {
             const active = view === decl.view
             return (
               <button
                 key={decl.route}
-                onClick={() => onView(decl.view)}
+                onClick={() => runSharedTransition(() => onView(decl.view))}
                 aria-pressed={active}
                 className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs transition-all duration-150 ${
                   active
@@ -97,7 +150,7 @@ export default function AppHeader({
                   </kbd>
                 )}
                 {decl.badges?.includes('tasks') && pendingTaskCount > 0 && (
-                  <span className="ml-1 inline-flex items-center px-1.5 py-0 rounded text-[10px] font-mono font-bold border border-[var(--danger)]/30 bg-[var(--tint-danger)] text-[var(--danger)]">
+                  <span className="num ml-1 inline-flex items-center px-1.5 py-0 rounded text-[10px] font-mono font-bold border border-[var(--danger)]/30 bg-[var(--tint-danger)] text-[var(--danger)]">
                     {pendingTaskCount}
                   </span>
                 )}
@@ -119,7 +172,7 @@ export default function AppHeader({
               <Icon name={WEEK_NAV.prev.icon} size={14} />
             </button>
             <span
-              className="px-2 text-xs font-mono font-medium tabular-nums text-[var(--text-2)]"
+              className="num px-2 text-xs font-mono font-medium tabular-nums text-[var(--text-2)]"
               title={t('weekRange', { w: weekNum, range: weekRangeText })}
             >
               {t('weekRange', { w: weekNum, range: weekRangeText })}
@@ -146,9 +199,10 @@ export default function AppHeader({
           </div>
         )}
 
-        {/* 快捷搜索 (命令面板) */}
+        {/* 快捷搜索 (Omni-Command 2.0) */}
         <button
           onClick={onOpenPalette}
+          data-testid="omni-command-trigger"
           className="app-btn inline-flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-2)] hover:text-[var(--text-1)]"
           title={t('paletteShortcuts')}
         >

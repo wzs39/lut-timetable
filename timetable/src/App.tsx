@@ -3,11 +3,19 @@ import type { Lesson, SyncSource } from './types'
 import { useTimetable } from './hooks/useTimetable'
 import { useMoodleData } from './hooks/useMoodleData'
 import { MoodleProvider } from './hooks/useMoodleData'
+import { PomodoroProvider } from './hooks/usePomodoro'
 import { useDesktopBridge } from './hooks/useDesktopBridge'
 import { useSubscriptions } from './hooks/useSubscriptions'
 import { useDiagnostics } from './hooks/useDiagnostics'
 import { useShareLinks } from './hooks/useShareLinks'
 import { useWidgetTaskBridge } from './hooks/useWidgetTaskBridge'
+import { buildCourseGraph, findUnifiedCourse, syncTaskAndStudyBlocksCompletion } from './lib/courseGraph'
+import {
+  fetchAndCacheSisuCourseFact,
+  loadLiveSisuFacts,
+  type SisuCourseFact,
+} from './lib/sisuCourse'
+import { confirmStudyBlock } from './lib/studyBlocks'
 import AppHeader from './components/AppHeader'
 import BottomNav from './components/BottomNav'
 import UpdateToast, { type UpdateToastState } from './components/UpdateToast'
@@ -67,7 +75,7 @@ import {
   type WeekDensity,
 } from './lib/uiPrefs'
 import { openExternal } from './lib/openExternal'
-import { addTask, loadTasks, pendingTasks, saveTasks, updateTask, type Task } from './lib/tasks'
+import { addTask, loadTasks, pendingTasks, saveTasks, type Task } from './lib/tasks'
 import { installWidgetNavBridge, pushTasksData } from './lib/widgetData'
 import { useDelayedUnmount } from './lib/useExitAnimation'
 import { checkApkUpdate } from './lib/apkUpdate'
@@ -377,10 +385,82 @@ function AppInner({
   // 状态的唯一所有者在主进程（userData/desktop-prefs.json）。
   const { desktop, applyDesktopPrefs } = useDesktopBridge(lang, checkForUpdate)
 
-  const selectedLesson: Lesson | null = useMemo(
-    () => tt.lessons.find((l) => l.id === selectedId) ?? null,
-    [tt.lessons, selectedId],
+  // ---- 统一课程图谱 (Unified Course Graph) 与 SISU GraphQL 动态补全
+  const [liveSisuFacts, setLiveSisuFacts] = useState<Record<string, SisuCourseFact>>(() =>
+    loadLiveSisuFacts(),
   )
+  const attemptedSisuCodesRef = useRef<Set<string>>(new Set())
+
+  const courseGraph = useMemo(
+    () =>
+      buildCourseGraph({
+        lessons: tt.lessons,
+        grades: md.grades ?? undefined,
+        tasks,
+        studyBlocks,
+        liveSisuFacts,
+      }),
+    [tt.lessons, md.grades, tasks, studyBlocks, liveSisuFacts],
+  )
+
+  useEffect(() => {
+    const missing = courseGraph.missingSisuFactCodes.filter(
+      (code) => code && !attemptedSisuCodesRef.current.has(code),
+    )
+    if (missing.length === 0) return
+    const controller = new AbortController()
+    for (const code of missing) {
+      attemptedSisuCodesRef.current.add(code)
+      fetchAndCacheSisuCourseFact(code, controller.signal)
+        .then((fact) => {
+          if (fact && !controller.signal.aborted) {
+            setLiveSisuFacts(loadLiveSisuFacts())
+          }
+        })
+        .catch(() => {
+          // Ignore network errors in offline/test environments
+        })
+    }
+    return () => controller.abort()
+  }, [courseGraph.missingSisuFactCodes])
+
+  const selectedCourseCode = useMemo(
+    () => (selectedId?.startsWith('course:') ? selectedId.slice('course:'.length) : null),
+    [selectedId],
+  )
+  const selectedLesson: Lesson | null = useMemo(() => {
+    if (!selectedId || selectedId.startsWith('course:')) return null
+    return tt.lessons.find((l) => l.id === selectedId) ?? null
+  }, [tt.lessons, selectedId])
+  const selectedCourseNode = useMemo(() => {
+    return findUnifiedCourse(courseGraph, {
+      code: selectedCourseCode ?? selectedLesson?.code ?? undefined,
+      title: selectedLesson?.title,
+    })
+  }, [courseGraph, selectedCourseCode, selectedLesson])
+
+  const inspectCourse = useCallback(
+    (codeOrKey: string) => {
+      if (!codeOrKey) return
+      overlays.open('lesson', `course:${codeOrKey}`)
+    },
+    [overlays],
+  )
+
+  const handleToggleTask = useCallback(
+    (task: Task, completed: boolean) => {
+      const synced = syncTaskAndStudyBlocksCompletion({
+        tasks,
+        studyBlocks,
+        taskId: task.id,
+        completed,
+        persist: true,
+      })
+      setTasks(synced.tasks)
+    },
+    [setTasks, studyBlocks, tasks],
+  )
+
   const dupGroups = useMemo(() => findDuplicateGroups(tt.lessons), [tt.lessons])
   const dupCount = removableCount(dupGroups)
 
@@ -447,8 +527,12 @@ function AppInner({
   }, [setSelectedId])
 
   const jumpToCourse = useCallback(
-    (code: string) => jumpToLesson(findCourseTarget(tt.visibleLessons, code)),
-    [jumpToLesson, tt.visibleLessons],
+    (code: string) => {
+      const target = findCourseTarget(tt.visibleLessons, code)
+      if (target) jumpToLesson(target)
+      else inspectCourse(code)
+    },
+    [inspectCourse, jumpToLesson, tt.visibleLessons],
   )
 
   /** 学期全景带点某一周：只切周起点与视图，不选中任何课 */
@@ -497,6 +581,10 @@ function AppInner({
     [setTasks, showUndo, t, tasks],
   )
 
+  const knownCourseCodes = useMemo(
+    () => courseGraph.nodes.map((n) => n.code).filter(Boolean),
+    [courseGraph],
+  )
   const paletteOpen = overlays.isOpen('palette')
   const paletteItems = useMemo(
     () =>
@@ -506,12 +594,13 @@ function AppInner({
             locale,
             lessons: tt.lessons,
             tasks,
+            knownCourseCodes,
             commands: commands
               .filter((c) => c.showInPalette)
               .map((c) => ({ id: c.id, label: c.label, icon: c.icon })),
           })
         : [],
-    [paletteOpen, t, locale, tt.lessons, tasks, commands],
+    [paletteOpen, t, locale, tt.lessons, tasks, knownCourseCodes, commands],
   )
 
   /** 命令面板动作的唯一派发点 */
@@ -531,13 +620,17 @@ function AppInner({
           if (nav.delta !== 0) setView('week')
           break
         }
-        case 'course':
-          // 有代码走代码前缀；无代码的手动课回退到标题匹配
-          jumpToLesson(
-            action.code
-              ? findCourseTarget(tt.visibleLessons, action.code)
-              : findLessonByTitle(tt.visibleLessons, action.title),
-          )
+        case 'course': {
+          // 有代码走代码前缀；无代码的手动课回退到标题匹配；无排课则直接打开课程全息档案
+          const target = action.code
+            ? findCourseTarget(tt.visibleLessons, action.code)
+            : findLessonByTitle(tt.visibleLessons, action.title)
+          if (target) jumpToLesson(target)
+          else inspectCourse(action.code || action.title)
+          break
+        }
+        case 'dossier':
+          inspectCourse(action.code || action.courseKey || action.title)
           break
         case 'task': {
           const task = tasks.find((x) => x.id === action.taskId)
@@ -551,14 +644,50 @@ function AppInner({
         case 'quickAddTask': {
           // 命令面板一行话直接落库：新增任务 + 跳到作业模块看到它
           applyTasks(
-            addTask(tasks, { title: action.title, course: '', dueAt: action.dueAt, note: '' }),
+            addTask(tasks, {
+              title: action.title,
+              course: action.course || '',
+              dueAt: action.dueAt,
+              note: '',
+            }),
           )
           openAssignments(null)
           break
         }
+        case 'quickAddStudyBlock': {
+          confirmStudyBlock({
+            sourceKind: 'task',
+            sourceId: `omni-${Date.now()}`,
+            title: action.title,
+            courseCode: action.course || undefined,
+            startAt: action.start,
+            endAt: action.end,
+            dueAt: action.end,
+          })
+          setWeekStart(startOfWeek(new Date(action.start)))
+          setView('week')
+          break
+        }
+        case 'roomStatus':
+          setView('today')
+          break
+        case 'gradeCalcResult':
+          if (action.courseCode) inspectCourse(action.courseCode)
+          else setView('moodle')
+          break
       }
     },
-    [applyTasks, commands, jumpToLesson, openAssignments, openView, overlays, tasks],
+    [
+      applyTasks,
+      commands,
+      inspectCourse,
+      jumpToLesson,
+      openAssignments,
+      openView,
+      overlays,
+      tasks,
+      tt.visibleLessons,
+    ],
   )
 
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart])
@@ -638,9 +767,28 @@ function AppInner({
   }, [openView, overlays, shareDialogOpen])
 
   // Catatan kursus: kunci = kode kursus ternormalisasi + jenis sesi.
-  const saveNoteForLesson = useCallback((lesson: Lesson, text: string) => {
+  const saveNoteForLesson = useCallback((lesson: Pick<Lesson, 'code' | 'type' | 'title'>, text: string) => {
     setNotes((prev) => saveNote(prev, lesson, text))
   }, [])
+
+  const activeNoteTarget = useMemo<Pick<Lesson, 'code' | 'type' | 'title'> | null>(() => {
+    if (selectedLesson) return selectedLesson
+    if (selectedCourseNode) {
+      return {
+        code: selectedCourseNode.code,
+        title: selectedCourseNode.title,
+        type: 'other',
+      }
+    }
+    if (selectedCourseCode) {
+      return {
+        code: selectedCourseCode,
+        title: selectedCourseCode,
+        type: 'other',
+      }
+    }
+    return null
+  }, [selectedCourseCode, selectedCourseNode, selectedLesson])
 
   return (
     <div className="app-shell h-screen flex flex-col">
@@ -659,6 +807,9 @@ function AppInner({
         onToggleMenu={() => overlays.toggle('actionSheet')}
         onCloseMenu={() => overlays.close('actionSheet')}
         menuCommands={menuCommands}
+        sources={tt.sources}
+        syncing={tt.syncing}
+        onInspectCourse={inspectCourse}
       />
       {/* 底部标签栏占位：移动端内容不被导航盖住（桌面无此栏） */}
       <div className="flex flex-1 min-h-0 pb-[calc(3.4rem+env(safe-area-inset-bottom,0px))] md:pb-0">
@@ -687,16 +838,18 @@ function AppInner({
           }
           className="hidden md:block w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--hover-1)]"
         />
-        <main className="flex-1 flex flex-col min-w-0">
+        <main className="spatial-stage flex-1 flex flex-col min-w-0">
           <div key={view} className="animate-view-in flex flex-1 min-h-0 flex-col">
           {view === 'today' && (
             <TodayView
               lessons={tt.visibleLessons}
               onSelect={setSelectedId}
               notes={notes}
+              onSaveNote={saveNoteForLesson}
+              onInspectCourse={inspectCourse}
               tasks={tasks}
               onJumpToCourse={jumpToCourse}
-              onToggleTask={(task, completed) => setTasks(updateTask(tasks, task.id, { completed }))}
+              onToggleTask={handleToggleTask}
               onOpenAssignments={() =>
                 openAssignments(null) /* 今日页横幅/卡片：无预置筛选，作业模块在 Moodle 时间线里 */
               }
@@ -711,6 +864,7 @@ function AppInner({
           {view === 'week' && (
             <WeekGrid
               lessons={weekVisibleLessons}
+              allLessons={tt.visibleLessons}
               weekStart={weekStart}
               onSelect={setSelectedId}
               notes={notes}
@@ -718,14 +872,31 @@ function AppInner({
               density={uiPrefs.density}
               onDensity={(d: WeekDensity) => setUiPrefs((prev) => ({ ...prev, density: d }))}
               studyBlocks={studyBlocks}
+              tasks={tasks}
+              grades={md.grades ?? undefined}
+              onOpenWeek={openWeek}
+              onInspectCourse={inspectCourse}
+              onCreateStudyBlock={(draft) => {
+                confirmStudyBlock({
+                  sourceKind: 'task',
+                  sourceId: `week-${Date.now()}`,
+                  title: draft.title,
+                  courseCode: draft.courseCode,
+                  startAt: draft.startAt,
+                  endAt: draft.endAt,
+                  dueAt: draft.endAt,
+                })
+              }}
             />
           )}
           {view === 'moodle' && (
             <MoodleView
               tasks={tasks}
               lessons={tt.lessons}
+              studyBlocks={studyBlocks}
               onTasks={applyTasks}
               onJumpToCourse={jumpToCourse}
+              onInspectCourse={inspectCourse}
               assignPreset={assignPreset}
               onOpenAssignments={openAssignments}
               onClearAssignPreset={clearAssignPreset}
@@ -759,9 +930,13 @@ function AppInner({
           onClose={() => overlays.close('sheet')}
         />
       )}
-      {selectedLesson && (
+      {(selectedLesson || selectedCourseNode || selectedCourseCode) && (
         <LessonDetail
           lesson={selectedLesson}
+          courseCode={selectedCourseCode ?? selectedLesson?.code}
+          courseNode={selectedCourseNode}
+          courseGraph={courseGraph}
+          grades={md.grades ?? undefined}
           onSave={tt.updateLesson}
           onDelete={(id) => removeLessonsUndoable([id], 'delete')}
           nav={
@@ -780,30 +955,37 @@ function AppInner({
           }
           onHide={(id) => removeLessonsUndoable([id], 'hide')}
           watched={
-            !!selectedLesson.code &&
+            !!selectedLesson?.code &&
             isSubscribed(subscriptions, 'course-change', selectedLesson.code)
           }
           onWatch={
-            selectedLesson.code
+            selectedLesson?.code
               ? (on) => watchCourse(selectedLesson, on)
               : undefined
           }
           timeEditUrl={
-            tt.sources.find(
-              (s) =>
-                s.type === 'timeedit' &&
-                (selectedLesson.syncId === s.id ||
-                  selectedLesson.mergedSources?.includes('timeedit')),
-            )?.url
+            selectedLesson
+              ? tt.sources.find(
+                  (s) =>
+                    s.type === 'timeedit' &&
+                    (selectedLesson.syncId === s.id ||
+                      selectedLesson.mergedSources?.includes('timeedit')),
+                )?.url
+              : undefined
           }
           onClose={() => setSelectedId(null)}
           note={
-            selectedLesson ? noteForLesson(notes, selectedLesson) : undefined
+            activeNoteTarget ? noteForLesson(notes, activeNoteTarget) : undefined
           }
-          onSaveNote={(text) => saveNoteForLesson(selectedLesson, text)}
-          onRemoveNote={() => removeNoteUndoable(noteKeyOf(selectedLesson))}
+          onSaveNote={(text) => {
+            if (activeNoteTarget) saveNoteForLesson(activeNoteTarget, text)
+          }}
+          onRemoveNote={() => {
+            if (activeNoteTarget) removeNoteUndoable(noteKeyOf(activeNoteTarget))
+          }}
           assignments={tasks}
           allLessons={tt.visibleLessons}
+          onToggleTask={handleToggleTask}
           onOpenAssignments={() => {
             setSelectedId(null)
             openAssignments(null) // 课程详情跳转：无预置筛选，作业模块在 Moodle 时间线里
@@ -890,6 +1072,8 @@ function AppInner({
       {paletteOpen && (
         <CommandPalette
           items={paletteItems}
+          lessons={tt.visibleLessons}
+          knownCourseCodes={knownCourseCodes}
           onRun={runPaletteAction}
           onClose={() => overlays.close('palette')}
         />
@@ -974,8 +1158,10 @@ export default function App() {
   // Widget 任务列表：tasks 变化即推新 payload（同 lessons 的 push 模式）。
   useEffect(() => void pushTasksData(tasks), [tasks])
   return (
-    <MoodleProvider tasks={tasks} lessons={tt.lessons} onTasks={(n) => setTasks(saveTasks(n))}>
-      <AppInner tasks={tasks} setTasks={setTasks} tt={tt} />
-    </MoodleProvider>
+    <PomodoroProvider>
+      <MoodleProvider tasks={tasks} lessons={tt.lessons} onTasks={(n) => setTasks(saveTasks(n))}>
+        <AppInner tasks={tasks} setTasks={setTasks} tt={tt} />
+      </MoodleProvider>
+    </PomodoroProvider>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { freeRoomsNow } from '../lib/freeRooms'
+import { freeRoomsNow, roomTimelinesForDay } from '../lib/freeRooms'
 import type { Lesson } from '../types'
 
 /** 2026-09-16 12:00 local */
@@ -91,5 +91,50 @@ describe('freeRoomsNow', () => {
       }),
     )
     expect(freeRoomsNow(lessons, NOW)).toHaveLength(12)
+  })
+})
+
+describe('roomTimelinesForDay', () => {
+  it('builds 08:00-20:00 contiguous free/occupied intervals and filters by roomQuery', () => {
+    const lessons = [
+      lesson({
+        code: 'CT60A2411',
+        title: 'Algorithms',
+        location: 'B2033_1314 Luentosali',
+        start: iso(2026, 9, 16, 10),
+        end: iso(2026, 9, 16, 12),
+      }),
+      lesson({
+        code: 'BM20A9200',
+        title: 'Math',
+        location: 'B2033_1314 Luentosali',
+        start: iso(2026, 9, 16, 14),
+        end: iso(2026, 9, 16, 16),
+      }),
+      lesson({
+        code: 'KE00BX35',
+        title: 'English',
+        location: 'M19_AUD1B',
+        start: iso(2026, 9, 16, 11),
+        end: iso(2026, 9, 16, 13),
+      }),
+    ]
+
+    const filtered = roomTimelinesForDay(lessons, NOW, '1314')
+    expect(filtered).toHaveLength(1)
+    const tl = filtered[0]
+    expect(tl.room).toBe('1314')
+    expect(tl.currentStatus.state).toBe('free')
+    expect(tl.currentStatus.until).toBe(iso(2026, 9, 16, 14))
+    // Intervals: 08-10 free, 10-12 occupied, 12-14 free, 14-16 occupied, 16-20 free
+    expect(tl.intervals.map((i) => i.state)).toEqual([
+      'free',
+      'occupied',
+      'free',
+      'occupied',
+      'free',
+    ])
+    // From NOW (12:00) to 20:00: 12-14 is 120m free, 16-20 is 240m free -> 360m
+    expect(tl.freeMinutesRemainingToday).toBe(360)
   })
 })

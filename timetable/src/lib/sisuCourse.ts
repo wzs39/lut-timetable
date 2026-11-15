@@ -1,6 +1,18 @@
 import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { fetchViaElectron, hasLutBridge } from './fetchIcs'
+import {
+  COURSE_FACTS,
+  type CourseFact,
+  type CourseOffering,
+  type ExamSitting,
+  type GradeScale,
+  type OfferingConfidence,
+  type SisuCourseFact,
+  type TeachingPeriod,
+} from './sisuCourseFacts'
 import { KEYS, readJson, writeJson } from './storage'
+
+export type { SisuCourseFact, TeachingPeriod }
 
 const QUERY = (code: string) =>
   JSON.stringify({
@@ -230,3 +242,432 @@ export async function searchSisuCourses(term: string): Promise<SisuCourse[]> {
     name: c.name?.en || c.name?.fi || '',
   }))
 }
+
+export const postGraphql = sisuGraphql
+
+export function sisuCourseUrl(id: string): string {
+  return `https://sisu.lut.fi/student/courseunit/${id}/brochure`
+}
+
+export function sisuSearchUrl(code: string): string {
+  return `https://sisu.lut.fi/student/search?q=${encodeURIComponent(normalizeSisuCode(code))}`
+}
+
+export async function resolveSisuCourseId(code: string): Promise<string | null> {
+  const clean = normalizeSisuCode(code)
+  if (!clean) return null
+  const cache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
+  if (cache[clean]) return cache[clean]
+  if (COURSE_FACTS[clean]?.sisuId) {
+    cache[clean] = COURSE_FACTS[clean].sisuId!
+    writeJson(KEYS.sisuCourseIds, cache)
+    return cache[clean]
+  }
+  const match = await lookupSisuCourseByCode(clean)
+  return match?.id ?? null
+}
+
+export async function preloadSisuCourseIds(codes: readonly string[]): Promise<Record<string, string>> {
+  const cache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
+  for (const raw of codes) {
+    const clean = normalizeSisuCode(raw)
+    if (!clean || cache[clean]) continue
+    if (COURSE_FACTS[clean]?.sisuId) {
+      cache[clean] = COURSE_FACTS[clean].sisuId!
+      continue
+    }
+    try {
+      const match = await lookupSisuCourseByCode(clean)
+      if (match?.id) cache[clean] = match.id
+    } catch {
+      /* ignore individual lookup failure */
+    }
+  }
+  writeJson(KEYS.sisuCourseIds, cache)
+  return cache
+}
+
+/* --------------------- Live SISU GraphQL Fact Enrichment --------------------- */
+
+export function numberToTeachingPeriod(period: number): TeachingPeriod | null {
+  if (period === 1) return 'P1'
+  if (period === 2) return 'P2'
+  if (period === 3) return 'P3'
+  if (period === 4) return 'P4'
+  if (period === 5) return 'Summer'
+  return null
+}
+
+export function teachingPeriodToNumber(period: TeachingPeriod): number | null {
+  if (period === 'P1') return 1
+  if (period === 'P2') return 2
+  if (period === 'P3') return 3
+  if (period === 'P4') return 4
+  if (period === 'Summer') return 5
+  return null
+}
+
+export function deriveSisuLevel(code: string): 'basic' | 'intermediate' | 'advanced' | 'other' {
+  const clean = normalizeSisuCode(code)
+  const match = clean.match(/^[A-Za-z]+(\d{2})/)
+  if (!match) return 'other'
+  const levelNum = Number(match[1])
+  if (levelNum >= 10 && levelNum < 20) return 'basic'
+  if (levelNum >= 20 && levelNum < 30) return 'intermediate'
+  if (levelNum >= 30 && levelNum < 90) return 'advanced'
+  return 'other'
+}
+
+function periodsFromDates(start?: string, end?: string): number[] {
+  if (!start || !end) return []
+  const startYear = Number(start.slice(0, 4))
+  const endYear = Number(end.slice(0, 4))
+  if (!Number.isFinite(startYear) || !Number.isFinite(endYear)) return []
+  const out = new Set<number>()
+  for (let year = startYear - 1; year <= endYear; year++) {
+    const windows: Array<[number, string, string]> = [
+      [1, `${year}-08-20`, `${year}-10-25`],
+      [2, `${year}-10-26`, `${year}-12-20`],
+      [3, `${year + 1}-01-05`, `${year + 1}-03-07`],
+      [4, `${year + 1}-03-08`, `${year + 1}-05-31`],
+      [5, `${year + 1}-06-01`, `${year + 1}-08-19`],
+    ]
+    for (const [period, periodStart, periodEnd] of windows) {
+      if (start <= periodEnd && end >= periodStart) out.add(period)
+    }
+  }
+  return [...out].sort((a, b) => a - b)
+}
+
+function parseHoursFromDescription(
+  description: string,
+  credits: number,
+): { totalHours: number; hoursSource: 'sisu' | 'ects-estimate'; workloadAnomaly: boolean } {
+  const match = description.match(
+    /Total(?:\s+amount(?:\s+of\s+work)?|\s+workload)?(?:\s+is|:)?\s*(\d+)\s*h/i,
+  )
+  const sisuHours = match ? Number(match[1]) : null
+  if (sisuHours !== null && Number.isFinite(sisuHours)) {
+    const anomaly = credits > 0 && (sisuHours / credits < 20 || sisuHours / credits > 40)
+    return {
+      totalHours: anomaly ? Math.round(credits * 27) : sisuHours,
+      hoursSource: anomaly ? 'ects-estimate' : 'sisu',
+      workloadAnomaly: anomaly,
+    }
+  }
+  return {
+    totalHours: credits > 0 ? Math.round(credits * 27) : 0,
+    hoursSource: 'ects-estimate',
+    workloadAnomaly: false,
+  }
+}
+
+function extractAssessmentMethods(
+  methods: Array<{ assessmentItems?: Array<{ name?: { en?: string } }> }>,
+  description: string,
+): string[] {
+  const names = [
+    ...new Set(
+      methods
+        .flatMap((m) => (m.assessmentItems ?? []).map((item) => item?.name?.en))
+        .filter((v): v is string => typeof v === 'string' && v.trim().length > 0),
+    ),
+  ]
+  if (names.length > 0) return names
+  const found: string[] = []
+  if (/exam/i.test(description)) found.push('Exam')
+  if (/project/i.test(description)) found.push('Project')
+  if (/assignment/i.test(description)) found.push('Assignments')
+  return found.length > 0 ? found : ['Course completion']
+}
+
+export function normalizeSisuFact(raw: SisuCourseFact | CourseFact): SisuCourseFact {
+  const code = normalizeSisuCode(raw.code || '')
+  const rawAsFact = raw as SisuCourseFact
+  const sisuId = rawAsFact.sisuId || rawAsFact.id || undefined
+  const credits = typeof raw.credits === 'number' && Number.isFinite(raw.credits) ? raw.credits : 0
+  const offeringPattern: number[] = Array.isArray(rawAsFact.offeringPattern) && rawAsFact.offeringPattern.length > 0
+    ? [...new Set(rawAsFact.offeringPattern.filter((n) => typeof n === 'number'))].sort((a, b) => a - b)
+    : Array.isArray(rawAsFact.periods)
+      ? rawAsFact.periods
+          .map(teachingPeriodToNumber)
+          .filter((n): n is number => n !== null)
+      : []
+  const periods: TeachingPeriod[] = Array.isArray(rawAsFact.periods) && rawAsFact.periods.length > 0
+    ? [...new Set(rawAsFact.periods)]
+    : offeringPattern
+        .map(numberToTeachingPeriod)
+        .filter((p): p is TeachingPeriod => p !== null)
+  const formalPrerequisites = Array.isArray(rawAsFact.formalPrerequisites)
+    ? rawAsFact.formalPrerequisites
+    : Array.isArray(rawAsFact.prerequisites)
+      ? rawAsFact.prerequisites
+      : []
+  const assessmentMethods = Array.isArray(rawAsFact.assessmentMethods)
+    ? rawAsFact.assessmentMethods
+    : Array.isArray(rawAsFact.assessmentItems)
+      ? rawAsFact.assessmentItems
+      : []
+  const totalHours = typeof rawAsFact.totalHours === 'number' && Number.isFinite(rawAsFact.totalHours)
+    ? rawAsFact.totalHours
+    : credits > 0
+      ? Math.round(credits * 27)
+      : 0
+  const nameFi = rawAsFact.nameFi ??
+    (typeof rawAsFact.name === 'object' && rawAsFact.name !== null ? rawAsFact.name.fi : undefined)
+
+  return {
+    ...rawAsFact,
+    code,
+    id: rawAsFact.id ?? sisuId,
+    sisuId: sisuId ?? rawAsFact.id,
+    name: rawAsFact.name,
+    ...(nameFi ? { nameFi } : {}),
+    credits,
+    gradeScale: rawAsFact.gradeScale ?? 'unknown',
+    periods,
+    offeringPattern,
+    totalHours,
+    hoursSource: rawAsFact.hoursSource ?? 'ects-estimate',
+    assessmentMethods,
+    assessmentItems: rawAsFact.assessmentItems ?? assessmentMethods,
+    completionSummary: rawAsFact.completionSummary ?? rawAsFact.workloadNote,
+    formalPrerequisites,
+    prerequisites: rawAsFact.prerequisites ?? formalPrerequisites,
+    offerings: Array.isArray(rawAsFact.offerings) ? rawAsFact.offerings : [],
+    offeringConfidence: rawAsFact.offeringConfidence ?? 'unknown',
+    examSittings: Array.isArray(rawAsFact.examSittings) ? rawAsFact.examSittings : [],
+    level: rawAsFact.level ?? deriveSisuLevel(code),
+  }
+}
+
+export function loadLiveSisuFacts(): Record<string, SisuCourseFact> {
+  const raw = readJson<Record<string, unknown>>(KEYS.sisuLiveFacts, {})
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, SisuCourseFact> = {}
+  for (const [key, val] of Object.entries(raw)) {
+    if (!val || typeof val !== 'object') continue
+    const candidate = val as Partial<SisuCourseFact>
+    const code = normalizeSisuCode(candidate.code || key)
+    if (!code) continue
+    out[code] = normalizeSisuFact({ ...candidate, code } as SisuCourseFact)
+  }
+  return out
+}
+
+export function saveLiveSisuFact(fact: SisuCourseFact): void {
+  const clean = normalizeSisuCode(fact.code)
+  if (!clean) return
+  const current = loadLiveSisuFacts()
+  const normalized = normalizeSisuFact({ ...fact, code: clean })
+  current[clean] = normalized
+  writeJson(KEYS.sisuLiveFacts, current)
+  const resolvedId = normalized.sisuId || normalized.id
+  if (resolvedId) {
+    const idCache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
+    if (idCache[clean] !== resolvedId) {
+      idCache[clean] = resolvedId
+      writeJson(KEYS.sisuCourseIds, idCache)
+    }
+  }
+}
+
+/** Resolves SisuCourseFact from static COURSE_FACTS first, then localStorage live cache. */
+export function getSisuCourseFact(code: string): SisuCourseFact | null {
+  const clean = normalizeSisuCode(code)
+  if (!clean) return null
+  const staticFact = COURSE_FACTS[clean]
+  if (staticFact) return normalizeSisuFact(staticFact)
+  const live = loadLiveSisuFacts()
+  return live[clean] ?? null
+}
+
+/** Queries https://sisu.lut.fi/api/ using CourseUnitFacts query and caches result. */
+export async function fetchAndCacheSisuCourseFact(
+  code: string,
+  signal?: AbortSignal,
+): Promise<SisuCourseFact | null> {
+  const clean = normalizeSisuCode(code)
+  if (!clean) return null
+
+  const idCache = readJson<Record<string, string>>(KEYS.sisuCourseIds, {})
+  let resolvedId: string | undefined = idCache[clean] || COURSE_FACTS[clean]?.sisuId
+  let unitData: Record<string, any> | null = null
+
+  if (!resolvedId) {
+    const searchQuery = `{
+      course_unit_search(
+        codeQuery: ${JSON.stringify(clean)},
+        universityOrgIds: ["lut-university-root-id"],
+        validity: "ONGOING_AND_FUTURE",
+        resultLimit: 10
+      ) {
+        id code name { en fi } credits { min max }
+        gradeScale { abbreviation { en } }
+        compulsoryFormalPrerequisites { prerequisites { courseUnits(universityOrgId: "lut-university-root-id") { code } } }
+        completionMethods { studyType description { en } evaluationCriteria { en fi } assessmentItems { name { en } } }
+        courseUnitRealisations { id name { en } activityPeriod { startDate endDate } }
+      }
+    }`
+    const searchRes = await sisuGraphql(JSON.stringify({ query: searchQuery }), signal)
+    if (searchRes?.data?.course_unit && typeof searchRes.data.course_unit === 'object') {
+      unitData = searchRes.data.course_unit
+      resolvedId = typeof unitData?.id === 'string' ? unitData.id : undefined
+    } else if (Array.isArray(searchRes?.data?.course_unit_search)) {
+      const rows = searchRes.data.course_unit_search as Array<Record<string, any>>
+      const exact = rows.find((r) => typeof r?.code === 'string' && normalizeSisuCode(r.code) === clean)
+      if (!exact || typeof exact.id !== 'string' || !exact.id) return null
+      resolvedId = exact.id
+      if (
+        exact.completionMethods !== undefined ||
+        exact.courseUnitRealisations !== undefined ||
+        exact.compulsoryFormalPrerequisites !== undefined ||
+        exact.gradeScale !== undefined
+      ) {
+        unitData = exact
+      }
+    } else {
+      return null
+    }
+  }
+
+  if (resolvedId && idCache[clean] !== resolvedId) {
+    idCache[clean] = resolvedId
+    writeJson(KEYS.sisuCourseIds, idCache)
+  }
+
+  if (!unitData && resolvedId) {
+    const unitQuery = `query CourseUnitFacts {
+      course_unit(id: ${JSON.stringify(resolvedId)}) {
+        id code name { en fi } credits { min max }
+        gradeScale { abbreviation { en } }
+        compulsoryFormalPrerequisites { prerequisites { courseUnits(universityOrgId: "lut-university-root-id") { code } } }
+        completionMethods { studyType description { en } evaluationCriteria { en fi } assessmentItems { name { en } } }
+        courseUnitRealisations { id name { en } activityPeriod { startDate endDate } }
+      }
+    }`
+    const unitRes = await sisuGraphql(JSON.stringify({ query: unitQuery }), signal)
+    unitData = unitRes?.data?.course_unit ?? null
+  }
+
+  if (!unitData) return null
+
+  const finalId = (typeof unitData.id === 'string' && unitData.id) || resolvedId
+  if (finalId && idCache[clean] !== finalId) {
+    idCache[clean] = finalId
+    writeJson(KEYS.sisuCourseIds, idCache)
+  }
+
+  const minCredits = typeof unitData.credits?.min === 'number'
+    ? unitData.credits.min
+    : typeof unitData.credits === 'number'
+      ? unitData.credits
+      : 0
+  const maxCredits = typeof unitData.credits?.max === 'number'
+    ? unitData.credits.max
+    : minCredits
+  const methods = Array.isArray(unitData.completionMethods) ? unitData.completionMethods : []
+  const degree = methods.find((m: any) => m?.studyType === 'DEGREE_STUDIES') ?? methods[0] ?? {}
+  const description = typeof degree?.description?.en === 'string' ? degree.description.en : ''
+  const criteria = degree?.evaluationCriteria ?? unitData.assessmentCriteria ?? {}
+  const hours = parseHoursFromDescription(description, minCredits)
+  const prerequisites = [
+    ...new Set(
+      (Array.isArray(unitData.compulsoryFormalPrerequisites) ? unitData.compulsoryFormalPrerequisites : [])
+        .flatMap((group: any) => (Array.isArray(group?.prerequisites) ? group.prerequisites : []))
+        .flatMap((p: any) =>
+          (Array.isArray(p?.courseUnits) ? p.courseUnits : [])
+            .map((cu: any) => (typeof cu?.code === 'string' ? normalizeSisuCode(cu.code) : ''))
+            .filter(Boolean),
+        ),
+    ),
+  ]
+
+  const realisations = Array.isArray(unitData.courseUnitRealisations) ? unitData.courseUnitRealisations : []
+  const examSittings: ExamSitting[] = realisations
+    .filter((r: any) => /exam|tentti|kuulustelu/i.test(r?.name?.en ?? ''))
+    .map((r: any) => ({
+      name: String(r?.name?.en ?? ''),
+      startDate: String(r?.activityPeriod?.startDate ?? ''),
+      endDate: String(r?.activityPeriod?.endDate ?? ''),
+    }))
+    .filter((s: ExamSitting) => Boolean(s.startDate && s.endDate))
+    .sort((a: ExamSitting, b: ExamSitting) => a.startDate.localeCompare(b.startDate))
+
+  const offerings: CourseOffering[] = realisations
+    .filter((r: any) => !/exam|tentti|kuulustelu/i.test(r?.name?.en ?? ''))
+    .map((r: any) => ({
+      id: String(r?.id ?? ''),
+      name: String(r?.name?.en ?? ''),
+      startDate: String(r?.activityPeriod?.startDate ?? ''),
+      endDate: String(r?.activityPeriod?.endDate ?? ''),
+      periods: periodsFromDates(r?.activityPeriod?.startDate, r?.activityPeriod?.endDate),
+    }))
+    .filter((o: CourseOffering) => Boolean(o.startDate && o.endDate))
+
+  const offeringPattern = [...new Set(offerings.flatMap((o) => o.periods))].sort((a, b) => a - b)
+  const years = offerings.map((o) => Number(o.startDate.slice(0, 4))).filter((y) => Number.isFinite(y) && y > 0)
+  const offeringConfidence: OfferingConfidence = years.some((y) => y >= 2026)
+    ? 'sisu-2026-27'
+    : years.length > 0
+      ? 'stale'
+      : 'unknown'
+
+  const rawScale = String(unitData.gradeScale?.abbreviation?.en ?? unitData.gradeScale ?? '')
+  const gradeScale: GradeScale = /pass/i.test(rawScale)
+    ? 'pass-fail'
+    : rawScale === '0-5'
+      ? '0-5'
+      : 'unknown'
+
+  const nameEn = typeof unitData.name === 'string'
+    ? unitData.name
+    : typeof unitData.name?.en === 'string'
+      ? unitData.name.en
+      : typeof unitData.name?.fi === 'string'
+        ? unitData.name.fi
+        : undefined
+  const nameFi = typeof unitData.name === 'object' && typeof unitData.name?.fi === 'string'
+    ? unitData.name.fi
+    : undefined
+
+  const extractedMethods = extractAssessmentMethods(methods, description)
+
+  const fact = normalizeSisuFact({
+    code: clean,
+    id: finalId,
+    sisuId: finalId,
+    name: nameEn,
+    nameFi,
+    credits: minCredits,
+    creditsMax: maxCredits !== minCredits ? maxCredits : undefined,
+    creditRange: { min: minCredits, max: maxCredits },
+    gradeScale,
+    totalHours: hours.totalHours,
+    hoursSource: hours.hoursSource,
+    workloadAnomaly: hours.workloadAnomaly,
+    workloadNote: description || undefined,
+    completionSummary: description || undefined,
+    assessmentCriteria:
+      criteria?.en || criteria?.fi
+        ? { en: criteria.en || undefined, fi: criteria.fi || undefined }
+        : undefined,
+    assessmentMethods: extractedMethods,
+    assessmentItems: extractedMethods,
+    formalPrerequisites: prerequisites,
+    prerequisites,
+    offerings,
+    offeringPattern,
+    periods: offeringPattern
+      .map(numberToTeachingPeriod)
+      .filter((p): p is TeachingPeriod => p !== null),
+    offeringConfidence,
+    examSittings,
+    selfPaced: clean.startsWith('MOOC'),
+    level: deriveSisuLevel(clean),
+  })
+
+  saveLiveSisuFact(fact)
+  return fact
+}
+

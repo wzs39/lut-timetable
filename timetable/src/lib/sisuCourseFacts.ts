@@ -7,6 +7,7 @@
  */
 export type GradeScale = '0-5' | 'pass-fail' | 'unknown'
 export type OfferingConfidence = 'sisu-2026-27' | 'stale' | 'unknown'
+export type TeachingPeriod = 'P1' | 'P2' | 'P3' | 'P4' | 'Summer' | 'Intensive'
 
 export interface CourseOffering {
   id: string
@@ -44,6 +45,35 @@ export interface CourseFact {
   offeringConfidence: OfferingConfidence
   examSittings: ExamSitting[]
   selfPaced?: boolean
+}
+
+export interface SisuCourseFact {
+  id?: string
+  sisuId?: string
+  code: string
+  name?: string | { en: string; fi?: string }
+  nameFi?: string
+  credits: number
+  creditsMax?: number
+  creditRange?: { min: number; max: number }
+  gradeScale?: GradeScale
+  periods?: TeachingPeriod[]
+  totalHours?: number
+  hoursSource?: 'sisu' | 'ects-estimate'
+  workloadAnomaly?: boolean
+  workloadNote?: string
+  assessmentCriteria?: { en?: string; fi?: string }
+  assessmentMethods?: string[]
+  assessmentItems?: string[]
+  completionSummary?: string
+  formalPrerequisites?: string[]
+  prerequisites?: string[]
+  offerings?: CourseOffering[]
+  offeringPattern?: number[]
+  offeringConfidence?: OfferingConfidence
+  examSittings?: ExamSitting[]
+  selfPaced?: boolean
+  level?: 'basic' | 'intermediate' | 'advanced' | 'other'
 }
 
 export const SISU_FACTS_GENERATED_AT = "2026-10-21T08:50:26.874Z"

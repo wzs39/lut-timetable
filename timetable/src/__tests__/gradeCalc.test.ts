@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_LUT_GRADE_THRESHOLDS,
   clamp,
   contributionOf,
   courseProjection,
@@ -8,6 +9,8 @@ import {
   getFinalCourseGrade,
   gradeTargetPlan,
   gradedWeight,
+  solveGradeTargetsByLevel,
+  solveItemMinimumsForTarget,
   sortGrades,
   ungradedCount,
   weightedEstimate,
@@ -353,5 +356,45 @@ describe('gradeTargetPlan', () => {
     expect(plan.requiredAvg).toBeCloseTo(350, 5) // 无权重已评分项不进总分
     expect(plan.status).toBe('unreachable')
     expect(gradeTargetPlan([], {}, 80).status).toBe('done')
+  })
+})
+
+describe('solveGradeTargetsByLevel & solveItemMinimumsForTarget', () => {
+  it('computes 5-tier LUT grade target ladder (grades 1..5)', () => {
+    const items = [
+      item({ name: 'Assignments', grade: 90, weight: 40 }),
+      item({ name: 'Final Exam', grade: null, weight: 60 }),
+    ]
+    const ladder = solveGradeTargetsByLevel(items, {})
+    expect(ladder).toHaveLength(5)
+    expect(ladder.map((p) => p.grade)).toEqual([1, 2, 3, 4, 5])
+    expect(ladder.map((p) => p.thresholdPercent)).toEqual([
+      DEFAULT_LUT_GRADE_THRESHOLDS[1],
+      DEFAULT_LUT_GRADE_THRESHOLDS[2],
+      DEFAULT_LUT_GRADE_THRESHOLDS[3],
+      DEFAULT_LUT_GRADE_THRESHOLDS[4],
+      DEFAULT_LUT_GRADE_THRESHOLDS[5],
+    ])
+    // Earned = 36; Grade 4 (80%) needs 44 / 0.6 = 73.333%
+    const g4 = ladder.find((p) => p.grade === 4)!
+    expect(g4.plan.requiredAvg).toBeCloseTo(73.333, 2)
+    expect(g4.plan.status).toBe('possible')
+  })
+
+  it('solves per-item minimum percentage required for each remaining ungraded item', () => {
+    const items = [
+      item({ name: 'Assignments', grade: 80, weight: 30 }), // earned 24
+      item({ name: 'Project', grade: null, weight: 20 }),
+      item({ name: 'Final Exam', grade: null, max: 60, weight: 50 }),
+    ]
+    // Target = 80 (need 56 from Project 20% + Exam 50%). Balanced avg = 56/70 = 80%
+    const mins = solveItemMinimumsForTarget(items, 80, {})
+    expect(mins).toHaveLength(2)
+    const examReq = mins.find((m) => m.itemName === 'Final Exam')!
+    expect(examReq.minPercentBalanced).toBeCloseTo(80, 2)
+    expect(examReq.minRawBalanced).toBeCloseTo(48, 2) // 80% of max 60 = 48
+    // Optimistic: if Project gets 100% (20 pts), Exam needs (80 - 24 - 20) / 0.5 = 72%
+    expect(examReq.minPercentOptimistic).toBeCloseTo(72, 2)
+    expect(examReq.feasible).toBe(true)
   })
 })

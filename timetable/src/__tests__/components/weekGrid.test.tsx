@@ -7,6 +7,8 @@ import { KEYS } from '../../lib/storage'
 import { startOfWeek } from '../../lib/date'
 import type { Lesson } from '../../types'
 import type { StudyBlock } from '../../lib/studyBlocks'
+import type { Task } from '../../lib/tasks'
+import type { CourseGrades } from '../../lib/grades'
 
 /** Selasa 2026-09-15 — di dalam minggu yang diuji (mulai Senin 2026-09-14) */
 const NOW = new Date(2026, 8, 15, 12, 0, 0)
@@ -270,5 +272,97 @@ describe('WeekGrid confirmed study blocks (read-only overlay)', () => {
     expect(title).toBeTruthy()
     expect(title.closest('[title]')?.textContent).toContain('12:00')
     expect(title.closest('[title]')?.className).toContain('border-dashed')
+  })
+})
+
+describe('WeekGrid M3 interactive overlays (DDL pins, laser cursor, spotlight HUD, slot creation, semester jump)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('renders DDL pins in day headers, laser now cursor, cross-course spotlight HUD, empty-slot creation, and embedded semester strip', () => {
+    mockWide(true)
+    const onInspectCourse = vi.fn()
+    const onCreateStudyBlock = vi.fn()
+    const onOpenWeek = vi.fn()
+    const multiWeekLessons: Lesson[] = [
+      ...LESSONS,
+      lesson({ id: 'W2', code: 'AAA1111', start: at(22, 10), end: at(22, 12) }),
+    ]
+    const tasks: Task[] = [
+      {
+        id: 'ddl-1',
+        title: 'Lab 2 Submission',
+        course: 'AAA1111',
+        dueAt: at(15, 18),
+        completed: false,
+        createdAt: NOW.toISOString(),
+        updatedAt: NOW.toISOString(),
+      },
+    ]
+    const grades: CourseGrades[] = [
+      {
+        courseId: 101,
+        course: 'AAA1111',
+        courseTitle: 'AAA1111 Course',
+        matched: true,
+        average: 88,
+        items: [],
+      },
+    ]
+
+    render(
+      <I18nProvider>
+        <WeekGrid
+          lessons={LESSONS}
+          allLessons={multiWeekLessons}
+          weekStart={WEEK_START}
+          onSelect={() => {}}
+          tasks={tasks}
+          grades={grades}
+          onOpenWeek={onOpenWeek}
+          onInspectCourse={onInspectCourse}
+          onCreateStudyBlock={onCreateStudyBlock}
+        />
+      </I18nProvider>,
+    )
+
+    // 1. Laser real-time cursor
+    expect(screen.getByTestId('week-now-cursor')).toBeTruthy()
+
+    // 2. DDL Pin + Dossier click
+    const ddlPin = screen.getByTestId('week-ddl-pin')
+    expect(ddlPin.textContent).toContain('Lab 2 Submission')
+    fireEvent.click(ddlPin)
+    expect(onInspectCourse).toHaveBeenCalledWith('AAA1111')
+
+    // 3. Cross-course spotlight + mini HUD
+    const firstLessonBtn = screen.getByText('AAA1111').closest('button')!
+    fireEvent.mouseEnter(firstLessonBtn)
+    const hud = screen.getByTestId('week-course-spotlight-hud')
+    expect(hud.textContent).toContain('AAA1111')
+    expect(hud.textContent).toContain('88%')
+
+    // 4. Embedded semester strip visible on multi-week lessons
+    expect(screen.getByTestId('week-semester-strip')).toBeTruthy()
+
+    // 5. Empty-slot click creation
+    const wedCanvas = document.querySelector('[data-day-canvas="2"]') as HTMLElement
+    expect(wedCanvas).toBeTruthy()
+    fireEvent.mouseDown(wedCanvas, { clientY: 100 })
+    fireEvent.mouseUp(wedCanvas, { clientY: 100 })
+    const popover = screen.getByTestId('week-slot-popover')
+    const input = popover.querySelector('input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Deep Problem Set' } })
+    fireEvent.click(screen.getByRole('button', { name: /确认排入|Schedule/ }))
+    expect(onCreateStudyBlock).toHaveBeenCalledTimes(1)
+    expect(onCreateStudyBlock.mock.calls[0][0].title).toBe('Deep Problem Set')
   })
 })

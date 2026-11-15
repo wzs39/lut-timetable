@@ -1,10 +1,11 @@
 import { useI18n } from '../i18n'
 import { VIEWS, type AppView } from '../lib/navigation'
+import { runSharedTransition } from '../lib/motion'
 import { useMoodleData } from '../hooks/useMoodleData'
 import Icon from './Icon'
 
 /**
- * 移动端底部标签栏（<md 才显示）：信息视图 + 「更多」抽屉。
+ * 移动端自适应底部悬浮胶囊仪器坞（<md 才显示）：信息视图 + 「更多」抽屉。
  *
  * 与头部是「同一份声明的两种壳」——视图清单来自 `lib/navigation`，加视图
  * 只改声明表。角标数字在这里按声明（badges）汇总：待办来自 props，未读来自
@@ -25,7 +26,7 @@ export default function BottomNav({
   const { unread } = useMoodleData()
   return (
     <nav
-      className="md:hidden fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface-1)]/95 px-2 py-1"
+      className="instrument-dock md:hidden fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface-1)]/95 px-2 py-1 backdrop-blur-md"
       style={{ paddingBottom: 'calc(0.25rem + env(safe-area-inset-bottom, 0px))' }}
     >
       {VIEWS.filter((decl) => decl.inBottomNav).map((decl) => {
@@ -36,7 +37,7 @@ export default function BottomNav({
         return (
           <button
             key={decl.route}
-            onClick={() => onView(decl.view)}
+            onClick={() => runSharedTransition(() => onView(decl.view))}
             aria-pressed={active}
             className={`app-nav-item relative flex flex-1 flex-col items-center justify-center gap-1 rounded-md py-1.5 transition-colors ${
               active
@@ -53,7 +54,7 @@ export default function BottomNav({
             <div className="relative mt-1">
               <Icon name={decl.icon} size={18} />
               {count > 0 && (
-                <span className="absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded border border-[var(--danger)]/30 bg-[var(--tint-danger)] px-1 text-[9px] font-mono font-bold text-[var(--danger)]">
+                <span className="num absolute -right-2 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded border border-[var(--danger)]/30 bg-[var(--tint-danger)] px-1 text-[9px] font-mono font-bold text-[var(--danger)]">
                   {count > 9 ? '9+' : count}
                 </span>
               )}

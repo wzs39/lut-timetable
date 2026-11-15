@@ -87,6 +87,8 @@ export const KEYS = {
   studyBlockPrefs: 'tt_study_block_prefs_v1',
   /** 番茄钟配置 + 当日完成的专注轮数；唯一所有者是 lib/pomodoro.ts */
   pomodoro: 'tt_pomodoro_v1',
+  /** Live-fetched SISU GraphQL course facts cache: Record<normalizedCode, SisuCourseFact> */
+  sisuLiveFacts: 'tt_sisu_live_facts_v1',
 } as const
 
 export type StorageKey = (typeof KEYS)[keyof typeof KEYS]

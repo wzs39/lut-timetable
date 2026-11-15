@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { CourseGrades, GradeItem } from '../lib/grades'
-import { contributionOf, courseProjection, effectiveGrade, gradeTargetPlan } from '../lib/gradeCalc'
+import { contributionOf, courseProjection, effectiveGrade, gradeTargetPlan, solveGradeTargetsByLevel } from '../lib/gradeCalc'
 import { KEYS, readString, writeString } from '../lib/storage'
 import { useI18n } from '../i18n'
 import type { ActivityDatesByCmid } from '../lib/activityDates'
@@ -56,6 +56,10 @@ export default function GradeCourseCard({
   const plan = useMemo(
     () => gradeTargetPlan(c.items, overrides, target, c.officialTotal),
     [c.items, overrides, target, c.officialTotal],
+  )
+  const lutLevels = useMemo(
+    () => solveGradeTargetsByLevel(c.items, overrides, c.officialTotal),
+    [c.items, overrides, c.officialTotal],
   )
   // LUT tidak selalu mengekspos bobot per item: meta memakai hitungan item
   // bila tak ada bobot sama sekali, dan menandai sebagian berbobot.
@@ -209,6 +213,49 @@ export default function GradeCourseCard({
                 t('gradeTargetUnreachable', { max: plan.maxFinal.toFixed(0) })}
               {plan.status === 'done' && t('gradeTargetDone')}
             </span>
+          </div>
+          {/* LUT 1–5 反向求解器：一键推演各等级所需剩余均分 */}
+          <div data-testid="grade-lut-solver" className="rounded-lg border border-[var(--line)] bg-[var(--surface-1)]/70 p-2">
+            <div className="mb-1.5 flex items-center justify-between text-[10px]">
+              <span className="font-medium text-[var(--text-2)]">{t('gradeLutReverseTitle')}</span>
+              <span className="text-[var(--text-3)] tabular-nums">1–5</span>
+            </div>
+            <div className="grid grid-cols-5 gap-1">
+              {lutLevels.map((lvl) => {
+                const isSelected = target === lvl.thresholdPercent
+                const st = lvl.plan.status
+                const statusText =
+                  st === 'reached' || st === 'done'
+                    ? t('gradeLutReached')
+                    : st === 'possible'
+                      ? t('gradeTargetNeed', { n: Math.ceil(lvl.plan.requiredAvg ?? 0) })
+                      : t('gradeLutUnreachable', { max: lvl.plan.maxFinal.toFixed(0) })
+                const toneCls =
+                  st === 'reached' || st === 'done'
+                    ? 'border-[var(--ok)]/40 bg-[var(--tint-ok)] text-[var(--ok)]'
+                    : st === 'possible'
+                      ? 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-1)] hover:border-[var(--info)]'
+                      : 'border-[var(--line)] bg-[var(--surface-2)]/50 text-[var(--text-3)] opacity-75'
+                return (
+                  <button
+                    key={lvl.grade}
+                    type="button"
+                    data-testid={`grade-lut-level-${lvl.grade}`}
+                    onClick={() => pickTarget(lvl.thresholdPercent)}
+                    className={
+                      'flex flex-col items-center rounded-md border px-1 py-1 text-center transition ' +
+                      toneCls +
+                      (isSelected ? ' ring-1 ring-[var(--info)]' : '')
+                    }
+                  >
+                    <span className="text-[10px] font-bold tabular-nums">
+                      {lvl.grade} <span className="font-normal opacity-75">≥{lvl.thresholdPercent}%</span>
+                    </span>
+                    <span className="mt-0.5 truncate text-[9px] tabular-nums">{statusText}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           {c.items.length > 3 && (
             <input

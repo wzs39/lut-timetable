@@ -11,8 +11,11 @@ import {
   phaseDone,
   phaseMinutes,
   progress,
+  recordFocusRound,
   remainingMs,
   resumeTimer,
+  savePomodoroState,
+  startFocusForBlock,
   startTimer,
   type PomodoroConfig,
   type PomodoroTimer,
@@ -206,5 +209,52 @@ describe('formatRemaining', () => {
     expect(formatRemaining(500)).toBe('00:01')
     expect(formatRemaining(0)).toBe('00:00')
     expect(formatRemaining(-5000)).toBe('00:00')
+  })
+})
+
+describe('Course-linked focus ledger (recordFocusRound & startFocusForBlock)', () => {
+  it('binds StudyBlock metadata on startFocusForBlock and accumulates focusMinutesByCourse across days', () => {
+    const day1 = new Date(2026, 9, 20, 14, 0, 0)
+    const day2 = new Date(2026, 9, 21, 15, 0, 0)
+
+    const blockTimer = startFocusForBlock(
+      DEFAULT_POMODORO_CONFIG,
+      {
+        id: 'sb-99',
+        title: 'Algorithms Review',
+        courseCode: 'CT60A2411-3005',
+        sourceKind: 'task',
+        sourceId: 'task-77',
+      },
+      day1.getTime(),
+      1,
+    )
+    expect(blockTimer.studyBlockId).toBe('sb-99')
+    expect(blockTimer.courseCode).toBe('CT60A2411')
+    expect(blockTimer.taskId).toBe('task-77')
+    expect(blockTimer.label).toBe('Algorithms Review')
+
+    let state = loadPomodoroState(day1)
+    state = recordFocusRound(state, day1, {
+      courseCode: blockTimer.courseCode,
+      taskId: blockTimer.taskId,
+      studyBlockId: blockTimer.studyBlockId,
+      minutes: 25,
+    })
+    savePomodoroState(state)
+
+    // Next day: roundsToday resets to 0, but focusMinutesByCourse and recentSessions persist
+    const loadedDay2 = loadPomodoroState(day2)
+    expect(loadedDay2.roundsToday).toBe(0)
+    expect(loadedDay2.focusMinutesByCourse?.CT60A2411).toBe(25)
+    expect(loadedDay2.recentSessions).toHaveLength(1)
+
+    const afterSecond = recordFocusRound(loadedDay2, day2, {
+      courseCode: 'CT60A2411',
+      minutes: 30,
+    })
+    expect(afterSecond.roundsToday).toBe(1)
+    expect(afterSecond.focusMinutesByCourse?.CT60A2411).toBe(55)
+    expect(afterSecond.recentSessions).toHaveLength(2)
   })
 })
