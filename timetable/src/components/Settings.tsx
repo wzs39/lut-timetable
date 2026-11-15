@@ -135,7 +135,7 @@ export default function Settings({
     <div
       className={
         (closing ? 'animate-fade-out ' : 'animate-fade-in ') +
-        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+        'fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6'
       }
       onMouseDown={(e) => e.target === e.currentTarget && requestClose()}
       onKeyDown={(e) => e.key === 'Escape' && requestClose()}
@@ -144,17 +144,20 @@ export default function Settings({
       <div
         className={
           (closing ? 'animate-exit-down ' : 'animate-modal-in ') +
-          'flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-1)] shadow-xl md:max-w-4xl md:flex-row'
+          'flex h-[88vh] max-h-[850px] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] shadow-2xl md:max-w-4xl md:flex-row'
         }
       >
-        <aside className="flex shrink-0 flex-col border-b border-[var(--line)] bg-[var(--surface-1)] md:w-56 md:border-b-0 md:border-r">
-          <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-4 md:pb-3">
-            <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
-              <Icon name="settings" size={15} /> {t('settingsTitle')}
+        <aside className="flex shrink-0 flex-col border-b border-[var(--line)] bg-[var(--surface-1)] md:w-60 md:border-b-0 md:border-r">
+          <div className="flex items-center justify-between gap-2 px-5 pb-3 pt-5">
+            <h3 className="inline-flex items-center gap-2 text-sm font-semibold tracking-tight text-[var(--text-1)]">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-2)] shadow-inner">
+                <Icon name="settings" size={14} />
+              </span>
+              <span>{t('settingsTitle')}</span>
             </h3>
             <button
               onClick={requestClose}
-              className="text-[var(--text-3)] hover:text-[var(--text-1)]"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--text-3)] hover:bg-[var(--surface-2)] hover:text-[var(--text-1)] transition-colors"
               title={t('closeHint')}
             >
               <Icon name="close" size={13} />
@@ -162,7 +165,7 @@ export default function Settings({
           </div>
 
           <nav
-            className="app-rail px-3 pb-3 md:px-2"
+            className="app-rail px-3 pb-3 md:px-3 md:space-y-1"
             role="navigation"
             aria-label={t('settingsNav')}
           >
@@ -182,12 +185,12 @@ export default function Settings({
               )
             })}
           </nav>
-          <p className="hidden px-4 pb-3 text-[10px] leading-relaxed text-[var(--text-3)] md:block">
+          <p className="hidden px-5 pb-4 text-[10px] leading-relaxed text-[var(--text-3)] md:block">
             {t('settingsPaneHint')}
           </p>
         </aside>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-6 custom-scrollbar">
         <div className="space-y-8 text-xs">
           <Group
             id="appearance"
