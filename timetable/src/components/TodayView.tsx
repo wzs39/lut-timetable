@@ -330,7 +330,10 @@ export default function TodayView({
                           <Icon name="live" size={11} /> {t('nowOngoing')}
                         </span>
                       )}
-                      <span className="min-w-0 truncate">
+                      <span
+                        className="min-w-0 max-w-full truncate"
+                        title={`${banner.lesson.code ? `${banner.lesson.code} · ` : ''}${displayTitle(banner.lesson)}`}
+                      >
                         {banner.lesson.code ? <span className="font-mono">{banner.lesson.code}</span> : null}
                         {banner.lesson.code ? ' · ' : ''}
                         {displayTitle(banner.lesson)}
@@ -460,7 +463,7 @@ export default function TodayView({
         </div>
 
         {/* Bento 主列：今日课序 + 已确认学习块 + 本周洞察 + 室内导航 */}
-        <div className="space-y-3 xl:col-span-7">
+        <div className="min-w-0 space-y-3 xl:col-span-7">
             {/* 今日课程安排（置顶首位） */}
             {today.length === 0 ? (
               nextDayPreview || (banner.tone !== 'empty' ? (
@@ -529,7 +532,7 @@ export default function TodayView({
         </div>
 
         {/* Bento 次列：逾期与今日截止 + 课程专注 + 互动空闲教室 + 考试倒计时（全视口直出，无 tab 折叠隐藏） */}
-        <div className="space-y-3 xl:col-span-5">
+        <div className="min-w-0 space-y-3 xl:col-span-5">
             {/* 1. 紧急与截止：逾期任务警示横幅 */}
             {overdueTasks.length > 0 && (
               <section className="animate-modal-in app-card border border-[var(--danger)]/40 bg-[var(--tint-danger)]/10">

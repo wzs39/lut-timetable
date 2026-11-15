@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { KEYS } from '../../lib/storage'
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -105,5 +106,82 @@ describe('PomodoroCard component', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /开始专注|Start focus/i })[0])
     const miniHud = screen.getByTestId('focus-mini-hud')
     expect(miniHud.textContent).toContain('CT60A2411')
+  })
+
+  it('constrains course and study-block selects plus FocusMiniHud against horizontal overflow on narrow mobile viewports', () => {
+    const longCourseTitle =
+      'Advanced Distributed Systems Architecture, Consensus Algorithms & Real-Time Stream Processing'
+    localStorage.setItem(
+      KEYS.studyBlocks,
+      JSON.stringify([
+        {
+          id: 'sb-long-1',
+          sourceKind: 'task',
+          sourceId: 't-1',
+          title: 'Very Long Study Block Title That Would Overflow Mobile Viewport Without Truncation',
+          courseCode: 'CT60A9999',
+          dueAt: '2026-11-20T20:00:00.000Z',
+          startAt: '2026-11-16T12:00:00.000Z',
+          endAt: '2026-11-16T13:30:00.000Z',
+          createdAt: '2026-11-16T08:00:00.000Z',
+        },
+        {
+          id: 'sb-long-2',
+          sourceKind: 'sisu-plan',
+          sourceId: 'p-1',
+          title: 'Second Very Long Study Block Title For Linear Optimization & Probability Modeling',
+          courseCode: 'BM40A0602',
+          dueAt: '2026-11-21T20:00:00.000Z',
+          startAt: '2026-11-16T14:00:00.000Z',
+          endAt: '2026-11-16T15:30:00.000Z',
+          createdAt: '2026-11-16T08:00:00.000Z',
+        },
+      ]),
+    )
+
+    render(
+      <I18nProvider>
+        <PomodoroProvider>
+          <PomodoroCard
+            courses={[
+              {
+                code: 'CT60A9999',
+                title: longCourseTitle,
+                credits: 6,
+                totalStudyHours: 162,
+              },
+            ]}
+          />
+          <FocusMiniHud />
+        </PomodoroProvider>
+      </I18nProvider>,
+    )
+
+    const courseSelect = screen.getByTestId('pomodoro-course-select') as HTMLSelectElement
+    expect(courseSelect.className).toContain('w-full')
+    expect(courseSelect.className).toContain('min-w-0')
+    expect(courseSelect.className).toContain('max-w-full')
+    expect(courseSelect.className).toContain('truncate')
+    // Stacks label above full-width select on mobile, flex-row on sm+
+    expect(courseSelect.parentElement?.className).toContain('flex-col')
+    expect(courseSelect.parentElement?.className).toContain('min-w-0')
+
+    fireEvent.change(courseSelect, { target: { value: 'CT60A9999' } })
+    expect(courseSelect.title).toContain(longCourseTitle)
+
+    // Bind study block checkbox reveals the multi-block select, which must also clamp to container width
+    const blockCheckbox = screen.getByRole('checkbox')
+    fireEvent.click(blockCheckbox)
+    const blockSelect = screen.getAllByRole('combobox').find((el) => el !== courseSelect) as HTMLSelectElement
+    expect(blockSelect).toBeTruthy()
+    expect(blockSelect.className).toContain('w-full')
+    expect(blockSelect.className).toContain('min-w-0')
+    expect(blockSelect.className).toContain('max-w-full')
+    expect(blockSelect.className).toContain('truncate')
+
+    // FocusMiniHud stays flex-constrained with min-w-0/max-w-full
+    const miniHud = screen.getByTestId('focus-mini-hud')
+    expect(miniHud.className).toContain('min-w-0')
+    expect(miniHud.className).toContain('max-w-full')
   })
 })

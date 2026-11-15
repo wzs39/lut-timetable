@@ -125,7 +125,7 @@ export default function AppHeader({
       </div>
 
       {/* 视图切换 + Focus Mini HUD + 动作区 */}
-      <div className="app-actions flex flex-1 flex-wrap items-center justify-end gap-2 text-xs">
+      <div className="app-actions flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 text-xs">
         <FocusMiniHud onInspectCourse={onInspectCourse} />
 
         <div className="app-seg hidden md:flex">

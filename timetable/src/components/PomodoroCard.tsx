@@ -60,7 +60,7 @@ export function FocusMiniHud({
   return (
     <div
       data-testid="focus-mini-hud"
-      className="focus-mini-hud flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs"
+      className="focus-mini-hud flex min-w-0 max-w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs"
     >
       <span
         className={
@@ -76,8 +76,8 @@ export function FocusMiniHud({
         aria-hidden="true"
       />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="num font-mono text-xs font-semibold tabular-nums text-[var(--text-1)]">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="num shrink-0 font-mono text-xs font-semibold tabular-nums text-[var(--text-1)]">
             {formatRemaining(remain)}
           </span>
           {boundLabel ? (
@@ -85,17 +85,24 @@ export function FocusMiniHud({
               <button
                 type="button"
                 onClick={() => onInspectCourse(boundCode)}
-                className="truncate rounded bg-[var(--surface-1)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--info)] hover:underline"
+                title={boundLabel}
+                className="min-w-0 truncate rounded bg-[var(--surface-1)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--info)] hover:underline"
               >
                 {boundLabel}
               </button>
             ) : (
-              <span className="truncate rounded bg-[var(--surface-1)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-2)]">
+              <span
+                title={boundLabel}
+                className="min-w-0 truncate rounded bg-[var(--surface-1)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-2)]"
+              >
                 {boundLabel}
               </span>
             )
           ) : (
-            <span className="truncate text-[10px] text-[var(--text-3)]">
+            <span
+              title={`${t('dockFocusHudTitle')} · ${roundsToday}`}
+              className="min-w-0 truncate text-[10px] text-[var(--text-3)]"
+            >
               {t('dockFocusHudTitle')} · {roundsToday}
             </span>
           )}
@@ -110,7 +117,7 @@ export function FocusMiniHud({
         <button
           type="button"
           onClick={running ? pomodoro.pause : pomodoro.resume}
-          className="app-btn px-2 py-0.5 text-[10px]"
+          className="app-btn shrink-0 px-2 py-0.5 text-[10px]"
         >
           {running ? t('pomodoroPause') : t('pomodoroResume')}
         </button>
@@ -118,7 +125,7 @@ export function FocusMiniHud({
         <button
           type="button"
           onClick={() => pomodoro.start('focus', null)}
-          className="app-btn px-2 py-0.5 text-[10px]"
+          className="app-btn shrink-0 px-2 py-0.5 text-[10px]"
         >
           {t('pomodoroStart')}
         </button>
@@ -225,13 +232,16 @@ export default function PomodoroCard({
   const pct = timer ? Math.round(progress(timer, now) * 100) : 0
 
   return (
-    <section className="app-card p-4">
+    <section className="app-card min-w-0 p-4">
       <header className="mb-3 flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 min-w-0">
           <Icon name="hourglass" size={16} className="mt-0.5 shrink-0 text-[var(--accent)]" />
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-[var(--text-1)]">{t('pomodoroTitle')}</h3>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-3)] truncate">
+            <p
+              title={t('pomodoroHint')}
+              className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-3)] truncate"
+            >
               {t('pomodoroHint')}
             </p>
           </div>
@@ -247,12 +257,12 @@ export default function PomodoroCard({
       </header>
 
       {/* 计时面 */}
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[11px] font-medium text-[var(--text-2)]">
+      <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
+        <div className="flex min-w-0 items-baseline justify-between gap-2">
+          <span className="min-w-0 truncate text-[11px] font-medium text-[var(--text-2)]">
             {timer ? phaseLabel(timer.phase) : t('pomodoroIdle')}
           </span>
-          <span className="text-[10px] text-[var(--text-3)]">
+          <span className="shrink-0 text-[10px] text-[var(--text-3)]">
             {t('pomodoroRoundsToday', { n: roundsToday })}
           </span>
         </div>
@@ -381,11 +391,11 @@ export default function PomodoroCard({
 
         {/* 课程绑定与 SISU 额定学时对比 */}
         {courseOptions.length > 0 && (
-          <div className="mt-2.5 border-t border-[var(--line)] pt-2">
-            <div className="flex items-center justify-between gap-2">
+          <div className="mt-2.5 min-w-0 border-t border-[var(--line)] pt-2">
+            <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
               <label
                 htmlFor="pomodoro-course-select"
-                className="text-[10px] font-medium text-[var(--text-3)]"
+                className="shrink-0 text-[10px] font-medium text-[var(--text-3)]"
               >
                 {t('pomodoroBindCourseLabel')}
               </label>
@@ -393,6 +403,11 @@ export default function PomodoroCard({
                 id="pomodoro-course-select"
                 data-testid="pomodoro-course-select"
                 aria-label={t('pomodoroBindCourseLabel')}
+                title={
+                  matchedOption
+                    ? `${matchedOption.code}${matchedOption.title ? ` · ${matchedOption.title}` : ''}`
+                    : t('pomodoroBindCourseNone')
+                }
                 value={normActiveCode}
                 onChange={(e) => {
                   const nextCode = e.target.value
@@ -404,7 +419,7 @@ export default function PomodoroCard({
                     })
                   }
                 }}
-                className="rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-0.5 font-mono text-[10px] text-[var(--text-1)]"
+                className="w-full min-w-0 max-w-full truncate rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 font-mono text-[10px] text-[var(--text-1)] sm:w-auto sm:flex-1 sm:py-0.5"
               >
                 <option value="">{t('pomodoroBindCourseNone')}</option>
                 {courseOptions.map((c) => (
@@ -415,9 +430,20 @@ export default function PomodoroCard({
               </select>
             </div>
             {normActiveCode && (
-              <div className="mt-1.5 space-y-1">
-                <div className="flex items-center justify-between text-[10px] text-[var(--text-2)]">
-                  <span className="num tabular-nums">
+              <div className="mt-1.5 min-w-0 space-y-1">
+                <div className="flex min-w-0 items-center justify-between gap-2 text-[10px] text-[var(--text-2)]">
+                  <span
+                    className="num min-w-0 truncate tabular-nums"
+                    title={
+                      sisuTargetHours
+                        ? t('pomodoroCourseHoursSummary', {
+                            code: normActiveCode,
+                            focus: loggedCourseHours,
+                            total: sisuTargetHours,
+                          })
+                        : t('pomodoroCourseMinutesLogged', { m: loggedCourseMinutes })
+                    }
+                  >
                     {sisuTargetHours
                       ? t('pomodoroCourseHoursSummary', {
                           code: normActiveCode,
@@ -427,7 +453,7 @@ export default function PomodoroCard({
                       : t('pomodoroCourseMinutesLogged', { m: loggedCourseMinutes })}
                   </span>
                   {sisuTargetHours && (
-                    <span className="num font-mono text-[10px] text-[var(--text-3)]">
+                    <span className="num shrink-0 font-mono text-[10px] text-[var(--text-3)]">
                       {courseProgressPct}%
                     </span>
                   )}
@@ -447,13 +473,13 @@ export default function PomodoroCard({
 
         {/* 绑定学习时段：只在未开始时可选（开始后换块会让「标哪块完成」含糊） */}
         {!timer && (
-          <div className="mt-2">
+          <div className="mt-2 min-w-0">
             {blocks.length === 0 ? (
               <p className="text-[10px] leading-relaxed text-[var(--text-3)]">
                 {t('pomodoroNoBlocks')}
               </p>
             ) : (
-              <label className="flex items-center gap-2 text-[10px] text-[var(--text-3)]">
+              <label className="flex min-w-0 items-center gap-2 text-[10px] text-[var(--text-3)]">
                 <input
                   type="checkbox"
                   checked={boundId !== null}
@@ -461,9 +487,16 @@ export default function PomodoroCard({
                     const first = blocks[0]
                     setBoundId(e.target.checked && first ? first.id : null)
                   }}
-                  className="accent-[var(--accent)]"
+                  className="shrink-0 accent-[var(--accent)]"
                 />
-                <span className="min-w-0">
+                <span
+                  className="min-w-0 truncate"
+                  title={
+                    boundBlock
+                      ? t('pomodoroBoundBlock', { title: boundBlock.title })
+                      : t('pomodoroBindBlock', { title: blocks[0]?.title ?? '' })
+                  }
+                >
                   {boundBlock
                     ? t('pomodoroBoundBlock', { title: boundBlock.title })
                     : t('pomodoroBindBlock', { title: blocks[0]?.title ?? '' })}
@@ -473,9 +506,10 @@ export default function PomodoroCard({
             {boundId && blocks.length > 1 && (
               <select
                 aria-label={t('pomodoroBindBlock', { title: '' })}
+                title={boundBlock?.title}
                 value={boundId}
                 onChange={(e) => setBoundId(e.target.value || null)}
-                className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] text-[var(--text-2)]"
+                className="mt-1 w-full min-w-0 max-w-full truncate rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] text-[var(--text-2)]"
               >
                 {blocks.map((block) => (
                   <option key={block.id} value={block.id}>
