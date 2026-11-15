@@ -56,17 +56,17 @@ export default function AppHeader({
 }) {
   const { t } = useI18n()
   return (
-    <header className="app-header safe-top sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/95 px-4 py-2 backdrop-blur-md transition-all sm:px-6">
+    <header className="app-header safe-top sticky top-0 z-30 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--line)] bg-[var(--surface-0)]/90 px-4 py-2.5 backdrop-blur-xl transition-all duration-200 sm:px-6 shadow-[0_4px_24px_-4px_rgba(0,0,0,0.15)]">
       {/* 品牌与状态区 */}
       <div className="flex items-center gap-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded border border-[var(--line)] bg-[var(--surface-2)] text-[11px] font-mono font-bold tracking-tight text-[var(--text-1)]">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface-2)] text-[11px] font-mono font-bold tracking-tight text-[var(--text-1)] shadow-inner transition-transform hover:scale-105 active:scale-95 cursor-default">
           LUT
         </div>
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <h1 className="text-sm font-bold tracking-tight text-[var(--text-1)]">{t('appName')}</h1>
-            <span className="hidden items-center gap-1.5 rounded border border-[var(--line)] bg-[var(--surface-1)] px-2 py-0.5 text-[10px] font-mono font-medium text-[var(--text-2)] sm:inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)]" />
+            <span className="hidden items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-1)] px-2.5 py-0.5 text-[10px] font-mono font-medium text-[var(--text-2)] sm:inline-flex shadow-sm">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)] animate-pulse" />
               {t('lessonsSources', { n: lessonCount, m: sourceCount })}
             </span>
           </div>

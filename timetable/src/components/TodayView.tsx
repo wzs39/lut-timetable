@@ -636,15 +636,15 @@ function LessonList({
             <button
               onClick={() => onSelect(l.id)}
               className={
-                'lesson-card w-full rounded-md border border-[var(--line)] px-3 py-2 text-left text-xs transition-colors hover:border-[var(--hover-line)] hover:bg-[var(--surface-2)]/40 ' +
+                'lesson-card group relative w-full rounded-lg border border-[var(--line)] px-3.5 py-2.5 text-left text-xs transition-all duration-200 hover:border-[var(--hover-line)] hover:bg-[var(--surface-2)]/50 hover:shadow-lg ' +
                 (past ? 'opacity-40 ' : '') +
-                (live ? 'border-[var(--ok)]/50 bg-[var(--tint-ok)]/15 ' : 'bg-[var(--surface-1)] ')
+                (live ? 'border-[var(--ok)]/50 bg-[var(--tint-ok)]/15 shadow-[0_0_15px_-3px_var(--tint-ok)] ' : 'bg-[var(--surface-1)] ')
               }
               style={courseStyle(c)}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate font-medium" style={courseTextStyle(c)}>
+                  <div className="truncate font-medium tracking-tight text-sm transition-transform duration-150 group-hover:translate-x-0.5" style={courseTextStyle(c)}>
                     {SOURCE_ICON[l.source]}{' '}
                     {l.code ? <span className="font-mono">{l.code}</span> : null}
                     {l.code ? ' · ' : ''}
@@ -660,22 +660,22 @@ function LessonList({
                   <LessonNote note={note} />
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="font-mono text-[var(--text-2)]">
+                  <div className="font-mono text-[var(--text-2)] tabular-nums">
                     {formatTime(l.start, locale)}
                     {' – '}
                     {formatTime(l.end, locale)}
                   </div>
-                  <div className="mt-0.5 flex items-center justify-end gap-1.5">
+                  <div className="mt-1 flex items-center justify-end gap-1.5">
                     {l.type && TYPE_META[l.type] && (
                       <span
-                        className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-1.5 py-px text-[10px] text-[var(--text-2)] font-mono"
+                        className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] text-[var(--text-2)] font-mono tracking-wide transition-colors group-hover:border-[var(--hover-line)]"
                         title={t(TYPE_META[l.type].key)}
                       >
                         {<Icon name={TYPE_META[l.type].icon} size={11} />} {t(TYPE_META[l.type].key)}
                       </span>
                     )}
                     {live && (
-                      <span className="app-badge app-badge-live inline-flex items-center gap-1 text-[10px] font-medium">
+                      <span className="app-badge app-badge-live inline-flex items-center gap-1 text-[10px] font-semibold animate-pulse">
                         <Icon name="live" size={11} /> {t('nowOngoing')}
                       </span>
                     )}
